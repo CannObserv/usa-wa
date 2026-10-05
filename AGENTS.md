@@ -45,30 +45,30 @@ Full tool table, prefetch query, per-tool guidance: [`docs/SOCRATICODE.md`](docs
 
 `uv` workspace: framework + domain shared across deployments; adapters + API per jurisdiction. Four-layer MVP design: [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](docs/specs/2026-05-25-usa-wa-mvp-design.md).
 
-**Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder** — the reusable Layer-3 pattern, in full, with the worked example. Two rules bind whatever you are building: audit a source's coverage before building on it, and never key a parser on an exact upstream string. Writing a published dataset's bytes adds two more — one writer per dataset, landed atomically (#357). Inside a package (#183), **`harvest.py` = Phase A, `build.py` = Phase B**.
+**Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before adding an adapter, a data source, or a span/seat builder** — the reusable Layer-3 pattern, in full, with the worked example. Two rules bind whatever you are building: audit a source's coverage before building on it, and never key a parser on an exact upstream string. Writing a published dataset's bytes adds two more — one writer per dataset, landed atomically (#357). **Phase A = an adapter's `raw_harvest` into the raw store; Phase B = the pipeline's dbt models over the adapter's pure parsers** — the Postgres canonical tier retired in #412.
 
 **Six layers since #189 (AR-14), enforced by `import-linter`** — `uv run lint-imports`, wired into the pre-commit gate beside ruff, contracts + rationale in the root `pyproject.toml`:
 
 | Layer | Package(s) | Rule |
 |---|---|---|
 | 1 framework | `clearinghouse-core` | jurisdiction-agnostic primitives |
-| 2 domain | `clearinghouse-domain-legislative` | the legislative model **+ the term calendar, the span engine and the `CohortProvider` Protocols** |
+| 2 domain | `clearinghouse-domain-legislative` | the term calendar, the span engine, the operator overlay and its attestation models |
 | 2b vocabulary | `usa-wa-common` | WA facts, source-free — **may not import an adapter** |
 | 3 adapters | `usa-wa-adapter-*` | sourcing only, one per jurisdiction+target — **no adapter may import a peer adapter** |
-| 3b facts | `usa-wa-facts-*` | applications composing cohorts across adapters — **never an adapter's `transport`** |
+| 3b facts | `usa-wa-facts-*` | pure seat-fact logic the pipeline composes across sources — **never an adapter's `transport`** |
 | 3c pipeline | `usa-wa-pipeline` | #302 dbt staging/matching/conformed models + the publisher (four catalog tiers, one of them non-dbt) — facts sibling, **never a `transport`** |
 | 4 deployment | `usa-wa-api` | serve — **never an adapter's `transport`** |
 
 Per-package module reference — what each file is for and why it exists:
 
 - [`docs/MODULES-FRAMEWORK.md`](docs/MODULES-FRAMEWORK.md) — Layers 1–2: the framework + domain primitives
-- [`docs/MODULES-COMMON.md`](docs/MODULES-COMMON.md) — Layer 2b `usa-wa-common`: WA vocabulary (calendar, seats, names, parties, ballot) and the cohort seam
-- [`docs/MODULES-LEGISLATURE.md`](docs/MODULES-LEGISLATURE.md) — WSL adapter: transport, normalizers, daily refresh, cohort providers, probes
-- [`docs/MODULES-LEGISLATURE-ROSTER.md`](docs/MODULES-LEGISLATURE-ROSTER.md) — the roster-PDF source: parser, audit oracle, succession → resolve → backfill
-- [`docs/MODULES-LEGISLATURE-SPANS.md`](docs/MODULES-LEGISLATURE-SPANS.md) — tenure-span engine, operator succession, roster hygiene, span migrations
-- [`docs/MODULES-PDC.md`](docs/MODULES-PDC.md) — PDC SODA adapter (identifier-only)
+- [`docs/MODULES-COMMON.md`](docs/MODULES-COMMON.md) — Layer 2b `usa-wa-common`: WA vocabulary (calendar, seats, names, parties, ballot, jurisdictions)
+- [`docs/MODULES-LEGISLATURE.md`](docs/MODULES-LEGISLATURE.md) — WSL adapter: transport, raw harvest, resource ids, pure parsers, probes
+- [`docs/MODULES-LEGISLATURE-ROSTER.md`](docs/MODULES-LEGISLATURE-ROSTER.md) — the roster-PDF source: raw harvest, parser, audit oracle, succession → resolve
+- [`docs/MODULES-LEGISLATURE-SPANS.md`](docs/MODULES-LEGISLATURE-SPANS.md) — tenure-span engine, operator succession, roster hygiene
+- [`docs/MODULES-PDC.md`](docs/MODULES-PDC.md) — PDC SODA adapter: raw harvest + winner-cohort parser
 - [`docs/MODULES-SOS.md`](docs/MODULES-SOS.md) — SOS filings + results sources
-- [`docs/MODULES-FACTS-SEATS.md`](docs/MODULES-FACTS-SEATS.md) — Layer 3b `usa-wa-facts-seats`: the composition layer (House Position, Senate corroboration, PDC spans)
+- [`docs/MODULES-FACTS-SEATS.md`](docs/MODULES-FACTS-SEATS.md) — Layer 3b `usa-wa-facts-seats`: House Position matching and back-chaining, PDC observations
 - [`docs/MODULES-DEPLOYMENT.md`](docs/MODULES-DEPLOYMENT.md) — Layer 4: the API deployment, repo-root directories
 
 ## Infrastructure
@@ -168,7 +168,7 @@ uv run alembic revision --autogenerate -m "description"
 uv run uvicorn usa_wa_api.api.main:app --host 0.0.0.0 --port 8001 --reload --log-config packages/usa-wa-api/src/usa_wa_api/log_config.json
 ```
 
-Everyday commands only. Every operational and backfill CLI is indexed in [`docs/COMMANDS.md`](docs/COMMANDS.md), which links the grouped references (succession, backfill). Prod runs the daily/weekly/monthly ones on systemd timers (see § Server Lifecycle); pair a backfill with `USA_WA_BIENNIUM` to target a non-current biennium.
+Everyday commands only. Every operational CLI is indexed in [`docs/COMMANDS.md`](docs/COMMANDS.md), which links the grouped references. Prod runs the daily/weekly/monthly ones on systemd timers (see § Server Lifecycle); pair a raw harvest with `USA_WA_BIENNIUM` to target a non-current biennium.
 
 ## Agent Skills
 
@@ -207,14 +207,13 @@ JSON records carry `{timestamp, level, logger, message}` (#133). `level`/`logger
 ## Detail Docs
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the reusable Layer-3 pattern
-- [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the three event shapes; read before adding a fact
+- [docs/ONTOLOGY.md](docs/ONTOLOGY.md) — the domain model: entities, lifecycle axes, spans-as-assignments, the operator event tables; read before adding a fact
 - the `docs/MODULES-*.md` per-package references are listed under § Project Layout above, and `docs/SOCRATICODE.md` under § Code Exploration Policy — not repeated here
 - [docs/LOGGING.md](docs/LOGGING.md) — the JSON record shape and why every uvicorn invocation passes `--log-config`
 - [docs/API.md](docs/API.md) — the read-only `/api/v1` surface: route inventory, pagination, and the response contracts
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — systemd units, failure alerting, DB roles, restart/lifecycle table
 - [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) — every environment variable, with defaults
-- [docs/COMMANDS.md](docs/COMMANDS.md) — command index plus setup, tests, migrations, daily refresh
-- [docs/COMMANDS-SUCCESSION.md](docs/COMMANDS-SUCCESSION.md) — operator succession, odd-year corroboration, committee lineage
-- [docs/COMMANDS-BACKFILL.md](docs/COMMANDS-BACKFILL.md) — historical harvests, span builders, one-shot migrations, write-free probes
-- [docs/COMMANDS-SEATS.md](docs/COMMANDS-SEATS.md) — the seat-fact backfills: PDC identifier links (#79), WSL+SOS House Position (#101)
+- [docs/COMMANDS.md](docs/COMMANDS.md) — command index plus setup, tests, migrations
+- [docs/COMMANDS-SUCCESSION.md](docs/COMMANDS-SUCCESSION.md) — operator succession events and committee lineage links
+- [docs/COMMANDS-BACKFILL.md](docs/COMMANDS-BACKFILL.md) — the write-free WSL probes
 - [docs/SKILLS.md](docs/SKILLS.md) — vendored agent skills: inventory, symlink layout, refresh procedure

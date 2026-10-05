@@ -253,7 +253,7 @@ def test_an_empty_roster_is_refused_at_the_resolve_the_models_call() -> None:
     """CR 76: the CR-57 refusal lived on a door production never opens.
 
     `build_all_spans` raises only when `extra_observations is None`, but BOTH
-    callers — the `assignments` model and `parity_spans` — pass
+    callers then — the `assignments` model and `parity_spans` — passed
     `roster_resolution(...).joined` so the ~8,600-record resolve runs once for
     two families. `roster_resolution` returned an empty resolution for an empty
     roster without complaint, so the exact combination CR 57 refuses reached a
@@ -411,8 +411,8 @@ def test_roster_spans_key_on_the_minted_identity() -> None:
 
 
 def test_build_families_runs_one_resolve_for_both_families() -> None:
-    """The sequence the `assignments` model, `parity_spans` and `registry_coverage`
-    share (#412 PR B): one roster resolve, its joined half deepening the WSL
+    """The sequence the `assignments` model and `registry_coverage` share (#412 PR B;
+    `parity_spans` too, until PR E): one roster resolve, its joined half deepening the WSL
     family and its minted half the roster family, keyed by source."""
     roster = [_roster("Wilbur Cranston", 1925), _roster("Wilbur Cranston", 1927)]
     families = build_families(

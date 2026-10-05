@@ -109,8 +109,8 @@ def build_senate_winners(rows: list[dict[str, Any]]) -> dict[int, SenateWinner]:
     blank-name rows are skipped.
 
     Unlike the House map this carries no structural fact (the Senate seat is unqualified) — it is
-    attestation the Phase B consumer uses to cite an elected senator and corroborate a succession
-    event (see :class:`SenateWinner`)."""
+    attestation the pipeline's ``seat_winners`` model uses to corroborate a seated senator (see
+    :class:`SenateWinner`)."""
     by_ld: dict[int, list[tuple[SenateWinner, int | None]]] = {}
     for row in rows:
         candidate = (row.get("Candidate") or "").strip()

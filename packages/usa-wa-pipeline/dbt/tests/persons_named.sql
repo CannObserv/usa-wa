@@ -54,8 +54,9 @@
 -- retired `committee-members:` archive, registered and anchored in power-map
 -- but attested by NO staging row at all — is gone: #366 merged him with the
 -- roster identity his 1977-85 listings minted, and the merged entity is named
--- from that roster key. `parity_wsl.ACCEPTED` still carries the staging↔
--- canonical divergence for the same member; a registry merge does not touch it.
+-- from that roster key. `parity_wsl.ACCEPTED` carried the staging↔canonical
+-- divergence for the same member until the probe retired (#412 PR E); a
+-- registry merge did not touch it.
 --
 -- The SHAPE outlives the instance, which is why this stays a blank check rather
 -- than becoming a null check: a registry entity no source attests is one

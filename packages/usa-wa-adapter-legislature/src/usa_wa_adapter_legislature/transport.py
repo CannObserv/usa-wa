@@ -7,8 +7,8 @@ depend on zeep's typed-object model.
 
 zeep itself is synchronous (uses ``requests`` under the hood), so the public
 methods here are ``async`` and dispatch the blocking work via
-``asyncio.to_thread``. Callers in async contexts (sidecar daemon, FastAPI
-handlers, AdapterRunner) never block the event loop. Tests stub out the
+``asyncio.to_thread``. Callers in async contexts (the raw harvest, the
+write-free probes) never block the event loop. Tests stub out the
 network via vcrpy cassettes.
 """
 
@@ -30,7 +30,7 @@ WSL_BASE_URL = "https://wslwebservices.leg.wa.gov"
 
 #: Courtesy floor between **any two** WSL SOAP operation calls, across all `WSLClient`
 #: instances/services (WSL is a single upstream host). A global min-interval gate so no
-#: caller — daily refresh, reconcilers, the historical harvests (#77/#82) — can burst
+#: caller — the nightly raw harvest's fan-out, the write-free probes — can burst
 #: against a vital upstream. Env-tunable; a harvest's `--pause-seconds` overrides it via
 #: :func:`configure_wsl_rate_limit`. Default 0.5s (≤2 req/s); set 0 to disable.
 DEFAULT_WSL_MIN_REQUEST_INTERVAL = 0.5
@@ -87,7 +87,7 @@ class WireFetch:
     source of truth that gets archived and hashed (#54). ``records`` is the derived
     dict parse (zeep → ``serialize_object``) of whatever the operation returned —
     committee rows for ``GetActiveCommittees``, committee-bearing meetings for
-    ``GetCommitteeMeetings`` — saved so the normalizer doesn't re-parse the
+    ``GetCommitteeMeetings`` — saved so a caller doesn't re-parse the
     envelope. Treat ``records`` as derivative: if the two ever disagree, ``wire``
     is authoritative.
     """
@@ -101,7 +101,7 @@ class _StoredResponse:
     """Minimal response shim for re-deserializing an **archived** SOAP envelope offline.
 
     ``zeep``'s ``Binding.process_reply`` reads only ``content`` / ``status_code`` / ``headers``
-    off the response object — so a stored ``RawPayload.body`` can be replayed through the live
+    off the response object — so an archived wire body can be replayed through the live
     operation binding without a network round-trip (#56's cache path). Using the *same* binding
     means the re-parse can't diverge from the live parse (a #54 provenance-fidelity concern),
     and avoids depending on ``requests``-internal mutation.
@@ -329,15 +329,14 @@ class WSLClient:
     async def get_sponsors(self, biennium: str) -> list[dict[str, Any]]:
         """Call ``SponsorService.GetSponsors(biennium)`` off the event loop.
 
-        The non-archival parsed-dict pull of a biennium's **sponsors** — every entity
-        WSL lets sponsor legislation, which is a superset of legislators: it also
-        includes institutional/committee sponsors that carry a blank ``Name``, no
-        ``District`` and no ``Party`` (the Person normalizer filters those out). Each
-        row is a serialized ``Member`` (``Id, Name, LongName, Agency, Acronym, Party,
-        District, Phone, Email, FirstName, LastName``). This is the write-free sibling
-        the member-identity probe (P1b step 0) uses; the archival ``fetch_sponsors``
-        (step 1) keeps the wire. Same ``asyncio.to_thread`` dispatch as
-        :meth:`get_committees`.
+        The non-archival parsed-dict pull of a biennium's **sponsors** — every entity WSL lets
+        sponsor legislation, which is a superset of legislators: it also includes
+        institutional/committee sponsors that carry a blank ``Name``, no ``District`` and no
+        ``Party`` (:func:`~usa_wa_adapter_legislature.member_rows.is_person` filters those out).
+        Each row is a serialized ``Member`` (``Id, Name, LongName, Agency, Acronym, Party,
+        District, Phone, Email, FirstName, LastName``). This is the write-free sibling the
+        member-identity probe (P1b step 0) uses; the archival ``fetch_sponsors`` (step 1) keeps
+        the wire. Same ``asyncio.to_thread`` dispatch as :meth:`get_committees`.
         """
         if self.service != "SponsorService":
             raise ValueError(
@@ -350,9 +349,9 @@ class WSLClient:
 
         The archival sibling of :meth:`get_sponsors`: calls ``SponsorService.GetSponsors``
         and returns a :class:`WireFetch` — the derived ``Member`` dicts on ``records``
-        plus the raw SOAP response envelope bytes for archival + hashing, so
-        ``RawPayload.body`` holds what WSL sent rather than our re-serialization. The
-        archive the sponsor normalizer (P1b step 4) reads. Same ``asyncio.to_thread``
+        plus the raw SOAP response envelope bytes for archival + hashing, so the
+        archived object holds what WSL sent rather than our re-serialization. The
+        archive the pipeline's sponsor staging reads. Same ``asyncio.to_thread``
         dispatch as the sibling pulls.
         """
         if self.service != "SponsorService":
@@ -364,8 +363,8 @@ class WSLClient:
     async def parse_sponsors(self, wire: bytes) -> list[dict[str, Any]]:
         """Re-deserialize an **archived** ``GetSponsors`` envelope offline (#56 cache path).
 
-        The sponsor analog of :meth:`parse_committees`: replays a stored
-        ``RawPayload.body`` through the **same** ``GetSponsors`` binding
+        The sponsor analog of :meth:`parse_committees`: replays an archived
+        wire body through the **same** ``GetSponsors`` binding
         :meth:`fetch_sponsors` uses, yielding the identical derived ``Member`` dicts — so
         a re-parse can't drift from the live parse (#54 fidelity). Only network cost is
         the one-time WSDL load (binding type info), not the data pull. Guarded by the
@@ -435,9 +434,9 @@ class WSLClient:
     async def parse_historical_committee_members(self, wire: bytes) -> list[dict[str, Any]]:
         """Re-deserialize an **archived** ``GetCommitteeMembers`` envelope offline (#82).
 
-        Replays a stored ``RawPayload.body`` through the **same** ``GetCommitteeMembers``
+        Replays an archived wire body through the **same** ``GetCommitteeMembers``
         binding :meth:`fetch_historical_committee_members` uses, so the offline parse (the
-        span builder's archive-first path) can't drift from the live one. Guarded by the
+        pipeline staging's path) can't drift from the live one. Guarded by the
         cassette round-trip test.
         """
         if self.service != "CommitteeService":
@@ -456,8 +455,8 @@ class WSLClient:
         :class:`WireFetch`: the derived ``Committee`` dicts (``Id, Name, LongName,
         Agency, Acronym, Phone`` — zeep flattens the WSDL complexType into one
         dict) plus the raw response envelope bytes for archival + hashing (#54).
-        This is the form the adapter's ``fetch_one`` uses so ``RawPayload.body``
-        holds what WSL sent, not our re-serialization.
+        This is the form the raw harvest uses so the archived object holds what WSL
+        sent, not our re-serialization.
         """
         if self.service != "CommitteeService":
             raise ValueError(
@@ -473,8 +472,8 @@ class WSLClient:
         a nested ``Committees.Committee[]`` list (``Id, Name, LongName, Agency,
         Acronym, Phone``). Returns a :class:`WireFetch` — the derived meeting dicts on
         ``records`` plus the raw response envelope bytes for archival + hashing (#54),
-        so ``RawPayload.body`` holds what WSL sent rather than our re-serialization.
-        Dedup/parenting of the committee refs is the normalizer's job; this method
+        so the archived object holds what WSL sent rather than our re-serialization.
+        Dedup/parenting of the committee refs is the pipeline staging's job; this method
         only fetches and archives. ``begin``/``end`` are UTC-naive ``datetime``s
         (WSDL ``s:dateTime``), wrapped in ``asyncio.to_thread`` like the sibling pulls.
         """
@@ -488,13 +487,13 @@ class WSLClient:
     async def parse_committee_meetings(self, wire: bytes) -> list[dict[str, Any]]:
         """Re-deserialize an **archived** ``GetCommitteeMeetings`` envelope offline (#56 cache).
 
-        Replays a stored ``RawPayload.body`` through the **same** operation binding the live
-        :meth:`fetch_committee_meetings` uses, yielding the identical derived meeting dicts —
-        so #56's rename detector can read a closed window's cohort from the archive the daily
-        refresh / #39 harvest already wrote, instead of re-pulling ~1.5 MB of immutable SOAP
-        every weekly run. The only network cost is the one-time WSDL load (to build the
-        binding's type info), not the data pull. Same ``asyncio.to_thread`` dispatch as the
-        live pulls; ``wire`` is the pristine bytes (``RawPayload.body``)."""
+        Replays an archived wire body through the **same** operation binding the live
+        :meth:`fetch_committee_meetings` uses, yielding the identical derived meeting dicts — so
+        a closed window's cohort is read from the archive the raw harvest already wrote, instead
+        of re-pulling ~1.5 MB of immutable SOAP every run. The only network cost is the one-time
+        WSDL load (to build the binding's type info), not the data pull. Same
+        ``asyncio.to_thread`` dispatch as the live pulls; ``wire`` is the pristine archived
+        bytes."""
         if self.service != "CommitteeMeetingService":
             raise ValueError(
                 "parse_committee_meetings requires service='CommitteeMeetingService', "
@@ -506,9 +505,9 @@ class WSLClient:
         """Re-deserialize an **archived** ``GetCommittees`` envelope offline (sub-project 3).
 
         The committee-roster analog of :meth:`parse_committee_meetings`: replays a stored
-        ``committees-roster:<biennium>`` ``RawPayload.body`` through the **same**
+        ``committees-roster:<biennium>`` body through the **same**
         ``GetCommittees`` binding :meth:`fetch_committees` uses, yielding the identical
-        derived ``Committee`` dicts — so Phase B's rename-chain can read each closed
+        derived ``Committee`` dicts — so the pipeline's staging can read each closed
         biennium's roster from the archive the harvest already wrote, without re-pulling
         WSL. Only network cost is the one-time WSDL load (binding type info), not data.
         Guarded by the cassette round-trip test so the offline parse can't drift from the

@@ -602,8 +602,8 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
     # because the deployment loads it exactly the way it loads every other
     # one — but nothing outside this repo is invited to depend on its shape, and
     # it carries no schema-stability promise. `citations` exists so
-    # `/provenance/{type}/{id}` keeps answering once the Postgres provenance
-    # tables retire; its columns follow the API, not consumers.
+    # `/provenance/{type}/{id}` keeps answering now the Postgres provenance
+    # tables are gone (#412 PR F); its columns follow the API, not consumers.
     #
     # It carries a version and a contract like every other dataset, and will bump
     # more often than any of them because of that. Deliberate: exempting the
@@ -783,8 +783,9 @@ def publish(
             prior = previous.get(name)
             # Baseline is the PREVIOUS publish, not a high-water mark: decay
             # under max_shrink per night compounds unseen (~50%/week at 10%).
-            # Accepted for now — the parity probes watch absolute counts; a
-            # windowed max baseline is the upgrade path if that ever moves.
+            # Accepted while the parity probes watched absolute counts; they
+            # retired in #412 PR E, so a windowed max baseline is the upgrade
+            # path if that ever moves.
             if prior and prior["rows"] > 0:
                 shrink = (prior["rows"] - rows) / prior["rows"]
                 if shrink > max_shrink:

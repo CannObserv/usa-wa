@@ -8,7 +8,7 @@ dropped an input — the failure mode a pure-function test cannot see — shows 
 here and nowhere else. It is also cheap, four aggregate queries over a duckdb
 already on disk, which is why it can run every night.
 
-The nightly's other probes compare us against the Postgres tier. This one has
+The nightly's other probes compared us against the Postgres tier. This one has
 no counterpart to compare against: the Postgres ``Citation`` chain is what it
 REPLACES. So it checks the property that chain guaranteed structurally and this
 one has to earn — that following a citation lands on bytes, and that nothing
@@ -64,7 +64,7 @@ REQUIRED_TABLES = (
 #: it and bound by the next, which is why ``conformed/schema.yml`` gives that
 #: column only a ``unique`` test. Gating it at zero would fail the nightly and
 #: email the operator every time a committee is created. The PERSISTENT case —
-#: a role the registrar never binds — is already caught by ``parity_spans``,
+#: a role the registrar never binds — is already caught by ``registry_coverage``,
 #: which re-reads the registry rather than the build.
 INTEGRITY_COUNTERS = (
     "orphan_citations",

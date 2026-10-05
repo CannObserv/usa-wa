@@ -4,7 +4,7 @@
         [--force] [--root PATH] [--pause-seconds S]
 
 The file-store sibling of the three nightly ``raw_harvest`` modules, and the roster's only
-Phase A once #412 PR F deletes :mod:`usa_wa_adapter_legislature.roster_pdf.harvest` (the
+Phase A since #412 PR F deleted ``usa_wa_adapter_legislature.roster_pdf.harvest`` (the
 Postgres ``archive_only`` path). The #302 roster staging model parses the newest
 ``legroster:<revision>`` in ``raw/usa_wa_legislature_roster/`` by ``fetched_at``, so archiving
 an edition here is what puts it in the published datasets. No Postgres provenance is written.

@@ -2,7 +2,7 @@
 # Failure-alert handler for the unattended oneshots (issue #49). Templated so a
 # single unit serves every failable oneshot: each declares
 # `OnFailure=usa-wa-notify-failure@%n.service`, so %i here is the failing unit's
-# full name (e.g. `usa-wa-wsl-refresh.service`). systemd starts this on a failed
+# full name (e.g. `usa-wa-pipeline.service`). systemd starts this on a failed
 # result — a non-zero exit (the reconcile contract: 1 rejected / 2 auth / 3
 # guardrail abort, #44) OR a TimeoutStartSec= hang of a wedged WSL/PM endpoint.
 #

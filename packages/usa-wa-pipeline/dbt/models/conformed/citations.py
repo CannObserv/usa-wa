@@ -2,10 +2,10 @@
 
 Thin binder over the pure, pytest-covered `usa_wa_pipeline.conformed.citations`
 (docs/PIPELINE.md § TDD policy). Internal tier: materialized and loaded into the
-serving schema so `/provenance/{type}/{id}` keeps answering after the Postgres
-provenance tables retire, but not part of the subscriber contract.
+serving schema so `/provenance/{type}/{id}` keeps answering now the Postgres
+provenance tables are gone (#412 PR F), but not part of the subscriber contract.
 
-Counters are reported by `usa_wa_pipeline.parity_spans`, not from here — a
+Counters were reported by `usa_wa_pipeline.parity_spans` (retired, #412 PR E), not from here — a
 `dbt build` never calls `configure_logging`, so a logger in a Python model
 emits nothing (the round-4 lesson recorded in `conformed/assignments.py`).
 """

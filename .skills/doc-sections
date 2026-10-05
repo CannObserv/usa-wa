@@ -43,7 +43,7 @@ docs/MODULES-DEPLOYMENT.md: Layer 4 — the API deployment's own modules and the
 
 # Commands and migrations.
 docs/COMMANDS.md: the command index and § migrations — every CLI entry point by name, and the alembic revision order (alembic/, cli/, scripts/)
-docs/COMMANDS-SUCCESSION.md, docs/COMMANDS-BACKFILL.md, docs/COMMANDS-SEATS.md, docs/COMMANDS-ROSTER.md: the operational CLIs grouped by job; a new or renamed backfill belongs in exactly one of these, named (cli/, scripts/)
+docs/COMMANDS-SUCCESSION.md, docs/COMMANDS-BACKFILL.md, docs/COMMANDS-ROSTER.md: the operational CLIs grouped by job; a new or renamed CLI belongs in exactly one of these, named (cli/, scripts/)
 docs/PIPELINE.md, docs/PIPELINE-CONFORMED.md, docs/PIPELINE-CONFORMED-ENTITIES.md: the #302 dbt commands, the model TDD policy, and the `dbt-build` commit gate (.pre-commit-config.yaml, cli/, scripts/)
 docs/PIPELINE-PUBLICATION.md: the publication contract — the nightly chain's stage order and failure policy, and the heartbeat's staleness threshold derived from the pipeline timer (deploy/, scripts/)
 

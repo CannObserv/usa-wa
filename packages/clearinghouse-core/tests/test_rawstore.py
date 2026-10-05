@@ -1,9 +1,9 @@
 """The raw-tier file store (#304): content-addressed objects + run manifests.
 
-The file analog of ``RawPayload`` (objects) and ``FetchEvent`` (manifest
-entries): pristine bytes stored once under their sha256, every fetch recorded
-per run, a ``latest.json`` index for freshness decisions, and re-verification
-of bytes against their names for the integrity sweep.
+The file successor to ``RawPayload`` (objects) and ``FetchEvent`` (manifest entries), both
+dropped in #412 PR F: pristine bytes stored once under their sha256, every fetch recorded per
+run, a ``latest.json`` index for freshness decisions, and re-verification of bytes against their
+names for the integrity sweep.
 """
 
 import fcntl

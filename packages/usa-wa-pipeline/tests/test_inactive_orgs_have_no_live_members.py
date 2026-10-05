@@ -1,5 +1,5 @@
 """An inactive organization has no live member — #124's INV1, ported from the
-``committee-lineage-invariants`` unit, which reads canonical and retires (#428,
+``committee-lineage-invariants`` unit, which read canonical and retired (#428,
 ahead of #412 PR E).
 
 Same harness split as ``test_one_seat_per_member``: the predicate is read from

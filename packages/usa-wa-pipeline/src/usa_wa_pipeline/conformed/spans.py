@@ -1,10 +1,10 @@
 """Tenure spans as a stateless transform (#309 part 2): staging → assignments.
 
 The conformed analog of the Postgres-tier Phase-B builders
-(``sponsors/build.py``, ``membership/build.py``), with one structural
-difference: **nothing here writes, so nothing here needs the DB half**. The
-old builders' `close_stale_spans` sweep (#83), synthetic-anchor bootstrap and
-`load_context_spans` read exist because they mutate a durable table in place;
+(``sponsors/build.py``, ``membership/build.py``, deleted in #412 PR F), with one
+structural difference: **nothing here writes, so nothing here needs the DB half**.
+The old builders' `close_stale_spans` sweep (#83), synthetic-anchor bootstrap and
+`load_context_spans` read existed because they mutated a durable table in place;
 a conformed model recomputes every span from staging on each run, so a span
 the archive no longer asserts is simply absent — retraction-as-absence, which
 is the #302 publication contract.
@@ -24,11 +24,11 @@ What is imported UNCHANGED, because each guard encodes a production incident:
 Only the plumbing is new: staging rows carry the same facts as the wire under
 normalized names, so :func:`sponsor_wire_rows` / :func:`committee_rosters`
 restore the shape the projectors consume, and :func:`build_all_spans` applies
-the same steps in the same ORDER as ``sponsors/build.py``.
+the same steps in the same ORDER as ``sponsors/build.py`` did.
 
 **Context spans (#267).** The `departed` split reads a member's return date
-off spans of OTHER kinds. The old builder loads them from Postgres because
-each builder writes separately; here every kind is built in ONE pass, so the
+off spans of OTHER kinds. The old builder loaded them from Postgres because
+each builder wrote separately; here every kind is built in ONE pass, so the
 committee AND House spans computed in this run serve as the sponsor build's
 context — same information, no cross-builder blindness, and no DB read. With
 `chamber-house` landed (increment 3, :mod:`usa_wa_pipeline.conformed.house`)
@@ -250,7 +250,7 @@ def roster_resolution(
     ``roster_pdf.deepening``: same resolve, same projection, same acceptance
     oracle — but over staging rows, so no provenance-table read and no WSL
     re-pull. The oracle is imported unchanged and runs **before** anything is
-    built, exactly as the Postgres tier runs it before anything is written:
+    built, exactly as the Postgres tier ran it before anything was written:
 
     - partition exactness and person-side Senate simultaneity
       (``verify_pre1991``);
@@ -262,16 +262,16 @@ def roster_resolution(
     open (CR 76):
 
     - no roster rows at all (CR 57). :func:`build_all_spans` refuses this too,
-      but only when ``extra_observations is None`` — and neither the
-      ``assignments`` model nor ``parity_spans`` passes ``None``: both hand it
+      but only when ``extra_observations is None`` — and no production caller
+      passes ``None``: :func:`build_families` hands it
       :attr:`RosterResolution.joined` so the ~8,600-record resolve runs once for
       two families. That guard therefore sat on a door production never opens.
     - roster rows that **none parsed** (CR 67), the upstream-rename shape.
 
-    Both publish shallow 1991-start spans (the #97 collapse) while the row count
-    barely moves, so the publish shrink gate sees nothing and the parity probe
-    runs afterward. An empty *corpus* is not this case: with no sponsors there
-    is nothing to deepen, which is the hermetic build.
+    Both publish shallow 1991-start spans (the #97 collapse) while the row count barely moves,
+    so the publish shrink gate sees nothing (and the parity probe that once ran afterward
+    retired in #412 PR E). An empty *corpus* is not this case: with no sponsors there is nothing
+    to deepen, which is the hermetic build.
     """
     if not roster:
         if sponsors:
@@ -344,12 +344,12 @@ def build_roster_spans(
       dated June 1930 leaves the span ending at its biennium floor.
     - the **unattested-span check**: the overlay can *synthesize* a span, and a
       synthesized one names a seat the edition never listed. The Postgres tier
-      aborts rather than emit it citing an edition that never listed the
+      aborted rather than emit it citing an edition that never listed the
       member; absent citations here, it still means the build inferred a seat
       from an event, which the roster cannot attest.
 
     ``context_spans`` (#267) are read-only spans of OTHER kinds used to find a
-    departed member's return. In the Postgres tier they come from a DB read; in
+    departed member's return. In the Postgres tier they came from a DB read; in
     one pass they are the WSL family built alongside. They can only match when
     a minted identity holds an other-kind span — none do today (the WSL family
     keys on numeric member ids), but `chamber-house` from the facts-seats port
@@ -416,8 +416,8 @@ def build_all_spans(
     **empty** roster under a non-empty sponsor corpus (CR 57). That combination
     silently re-asserts shallow 1991-start spans (the #97 collapse shape), and
     nothing downstream can catch it: the publish shrink gate compares row
-    counts, which barely move when the key set shifts, and the parity probe
-    runs after publish. Pass ``extra_observations`` — ``[]`` included — to
+    counts, which barely move when the key set shifts (and the parity probe that
+    once ran after publish retired in #412 PR E). Pass ``extra_observations`` — ``[]`` included — to
     state the deepening instead of deriving it.
     """
     if roster_members:
@@ -471,7 +471,8 @@ def build_all_spans(
 
     # #105 stale-row exclusion, then the #145 biennium-scoped operator
     # exemption, then the #144 artifact denylist as a hard union — the same
-    # order as sponsors/build.py, where each step's rationale lives.
+    # order as sponsors/build.py, where each step's rationale lived (git history
+    # since #412 PR F).
     exclusions = stale_exclusions_by_biennium(
         roster_map,
         committee_member_ids_by_biennium(rosters),

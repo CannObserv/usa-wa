@@ -1,10 +1,14 @@
 # usa-wa-adapter-sos
 
-WA Secretary of State (`votewa` / `eledataweb.votewa.gov`) Layer-3 adapter.
+WA Secretary of State Layer-3 adapter: two sources, one target.
 
-Archives the general-election candidate-filing export (CSV) and supplies the House
-`Position 1/2` qualifier that PDC's `Campaign Finance Summary` dataset did not record
-before the 2018 election (see #98 / #100). PDC stays the *winner* authority; this adapter
-contributes only the position qualifier, joined on `(LD, surname, party)`.
+- **filings** (`usa_wa_sos`, `eledataweb.votewa.gov`) — the general-election candidate-filing
+  export (CSV), 2008–2018; SOS retired it to Power BI for 2020+. Candidacy metadata only (#99).
+- **results** (`usa_wa_sos_results`, `results.vote.wa.gov`) — the legislative results export,
+  2008→present: the House `Position 1/2` qualifier (#101) plus vote counts, and the odd-year
+  special winners.
 
-Broader candidate enrichment (contact/candidacy facts) is tracked in #99.
+`raw_harvest` archives both into the #304 raw store nightly; the #302 pipeline stages them and
+seats the House Position from the results feed through `results.normalize`. The Postgres
+adapters, harvests and archive refresh were deleted in #412 PR F. Module reference:
+[`docs/MODULES-SOS.md`](../../docs/MODULES-SOS.md).

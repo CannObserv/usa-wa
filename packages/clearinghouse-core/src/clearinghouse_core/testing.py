@@ -45,10 +45,10 @@ class RecordingSession:
     async def begin(self) -> AsyncIterator[RecordingSession]:
         """Record an explicit transaction block, committing on clean exit.
 
-        The jobs that keep ``commit=False`` because their commit is not conditional on
-        success — the WSL refresh, the meeting-seed harvest — do so through
-        ``async with session.begin()``, and without this they failed under the helper
-        with ``AttributeError`` rather than exercising the decision under test.
+        The jobs that kept ``commit=False`` because their commit was not conditional on
+        success — the WSL refresh, the meeting-seed harvest, both deleted in #412 PR F —
+        did so through ``async with session.begin()``, and without this they failed under the
+        helper with ``AttributeError`` rather than exercising the decision under test.
         """
         try:
             yield self

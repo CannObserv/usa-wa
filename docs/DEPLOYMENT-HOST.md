@@ -67,7 +67,7 @@ worktree with `uv sync --locked`. Neither older guard covers this direction:
 `assert-main-checkout.sh` (#87) guards the checked-out *branch*.
 
 **The guard.** [`scripts/assert-venv-integrity.sh`](../scripts/assert-venv-integrity.sh) is
-wired as the second `ExecStartPre=` on all thirteen code-running `.service` units,
+wired as the second `ExecStartPre=` on all seven code-running `.service` units,
 directly after the #87 branch guard — same exemption (`usa-wa-notify-failure@`,
 the alerting path) and the same cross-check in `test_unit_ordering.py`, so a new
 service either carries both or is an explicit exemption. Branch guard first

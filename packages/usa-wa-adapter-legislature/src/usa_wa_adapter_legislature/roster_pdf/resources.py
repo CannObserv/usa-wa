@@ -1,9 +1,8 @@
 """The roster PDF's archive resource ids (#412).
 
-Pure strings, shared by the archive adapter, the harvest and the #302 pipeline's
-roster staging model. They live apart from
-:mod:`usa_wa_adapter_legislature.roster_pdf.adapter`, which is built on the Postgres
-adapter base that #412 PR F deletes, so the pipeline can read the roster archive
+Pure strings, shared by the raw harvest and the #302 pipeline's roster staging model.
+They moved out of ``usa_wa_adapter_legislature.roster_pdf.adapter``, which was built on the
+Postgres adapter base deleted in #412 PR F, so the pipeline could read the roster archive
 without importing it.
 """
 

@@ -1,4 +1,4 @@
-"""Merged-span tenure builder (#78, epic #76) — the Phase B core.
+"""Merged-span tenure builder (#78, epic #76) — the span engine's core.
 
 A **pure** function that collapses per-member biennium observations into merged tenure
 **spans** — the assignment analog of the committee rename-chain builder. Instead of one
@@ -6,9 +6,9 @@ Assignment per member-seat-*biennium* (the pre-#78 shape), a contiguous run of b
 holding the same seat / party / committee becomes **one** span with a real
 `valid_from..valid_to`. A 12-year senator is one span, not six.
 
-The builder is generic over the tenure *kind* + *discriminator* (the callers — the WSL
-sponsor Phase B, PDC #79, committee membership #82 — build the observations with the right
-discriminator; e.g. party slug, Senate LD, House `LD:Position`, committee id). **The
+The builder is generic over the tenure *kind* + *discriminator* (the callers — the
+conformed sponsor, committee-membership #82 and House builders — build the observations with
+the right discriminator; e.g. party slug, Senate LD, House `LD:Position`, committee id). **The
 discriminator choice is the caller's semantic decision**, and a changed discriminator
 opens a new span: e.g. keying a Senate seat on its LD means a district *renumbered under
 redistricting* (LD5→LD6) splits a continuously-serving senator into two spans. Whether

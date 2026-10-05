@@ -2,16 +2,15 @@
 
     python -m usa_wa_adapter_pdc.raw_harvest [--root PATH] [--ttl-days N]
 
-The file-store sibling of :mod:`usa_wa_adapter_pdc.archive_refresh`, feeding
-the #302 pipeline: the same winner cohorts (both House generals + the three
+The file-store successor to ``usa_wa_adapter_pdc.archive_refresh`` (deleted in
+#412 PR F), feeding the #302 pipeline: the same winner cohorts (both House generals + the three
 Senate cohorts a biennium's membership is decided by, #121), fetched through
 the same :class:`~usa_wa_adapter_pdc.transport.PDCClient`, written as pristine
 wires to ``raw/usa_wa_pdc/`` under the same resource ids the Postgres archive
-uses — one vocabulary across both stores for #306's staging models. Runs in
-parallel with the old pipeline until #302 cutover; per-cohort failures are
-contained as ``err`` manifest entries (the SAVEPOINT analog). ``--ttl-days``
-skips resources with a fresh ``latest.json`` entry; the default 0 forces the
-daily wire, as the archive refresh does.
+used — one vocabulary across both stores for #306's staging models. Per-cohort
+failures are contained as ``err`` manifest entries (the SAVEPOINT analog).
+``--ttl-days`` skips resources with a fresh ``latest.json`` entry; the default 0
+forces the daily wire, as the archive refresh did.
 
 **Early capture (#135).** From the day after the NEXT biennium's seating
 general (``start + 1``), its House and Senate cohorts are fetched too, so the

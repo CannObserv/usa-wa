@@ -1,10 +1,10 @@
 """The WSL archive's resource ids: prefixes, builders and parsers (#412).
 
-Pure strings, shared by the Postgres adapter, the raw-store harvest and the #302
-pipeline's staging models. They live apart from :mod:`usa_wa_adapter_legislature.adapter`
-because that module is the Postgres write path, which #412 PR F deletes: the pipeline and
-the raw harvest must not import it (the import-linter contract "The pipeline, the API and
-the raw harvests never import the retiring Postgres tier"). The committee-meetings key
+Pure strings, shared by the raw-store harvest and the #302 pipeline's staging models.
+They moved out of ``usa_wa_adapter_legislature.adapter`` because that module was the
+Postgres write path, deleted in #412 PR F: the pipeline and the raw harvest must not import
+it (the import-linter contract "The pipeline, the API and the raw harvests never import the
+retired Postgres tier"). The committee-meetings key
 lives beside its window arithmetic in :mod:`usa_wa_adapter_legislature.meetings.windows`.
 """
 
@@ -15,7 +15,7 @@ COMMITTEES_RESOURCE_PREFIX = "committees:"
 #: ``committees:<biennium>`` GetActiveCommittees archive — a *different* SOAP
 #: operation (``GetCommittees(biennium)`` full roster vs GetActiveCommittees'
 #: implicit-current active set), so the wire genuinely differs and the two keys
-#: never collide. Phase B's rename-chain reads only this key.
+#: never collide. The pipeline's committee staging reads only this key.
 COMMITTEES_ROSTER_RESOURCE_PREFIX = "committees-roster:"
 #: The member roster (P1b): ``sponsors:<biennium>`` drives ``SponsorService.GetSponsors``.
 SPONSORS_RESOURCE_PREFIX = "sponsors:"

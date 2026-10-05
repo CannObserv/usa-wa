@@ -10,7 +10,7 @@ same #69 within-LD match and #74 mid-biennium mover inference, but:
   (``[Y+1, Y+2]``), fixing the #75 current-snapshot limitation. This projector is agnostic to
   which biennium's roster it gets; the driver supplies the right one.
 - **Pure** — no DB / session. Person resolution, LD-jurisdiction resolution, and Role
-  get-or-create happen at emission time (:mod:`pdc_span_emit`), not here. LD validity is
+  get-or-create happened at emission time (``pdc_span_emit``), not here. LD validity is
   *not* checked here — an unsynced LD surfaces as a skipped span at emit time, logged there.
 
 Outputs (:class:`HousePositionProjection`):
@@ -25,6 +25,9 @@ Outputs (:class:`HousePositionProjection`):
   the #74 inference (the per-biennium reduced-confidence FactCitation of the daily path does
   not survive span merging; the inference is recorded as a log + this set instead).
 - ``summary`` — per-cohort tallies for the coverage-shortfall logging the issue asks for.
+
+Its driver (``build_pdc_spans``) and emitter were deleted in #412 PR F; :data:`KIND_HOUSE` is
+the one name here with a production reader.
 """
 
 from __future__ import annotations
@@ -169,7 +172,7 @@ def build_house_position_observations(
             continue  # a member already seated this cohort (double-match) — skip the dup
         # The seat observation needs a ballot position for its discriminator; a position-less
         # winner emits ONLY the identifier link (the seat is the WSL+SOS builder's since #101,
-        # and this projector's observations are discarded by build_pdc_spans anyway).
+        # and build_pdc_spans discarded this projector's observations anyway).
         if pdc_qualifier is not None:
             proj.observations.append(
                 Observation(

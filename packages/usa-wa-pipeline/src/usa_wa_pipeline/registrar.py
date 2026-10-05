@@ -187,8 +187,8 @@ def malformed_sponsor_ids(db_path: str) -> list[str]:
     """Staged WSL member ids :func:`load_sponsor_keys` refuses to mint.
 
     Skipped ids must never vanish silently (CR 40's rule, CR 5): the job
-    degrades and names them. ``person_missing`` is no backstop — it diffs the
-    canonical tier, which retires. A NULL is reported as ``<null>`` rather than
+    degrades and names them. ``person_missing`` was no backstop — it diffed the
+    canonical tier, which retired. A NULL is reported as ``<null>`` rather than
     crashed on (CR 53): the staging ``not_null`` test guards the nightly only by
     ordering.
     """
@@ -208,7 +208,7 @@ def malformed_sponsor_ids(db_path: str) -> list[str]:
 def load_org_keys(db_path: str) -> list[str]:
     """Org natural keys: every committee staging attests, plus the structural orgs.
 
-    The same universe the canonical tier holds (220/220 on 2026-09-22):
+    The same universe the canonical tier held (220/220 on 2026-09-22):
     CommitteeService committees, the Joint/``Other`` bodies only a meeting ref
     carries, and the synthesized legislature/chambers/parties no wire carries
     at all. Before this pass existed only the one-shot seed registered orgs, so

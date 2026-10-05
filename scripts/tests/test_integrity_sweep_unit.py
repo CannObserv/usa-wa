@@ -1,10 +1,10 @@
 """The weekly integrity sweep verifies the raw store, not Postgres (#412 PR C).
 
 ``usa-wa-integrity-sweep.service`` ran ``clearinghouse_core.integrity`` (#54), which
-re-hashes Postgres ``RawPayload`` rows. The raw file store is now the record every dataset
+re-hashed Postgres ``RawPayload`` rows. The raw file store is now the record every dataset
 is built from, and its sweep (``clearinghouse_core.raw_integrity``, #304) had no timer, so
-nothing checked it. The unit now runs the raw sweep. The Postgres copies get one last check
-from PR F's final ``raw_export``, which re-hashes every body it carries before it lands.
+nothing checked it. The unit now runs the raw sweep. The Postgres copies' last check was
+``raw_export`` (deleted in PR F), which re-hashed every body it carried before it landed.
 
 Pinned by driving the sweep's own ``main()`` with the unit's argv rather than by matching
 strings, so a renamed flag fails here instead of at the timer's next elapse. No DB:

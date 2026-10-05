@@ -41,8 +41,8 @@ class SenateWinner:
     unlike :class:`HousePosition` this supplies no *structural* fact — it is **attestation**: the
     ballot evidence that a sitting senator was elected (an odd-year special winner such as Hunt,
     LD5, Nov 2025), and the independent signal that a senator seated by an operator succession
-    event is corroborated upstream. Consumed by Phase B; produced by any SOS source whose wire
-    names Senate contests."""
+    event is corroborated upstream. Consumed by the pipeline's ``seat_winners`` model; produced by
+    any SOS source whose wire names Senate contests."""
 
     ld: int
     ballot_name: str

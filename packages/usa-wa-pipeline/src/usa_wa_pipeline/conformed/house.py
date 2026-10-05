@@ -1,7 +1,7 @@
 """The House Position seat as a stateless transform (#309 part 2, increment 3).
 
-The conformed analog of ``usa_wa_facts_seats.house.build``: WSL owns *who sits*
-(the sponsor roster — LD + party), SOS owns *which position* (the ballot's
+The conformed analog of ``usa_wa_facts_seats.house.build`` (deleted in #412 PR F):
+WSL owns *who sits* (the sponsor roster — LD + party), SOS owns *which position* (the ballot's
 Position 1/2), and the join produces one ``chamber-house`` span per tenure.
 This is the Layer-3b composition the other two families do not need, which is
 why it lives beside :mod:`~usa_wa_pipeline.conformed.spans` rather than inside
@@ -31,8 +31,8 @@ the synthetic-anchor bootstrap and ``close_stale_spans`` (#83) all exist to
 mutate a durable table. A recomputed transform expresses retraction as absence.
 
 **``restrict_to_biennium`` dissolves too, and that is the deep build.** The
-Postgres tier's daily re-drive scopes emission to the current biennium; the
-backfill does not. Both were engineered to produce ONE span identity (the #100
+Postgres tier's daily re-drive scoped emission to the current biennium; the
+backfill did not. Both were engineered to produce ONE span identity (the #100
 CR depth mismatch), and a stateless rebuild is unconditionally the unrestricted
 one — so the depth question cannot arise here at all.
 """
@@ -189,9 +189,10 @@ def build_house_spans(
     backchain = backchain_house_observations(
         roster_by_biennium, positions_by_biennium, max_hops=max_backchain_hops
     )
-    # Its reader is `parity_spans`, not the build (CR 83): under `dbt build`
-    # this emits nothing — no `configure_logging()` — but the probe calls the
-    # same builder under the job harness, where the record serializes as JSON.
+    # Its reader was `parity_spans` (CR 83), not the build: under `dbt build`
+    # this emits nothing — no `configure_logging()` — but `registry_coverage`
+    # calls the same builder under the job harness, where the record serializes
+    # as JSON.
     logger.info(
         "conformed_house_cohort",
         extra={

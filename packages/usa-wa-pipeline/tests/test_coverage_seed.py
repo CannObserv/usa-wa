@@ -1,8 +1,8 @@
 """The nightly reconciles every source's declared coverage (#412 PR E, CR 1).
 
-``source_coverage`` serves ``/sources/{slug}/coverage`` (#180) and survives the canonical
+``source_coverage`` serves ``/sources/{slug}/coverage`` (#180) and survived the canonical
 tier. Its only writer was each adapter's ``provisioning``, called by the daily refreshes
-PR E disables, so without this job a re-audited claim merged to main would never reach
+PR E disabled, so without this job a re-audited claim merged to main would never reach
 the API.
 """
 

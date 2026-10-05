@@ -30,7 +30,8 @@ the term it opens. Both are tried, plus one biennium either side (#277,
 otherwise reached no listing at all. Matches across the window are unioned, so a genuine
 two-holder collision still surfaces as ambiguity rather than being silently resolved.
 
-Nothing here writes. :mod:`usa_wa_adapter_legislature.roster_pdf.backfill` is the write side.
+Nothing here writes. The write side, ``usa_wa_adapter_legislature.roster_pdf.backfill``, was
+deleted in #412 PR F.
 """
 
 from __future__ import annotations

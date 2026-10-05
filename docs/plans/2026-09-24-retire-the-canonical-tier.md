@@ -1,7 +1,7 @@
 ---
 title: Retire the canonical tier (#412)
 date: 2026-09-24
-status: draft
+status: implemented
 ---
 
 # Retire the canonical tier (#412)
@@ -124,6 +124,16 @@ What survives:
    - Write one alembic migration that drops the `canonical` schema, `fetch_events`, `raw_payloads`, `citations`, `integrity_sweep_state`, `notes`, `document_identifiers`, both jurisdiction-relationship tables, and every `pm_*` column.
    - In the same commit, update `grants.sql`, `LEGACY_MIGRATION_SCHEMAS`, `test_grants_append_only` and the `test_declared_tier` markers.
    - Done when #412's acceptance holds.
+   - *As built:*
+     - The final `raw_export` (2026-10-05) moved one payload: its cursor had already passed the rest. Checked independently by hash, not by cursor: all 1,435 Postgres bodies are present in the raw store, 0 mismatched. The file sweep verified 1,394 objects clean. The `pg_dump` is the whole database, taken as `postgres` and verified with a full `pg_restore` read: `/var/backups/usa_wa-412-predrop-20261005T172128Z.dump`.
+     - The deletion went past the named modules to everything only the tier reached: every cohort provider and with them the cohort Protocols (`clearinghouse_domain_legislative.cohorts`, `usa_wa_common.ballot.HousePositionCohortProvider`, whose `CitationTarget` named a `FetchEvent`), the normalizers, `bootstrap`, `synthesis`, `seed_manifest`, `raw_export` and the Postgres sweep. Pure parsers of wires the nightly still harvests stay (SOS filings, PDC positions), as do the two write-free WSL probes.
+     - `provenance.py` kept only `Source` (+ `RetentionPolicy`) and was renamed `clearinghouse_core.sources`; `SourceCoverage` was already its own module. `jurisdictions.py` stays, trimmed (Q4), so #412's "four core modules are gone" holds for `adapter`, `runner` and `provenance`, not `jurisdictions`.
+     - The operator CLI validates a member against the registry's person key, as #445 did for committees, since the canonical persons table drops. A failed post-commit archive is recovered by recording the event again as it stands: with no Postgres copy left, `raw_export` has nothing to carry.
+     - Q5 resolved as recommended: the column and the API field were dropped (0 of 7 rows ever set), with an API.md note.
+     - The migration drops `canonical` with `DROP SCHEMA … CASCADE` behind a run-time check for dependants outside it, and recreates every structure on downgrade (one FK cycle, `bills` ↔ `bill_versions`, closed after both exist). Verified on a scratch database: upgrade, downgrade, schema dump identical but for a column position, upgrade, `alembic check` clean, `grants.sql` applied with `ON_ERROR_STOP`.
+     - `test_grants_append_only` gained the guard this step needed: any table or schema `grants.sql` names must still exist, since a stale one errors and wedges `usa-wa-migrate`.
+     - The contract's tombstones are vacuous until a deleted name returns (import-linter keeps a contract whose forbidden module is missing). The operator stores are the entries still standing, and the probe tests aim at them.
+     - #413's second pass, measured on the branch: unit tier 88.38% (floor 72), whole tree 97.69% (floor 95).
 7. **Docs, in PR F.** Update every maintained doc that describes the tier as live, plus the AGENTS.md layer table and ARCHITECTURE.md. The drift gates run in that commit. Then run #413's second pass.
 
 **Timing.** #135's early capture (due 2026-11-03) comes first. PRs A–F then land before the #135 rehearsal (due 2026-12-31), so that the rehearsal runs the final system.

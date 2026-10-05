@@ -81,7 +81,7 @@ async def health_serving(session: AsyncSession = Depends(get_db_session)) -> dic
         # Rows the API cannot address: a registry key the registrar had not yet
         # bound when the model that published this row read the crosswalk
         # (CR 95). Transient by construction — the next build closes it — and
-        # the PERSISTENT case is already gated by `parity_spans`, which re-reads
+        # the PERSISTENT case is already gated by `registry_coverage`, which re-reads
         # the registry. What was missing is any view of what actually shipped,
         # which only the loaded rows can show. Reported, not gated: a new seat
         # legitimately arrives this way, so a zero floor would fail the nightly

@@ -9,7 +9,8 @@ each layer's models arrive with its sub-issue (#306–#309).
 
 ```
 packages/usa-wa-pipeline/
-  src/usa_wa_pipeline/   — Python surface: staging/matching/parity/registry + the publisher
+  src/usa_wa_pipeline/   — Python surface: staging/matching/conformed logic, the registrar,
+                           the probes + the publisher
   dbt/                   — the dbt project
     dbt_project.yml      — three model layers: staging / matching / conformed
     profiles.yml         — duckdb target; USA_WA_PIPELINE_DB names the db file
@@ -25,9 +26,10 @@ Layer rules are the spec's: staging never joins across sources and never sees a 
 matching proposes and never writes identity; conformed is a stateless join against the
 registry crosswalk. `usa_wa_pipeline` sits beside `usa_wa_facts_seats` in the
 import-linter layer order and, like it, may never import an adapter `transport` —
-models re-parse the archive, they do not drive wires. Nor may it reach the retiring Postgres tier
-by any chain (#412 PR D): what a model shares with a Phase-B builder lives in a pure module
-both import, never in the builder (ARCHITECTURE.md lists the contract).
+models re-parse the archive, they do not drive wires. Nor may it import the retired Postgres
+tier by any chain: the contract *The pipeline, the API and the raw harvests never import the
+retired Postgres tier* refuses a deleted module's name if it comes back (ARCHITECTURE.md lists
+the contracts).
 
 ## Commands
 
@@ -40,7 +42,7 @@ export USA_WA_PIPELINE_DB=data/pipeline.duckdb
 uv run dbt build --project-dir packages/usa-wa-pipeline/dbt --profiles-dir packages/usa-wa-pipeline/dbt
 
 # One model + its tests
-uv run dbt build --project-dir packages/usa-wa-pipeline/dbt --profiles-dir packages/usa-wa-pipeline/dbt -s stg_scaffold_smoke
+uv run dbt build --project-dir packages/usa-wa-pipeline/dbt --profiles-dir packages/usa-wa-pipeline/dbt -s stg_sos_results
 ```
 
 The pre-commit hook `dbt-build` runs the gate whenever a commit touches
@@ -51,13 +53,13 @@ artifacts into a temp dir so the checkout stays clean.
 ## The raw tier (#304)
 
 Upstream of dbt: pristine wires in a file store at `USA_WA_RAW_ROOT` (default
-`raw/`), the file analog of the Postgres provenance pair and the input the
-staging models read (#306).
+`raw/`), the successor to the Postgres provenance tables #412 dropped and the only
+input the staging models read (#306).
 
 ```
 raw/<source-slug>/
   objects/<sha[:2]>/<sha256>   — content-addressed wire bodies, immutable, deduped
-  runs/<run_id>.json           — one manifest per harvest run (the FetchEvent analog)
+  runs/<run_id>.json           — one manifest per harvest run, a record per fetch
   latest.json                  — resource_id → newest ok fetch, for TTL decisions
 ```
 
@@ -67,16 +69,15 @@ raw/<source-slug>/
   (filings + results), nightly — both also fetch the next biennium's seating election
   from the day after it is held (#135 early capture); `…usa_wa_adapter_legislature.roster_pdf.raw_harvest`
   (#421), **on demand** — one roster edition, the input `stg_roster_members` parses, with
-  its own 90-day freshness window and stamp check (runbook: COMMANDS-ROSTER.md). All reuse the adapters' transports, rate limiters, and the
-  Postgres archive's resource-id vocabulary; per-resource failures are contained as
+  its own 90-day freshness window and stamp check (runbook: COMMANDS-ROSTER.md). All reuse the adapters' transports, rate limiters and pure
+  `resources` modules (the archive's resource-id vocabulary); per-resource failures are contained as
   `err` manifest entries; a byte-identical re-fetch is recorded but stored once
   (`skip_unchanged` parity). `--ttl-days N` skips fresh resources; the default 0
   forces the daily wire.
 - Integrity: `python -m clearinghouse_core.raw_integrity` re-hashes objects against
   the sha256 they are stored under (the name is the baseline) — rolling
   `--byte-budget` with a cursor at `<root>/.raw_integrity_state.json`, exit 1 on any
-  mismatch/missing object. Weekly via `usa-wa-integrity-sweep` since #412, which
-  retired the Postgres sweep's timer.
+  mismatch/missing object. Weekly via `usa-wa-integrity-sweep` (#412).
 - Retention: the tracked sources are archival (#54) — nothing deletes; manifests are
   small and kept indefinitely.
 
@@ -111,25 +112,6 @@ Composite keys + coverage floors (sponsors 1991-92, roster 1889) live as
 singular tests under `dbt/tests/` — vacuous on an empty store, so the hermetic
 commit gate stays fast.
 
-**Parity probe** (the transition oracle's comparator, write-free):
-
-```bash
-uv run python -m usa_wa_pipeline.parity_wsl --root /home/exedev/usa-wa/raw
-uv run python -m usa_wa_pipeline.parity_pdc --root /home/exedev/usa-wa/raw   # subset mode: canonical ⊆ staging
-```
-
-Diffs staging key sets against live canonical Postgres; exit 1 on any
-unexplained divergence. Accepted divergences are code (`parity_wsl.ACCEPTED`),
-each with a named reason, and a stale acceptance fails the run. Verified clean
-2026-09-03: committees 208/186 with 22 accepted (archived-meeting Joint/`Other`
-bodies canonical never normalized), sponsors 640/641 with 1 accepted (the Lt.
-Governor's ex-officio Rules seat from the retired `committee-members:`
-vocabulary); PDC 312/312 exact. (#309 corrected the committee comparator to
-`org_type IN ('committee','other')` — canonical files Joint/`Other` bodies as
-`other` — which dissolved all 22 earlier committee acceptances: 208/208 exact,
-none accepted.) SOS has no per-source probe on purpose —
-results/filings corroborate spans, covered by #309's span parity.
-
 ## The conformed tier (#309, #313)
 
 Crosswalks + entities, the tenure-span engine, the roles dimension and the
@@ -156,51 +138,37 @@ much to a public id — so `/api/v1` addresses a role by ULID while `role_key`
 stays published beside it, because that key is what a subscriber matches a seat on
 and mediating it away is what #309 refused.
 
-**Order matters once, at deployment.** `registry_seed` carries the canonical
-Role ULIDs across; the registrar's role pass *mints* for anything unregistered.
-Run the seed **before** the first registrar pass that sees roles, or 312 fresh
-ULIDs replace the canonical ones — and a seeded role's ULID is the `entity_id`
-published in `roles` and joined from `assignments`, so every consumer's join
-would silently re-point. **The seed is the only guard.** `role_entity_mismatches`
-in `parity_spans`, gated at zero, counts only a *seeded* role (its canonical
-ULID a registry entity) whose key moved: a role born after the seed has no
-earlier published id to protect, so one whose canonical ULID the registry never
-held is `role_post_seed`, reported but not gated (#402) — the orgs rule below.
-A registrar pass ahead of the seed leaves *no* canonical ULID in the registry,
-so it reads as `role_post_seed` ≈ every role and passes, exactly as
-`parity_registry` would for persons and orgs. Only a registry rebuilt from empty
-can repeat it; the live one is seeded (312/312 roles, 2026-09-24).
+**The registry cannot be rebuilt.** It was seeded once from the retired tier's
+ULIDs (312/312 roles, 2026-09-24), so every entity published before the
+cutover kept its id; since then the registrar *mints* for anything
+unregistered. A registry rebuilt from empty would mint fresh ULIDs for all of
+them, and a ULID is the `entity_id` every published dataset joins on, so every
+consumer's join would silently re-point. It is the pipeline's only master
+state, which is why the #434 backup exists and why its restore checks the
+registry's row counts.
 
 **Orgs register nightly too** (`registrar.load_org_keys`): singleton clusters
 over every staged committee id (`stg_wsl_committees` ∪ `stg_wsl_meetings`) plus
-`STRUCTURAL_ORGS`, under the same seed-first rule as roles. After the seed the
-two tiers mint independently, so `parity_registry` counts a canonical row whose
-ULID the registry never held as `post_seed`, not `mismapped`; an unbound key is
-still `missing`.
+`STRUCTURAL_ORGS`.
 
 **Persons: every WSL sponsor, not only the matched ones (#403).** `proposed_links`
 holds only matched pairs, so a legislator no rule pairs — an appointee with no
 PDC winner row, a member newer than the roster PDF — never reached the
 registrar (111 of 640 sponsors on 2026-09-22, registered only by the seed), and
-the next one would fail `parity-registry` (`person_missing`) and
-`registry-coverage` (`unregistered_spans`, in `parity-spans` until #412 PR B). `registrar.load_sponsor_keys` adds a singleton
+the next one would fail `registry-coverage` (`unregistered_spans`).
+`registrar.load_sponsor_keys` adds a singleton
 `(key, key)` pair per staged `usa_wa_legislature:<member_id>`; union-find folds
 a paired sponsor into its component, so matched clusters are unchanged. Only a
 numeric id mints alone — the registry has no delete — and any other (blank,
 NULL) degrades the job, named in `malformed_sponsor_ids`. **WSL keys only**
 (decided 2026-09-23): a roster key (`usa_wa_legislature_roster:<fold>:<year>`)
 is built by us from a name, so a parser or fold change would mint a published
-duplicate — it stays pair-only and drift surfaces as `missing`, for
-adjudication. A PDC id is a crosswalk key on a WSL person, never a standalone
+duplicate — it stays pair-only, and drift surfaces as an unregistered span in
+`registry-coverage`, for adjudication. A PDC id is a crosswalk key on a WSL person, never a standalone
 one. Like a new seat or committee, a new legislator publishes one build after
 the one that first stages them (`dbt build → registrar → publish`);
 `registry-coverage` re-reads the registry after the registrar, so that lag never
 trips it.
-
-```bash
-# One-time: seed from canonical rows, ULIDs preserved (idempotent)
-uv run python -m usa_wa_pipeline.registry_seed
-```
 
 ```bash
 # Nightly: cluster proposed_links and apply the decision table (dry-run first)
@@ -215,8 +183,6 @@ uv run python -m usa_wa_pipeline.adjudicate merge --kind person --loser <ULID> -
 # (absent from conformed, and registry_coverage alarms nightly once a span needs it):
 uv run python -m usa_wa_pipeline.adjudicate unmerge --kind person --entity <revived-ULID> --note "…"
 uv run python -m usa_wa_pipeline.adjudicate move --kind person --key <each reported key> --to <revived-ULID> --note "…"
-# Invariant probe: canonical identity ⊆ registry crosswalk (by hand since #412 PR E froze canonical)
-uv run python -m usa_wa_pipeline.parity_registry
 ```
 
 Matching models (`models/matching/`): `match_pdc_wsl` (SQL — same seat + seating
@@ -229,8 +195,7 @@ Corrections are always adjudications — a matching-rule change can propose the
 world and move nothing (sticky registry). Splink's fuzzy tail is deferred: the
 seeded registry carries every historical link, so exact rules only need the
 forward flow; verified live 2026-09-03 — 813 proposals → 0 mints, 0 conflicts,
-505 crosswalk-key appends, and `parity-registry` clean (3,135 persons / 219
-orgs, 0 missing, 0 mismapped).
+505 crosswalk-key appends.
 
 ## Publication (#311)
 
@@ -248,7 +213,7 @@ drained it, and the duration check beside it.
 `dbt/tests/assignments_seat_occupancy.sql` asserts that no two entities hold one
 `seat:*` role over overlapping validity. Nothing else did: `assignments_key`
 tests span *identity* (one tenure start per entity), which two different holders
-of one seat pass cleanly, and the daily `succession-invariants` gate scopes to
+of one seat pass cleanly, and the retired `succession-invariants` unit scoped to
 `is_active` rows — the current cohort only, never history.
 
 It ships **baselined at 35** (#360), via dbt's own thresholds:
@@ -351,7 +316,7 @@ two holders.
 
 ### Ported from the canonical tier (#412)
 
-The checks the retiring Postgres units ran, rebuilt on `assignments` (#412 PR B) —
+The checks the retired Postgres units ran, rebuilt on `assignments` (#412 PR B) —
 and lineage INV1 on `organizations` ⋈ `roles` ⋈ `assignments` (#428), INV2 on
 `organizations` ⋈ `org_lineage` (#447). Each was 0 on the production build (PR B's
 2026-09-27, INV1's 2026-09-28, INV2's 2026-10-04 once derived); each file's header
@@ -401,8 +366,7 @@ uv run python -m usa_wa_pipeline.registry_coverage --db data/pipeline.duckdb
 It rebuilds both span families from the built duckdb's staging tables and the
 operator events, joins them against the registry as the registrar left it, and
 exits 1 on any `unregistered_*`, or 4 when the build holds no sponsors, roster or
-ballot rows. It runs first in the nightly's probe loop, beside `parity_citations`;
-the canonical-oracle parity probes left the loop in PR E.
+ballot rows. It runs first in the nightly's probe loop, beside `parity_citations`.
 
 ## TDD for dbt models
 

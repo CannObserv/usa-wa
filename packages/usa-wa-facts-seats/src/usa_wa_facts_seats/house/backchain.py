@@ -25,8 +25,9 @@ wrong hop asserts a false structural seat — the #101 "absence is honest" stanc
 - **max_hops** — confidence decays with distance from the ballot anchor; the cap bounds it (the
   era break is the hard stop within scope).
 
-Pure — no DB, no session. Runs inside the ONE builder (`house.build`) before span merging, so daily
-and backfill share span identity (no #100-CR depth mismatch).
+Pure — no DB, no session. Runs inside the ONE House builder (``usa_wa_pipeline.conformed.house``;
+`house.build` until #412 PR F) before span merging, so every run derives one span identity (no
+#100-CR depth mismatch).
 """
 
 from __future__ import annotations
@@ -55,10 +56,10 @@ class BackchainResult:
     """The combined observation set across all archived biennia, plus the back-chain provenance.
 
     ``inferred_keys`` = every roster-cited seat (elimination #103 + back-chain seed #118), the
-    union of the per-biennium projections. ``backchain_keys`` is the back-chained subset (for the
-    emitter's roster citation and operator audit). ``depth`` maps a ballot-class ``(member,
-    biennium)`` to its hop distance from a real ballot (0 = ballot-matched). ``coverage`` is the
-    per-biennium projector summary."""
+    union of the per-biennium projections. ``backchain_keys`` is the back-chained subset (for
+    operator audit; the emitter also cited the roster wire for it until #412 PR F). ``depth``
+    maps a ballot-class ``(member, biennium)`` to its hop distance from a real ballot (0 =
+    ballot-matched). ``coverage`` is the per-biennium projector summary."""
 
     observations: list[Observation] = field(default_factory=list)
     inferred_keys: list[tuple[str, str]] = field(default_factory=list)

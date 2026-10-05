@@ -87,10 +87,9 @@ uv run ruff format .
 ```
 
 Full command reference: [`docs/COMMANDS.md`](docs/COMMANDS.md) — it carries the
-index of every operational and backfill CLI, grouped by the reference that
-documents each: [succession](docs/COMMANDS-SUCCESSION.md),
-[backfill](docs/COMMANDS-BACKFILL.md),
-[seat facts](docs/COMMANDS-SEATS.md),
+index of every operational CLI, grouped by the reference that documents each:
+[succession](docs/COMMANDS-SUCCESSION.md),
+[probes](docs/COMMANDS-BACKFILL.md),
 [roster PDF](docs/COMMANDS-ROSTER.md).
 
 Agent-facing docs (architecture, per-package module maps, deployment,

@@ -13,8 +13,8 @@ These three are genuinely PDC's: the source slug PDC-provenance rows carry and t
 from __future__ import annotations
 
 #: The ``source`` slug PDC-provenance rows (identifiers, House Assignments) carry — matches
-#: :attr:`PDCAdapter.source_slug` and the ``Source`` row. Shared by both normalizers so the
-#: literal is defined once.
+#: ``PDCAdapter.source_slug`` (deleted in #412 PR F) and the ``Source`` row. Shared by both
+#: normalizers so the literal is defined once.
 PDC_SOURCE = "usa_wa_pdc"
 
 #: Local ``PersonIdentifier.scheme`` for the PDC person id. The person descriptor maps a

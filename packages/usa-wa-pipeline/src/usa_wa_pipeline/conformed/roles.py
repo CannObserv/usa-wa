@@ -3,7 +3,7 @@
 A **Role** is a named slot within an Organization; an **Assignment** binds one
 in time (ONTOLOGY.md § 2). The span already carries the slot's identity as
 ``(kind, discriminator)`` — this module derives the *key* the Postgres tier
-mints from that pair, so a published assignment can name its role and a
+minted from that pair, so a published assignment can name its role and a
 consumer joins a real dimension instead of re-deriving one from a string.
 
 **Structural, not registered.** Unlike persons and organizations, a role needs
@@ -18,9 +18,9 @@ Every key function is imported UNCHANGED — ``party_role_source_id`` and
 ``committee_member_role_source_id`` from the adapter's ``role_keys``, and
 ``senate_seat_role_source_id``, ``house_seat_role_source_id`` and
 ``parse_house_span_discriminator`` from the WA vocabulary. Re-deriving any of
-them here would fork the seat identity from the tier that already publishes it.
-They left the adapter's member normalizer in #412, because that module is the
-Postgres write path this package may not import.
+them here would fork the seat identity from the one already published.
+They left the adapter's member normalizer in #412, because that module was the
+Postgres write path this package may not import (deleted in PR F).
 """
 
 from __future__ import annotations

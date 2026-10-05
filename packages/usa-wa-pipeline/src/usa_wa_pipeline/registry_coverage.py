@@ -14,16 +14,16 @@ it**, and gates three counters at zero:
   org or role key is unbound. ``roles.org_entity_id`` is untested and
   ``roles.entity_id`` is only ``unique``, so a null publishes.
 
-**Split out of ``parity_spans``,** which compares against the canonical oracle
-and retires with it in PR E. These three never needed that oracle, and they are
+**Split out of ``parity_spans``,** which compared against the canonical oracle
+and retired with it in PR E. These three never needed that oracle, and they are
 the only nightly alarm for data silently falling out of the published tables.
 
 **Post-registrar, never in-build.** The nightly runs ``dbt build → registrar →
 publish``: a new legislator, seat or committee is unregistered in the first
 build that sees it, by design, and bound by the registrar straight after. As a
 dbt test this would fail that build, the registrar would never run, and every
-night after would fail the same way. Here it runs where the parity probes run,
-so that one-run lag reads as zero and only a gap the registrar did NOT close
+night after would fail the same way. Here it runs where the parity probes ran,
+after the registrar, so that one-run lag reads as zero and only a gap the registrar did NOT close
 alarms — which is the state tomorrow's build publishes from.
 
 ``seat_overlaps_unclipped`` (#360) rides along, reported and not gated: the

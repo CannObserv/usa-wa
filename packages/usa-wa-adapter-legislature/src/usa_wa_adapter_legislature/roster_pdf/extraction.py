@@ -1,8 +1,8 @@
 """PDF bytes → word geometry, and the edition's own revision date (#225).
 
 The single boundary where ``pdfplumber`` is used, so :mod:`normalize` stays pure over geometry
-and both the adapter (which must verify what it archived) and the cohort provider (which
-re-parses offline) can reach it without importing each other.
+and both the raw harvest (which must verify what it archived) and the pipeline's roster
+staging model (which re-parses offline) can reach it without importing each other.
 
 :func:`extract_revision_date` is what makes the archive key trustworthy. The key
 ``legroster:<revision>`` is meant to name *the edition whose bytes these are*; if the revision

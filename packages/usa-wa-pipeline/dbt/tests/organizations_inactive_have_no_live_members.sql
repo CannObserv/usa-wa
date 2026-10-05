@@ -1,5 +1,5 @@
 -- An inactive organization has no live member: #124's INV1, ported from the
--- `committee-lineage-invariants` unit, which reads canonical and retires
+-- `committee-lineage-invariants` unit, which read canonical and retired
 -- (#428, ahead of #412 PR E). A dissolved committee must not read as having
 -- current members.
 --

@@ -1,6 +1,7 @@
 """Raw-tier file store (#304): content-addressed objects + per-run manifests.
 
-The file analog of the Postgres provenance pair, feeding the #302 pipeline:
+The file successor to the Postgres provenance pair (dropped in #412 PR F), feeding
+the #302 pipeline:
 
 - **objects** — pristine wire bodies stored once under their sha256
   (``<root>/<source>/objects/<sha[:2]>/<sha>``), immutable, deduplicated. The
@@ -150,8 +151,9 @@ class RawStore:
 
     def _update_latest(self, entries: list[dict], run_id: str) -> None:
         # Read-modify-write under an exclusive per-source flock: two runs
-        # closing concurrently on one source (live harvest + #305 export, the
-        # overlap raw_export blesses) must not clobber each other's entries.
+        # closing concurrently on one source (a live harvest + the #305 export,
+        # the overlap ``raw_export`` blessed until #412 PR F) must not clobber
+        # each other's entries.
         self.source_dir.mkdir(parents=True, exist_ok=True)
         with open(self.source_dir / ".latest.lock", "w") as lock_file:
             fcntl.flock(lock_file, fcntl.LOCK_EX)
@@ -242,7 +244,7 @@ class RawRun:
     ) -> RawFetch:
         """Record one fetch; stores ``body`` when present. ``status`` mirrors the
         FetchEvent vocabulary (``ok`` | ``err`` | ``skipped``); ``extra`` merges
-        additional keys into the manifest entry (e.g. the #305 export's
+        additional keys into the manifest entry (e.g. the retired #305 export's
         ``unbaselined`` marker)."""
         sha: str | None = None
         newly = False

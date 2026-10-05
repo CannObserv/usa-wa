@@ -111,7 +111,7 @@ async def test_a_dataset_the_catalog_does_not_carry_is_unknown_not_false(
 
 async def test_rows_the_api_cannot_address_are_reported(client, db_session, catalog) -> None:
     """CR 95: a role published before the registrar bound its key carries a null
-    entity_id, and NO gate can see it — `parity_spans` re-reads the registry, so
+    entity_id, and NO gate can see it — `registry_coverage` re-reads the registry, so
     it correctly reports zero. Only the loaded rows show what actually shipped.
     Reported, not gated: a new seat legitimately arrives this way."""
     await _build(db_session)

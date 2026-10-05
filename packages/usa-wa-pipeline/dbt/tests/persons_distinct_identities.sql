@@ -22,8 +22,8 @@
 -- the check is a build gate and not a report.
 --
 -- Which is: it must fail the BUILD. The parity probes would have been the other
--- home for this, and they run after `dataset-publish` in the nightly chain —
--- they can tell you a bad dataset shipped, never stop it shipping. The 17 were
+-- home for this, and they ran after `dataset-publish` in the nightly chain —
+-- they could tell you a bad dataset shipped, never stop it shipping. The 17 were
 -- already in a published snapshot when power-map found them.
 --
 -- GATED AT ZERO, with no baseline, like `persons_named` and unlike

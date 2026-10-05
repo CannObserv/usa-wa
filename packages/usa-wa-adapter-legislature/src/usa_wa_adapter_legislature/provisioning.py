@@ -1,10 +1,11 @@
 """WSL Source provisioning — get-or-create the ``usa_wa_legislature`` SOAP Source row.
 
-Every WSL-facing runner path (the daily refresh, the historical harvests, the seed ingest,
-the archive-derived reconcilers) needs this row before it can drive an
-:class:`~clearinghouse_core.runner.AdapterRunner`. It lived as an underscore-private in
-:mod:`refresh` and was imported across half a dozen modules — promoted here to a shared
-public surface (CR #77).
+``usa_wa_pipeline.coverage_seed`` calls it nightly to reconcile the source's declared
+coverage (#180). It lived as an underscore-private in ``refresh`` and was imported across
+half a dozen modules — every WSL-facing runner path (the daily refresh, the historical
+harvests, the seed ingest) needed the row to drive an ``AdapterRunner`` — so it was promoted
+here to a shared public surface (CR #77). Those paths left with the canonical tier in
+#412 PR F.
 
 The **Jurisdiction** lookup that used to sit beside it moved to
 :mod:`usa_wa_common.jurisdiction` at #189: `usa-wa` is the deployment's jurisdiction, not
@@ -49,7 +50,7 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
         reliability=1.0,
         cache_ttl_days=1,
         # Provenance-critical: the archived SOAP wire (#54) is a long-lived tamper-evident
-        # record, not an operational cache — exempt from any future RawPayload GC.
+        # record, not an operational cache — exempt from any future GC.
         retention_policy=RetentionPolicy.archival,
     )
     session.add(row)

@@ -8,7 +8,7 @@ deterministic structural keys and no registry, so the row is named by the tuple
 which is unique across the conformed set (8,395 / 8,395 on the 2026-09-11 snapshot).
 
 power-map#490 needs that tuple as **one string** so it can re-key its assignment
-crosswalk off usa-wa's retiring Postgres ULIDs and onto the key the dataset
+crosswalk off usa-wa's retired Postgres ULIDs and onto the key the dataset
 actually has. It shipped on both `assignments` and `pm_anchors` for the duration
 of the cutover; usa-wa#314 retired the latter once power-map#525 had re-keyed. Its applier measures
 retraction-as-absence in the dataset's own key space; before this column there was

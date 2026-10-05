@@ -2,15 +2,15 @@
 
 A tenure span's ``kind`` names the dimension it tracks — a Senate seat, a House
 seat, a committee membership, or a party affiliation. These strings appear in span
-``source_id``\\s, in the ``owned_kinds`` a builder scopes its stale-sweep to, and in
+``source_id``\\s, in the ``owned_kinds`` a builder scopes its operator overlay to, and in
 the operator-overlay's ``seat_kind`` validation. They are a **domain** vocabulary
-(Layer 2), shared by every Layer-3 builder that produces spans.
+(Layer 2), shared by every builder that produces spans.
 
 Defining them here, once, is what lets the domain's ``SEAT_KINDS`` guard and the
-adapters' builders agree by construction: the adapters *import* these constants
+builders agree by construction: the projectors and builders *import* these constants
 rather than re-declaring literals, so a rename lands in exactly one place and cannot
 drift (the failure #114 was filed to prevent). See the cross-layer pin in
-``usa-wa-adapter-sos/tests/test_span_kinds_guard.py``.
+``usa-wa-facts-seats/tests/test_span_kinds_guard.py``.
 """
 
 #: Party-affiliation span (the sponsor builder's ``party`` dimension). Not a seat.

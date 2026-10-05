@@ -1,9 +1,9 @@
-"""Shared runner provisioning for the SOS adapter — get-or-create the SOS Source row.
+"""Source provisioning for the SOS adapter — get-or-create the SOS Source rows.
 
-The votewa sibling of :mod:`usa_wa_adapter_pdc.provisioning`: every SOS-facing runner path (the
-historical harvest, #100) needs the ``usa_wa_sos`` REST :class:`Source` before it can drive an
-:class:`~clearinghouse_core.runner.AdapterRunner`. The ``usa-wa`` Jurisdiction resolve stays
-generic — reuse :func:`usa_wa_adapter_legislature.provisioning.resolve_jurisdiction`.
+The votewa sibling of :mod:`usa_wa_adapter_pdc.provisioning`, called nightly by
+``usa_wa_pipeline.coverage_seed`` for the ``usa_wa_sos`` and ``usa_wa_sos_results`` REST
+:class:`Source` rows and their coverage claims. The ``usa-wa`` Jurisdiction resolve stays
+generic — :func:`usa_wa_common.jurisdiction.resolve_jurisdiction`.
 """
 
 from __future__ import annotations
@@ -18,10 +18,10 @@ from usa_wa_adapter_sos.coverage import SOS_FILINGS_COVERAGE, SOS_RESULTS_COVERA
 from usa_wa_adapter_sos.filings.transport import SOS_BASE_URL
 from usa_wa_adapter_sos.results.transport import RESULTS_BASE_URL
 
-#: The filings source slug — matches :attr:`SOSAdapter.source_slug` and its ``Source`` row.
+#: The filings source slug — its ``Source`` row and its raw-store directory.
 SOS_SOURCE_SLUG = "usa_wa_sos"
 
-#: The results source slug — matches :attr:`ResultsAdapter.source_slug` and its ``Source`` row.
+#: The results source slug — its ``Source`` row and its raw-store directory.
 RESULTS_SOURCE_SLUG = "usa_wa_sos_results"
 
 
@@ -47,7 +47,7 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
         reliability=1.0,
         cache_ttl_days=1,
         # The archived filing CSV (#54) is a long-lived provenance record, not an operational
-        # cache — exempt from any future RawPayload GC.
+        # cache — exempt from any future GC.
         retention_policy=RetentionPolicy.archival,
     )
     session.add(row)

@@ -1,5 +1,6 @@
 """The ``sponsors:<biennium>`` archive — WSL ``GetSponsors`` member rosters.
 
-Phase A ``harvest`` archives the wire; ``cohort`` re-parses it offline; ``projector`` ->
-``build`` -> ``emit`` turn it into party + Senate-seat tenure Assignments.
+:mod:`usa_wa_adapter_legislature.raw_harvest` archives the wire; ``projector`` turns it into
+the party + Senate-seat observations the #302 pipeline builds tenure spans from;
+``roster_hygiene`` and ``artifacts`` screen it, and ``probe_identity`` is a write-free probe.
 """

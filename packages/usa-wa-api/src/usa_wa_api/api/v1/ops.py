@@ -5,9 +5,9 @@ with no consumer, which is the failure mode #184 names: *building the ledger
 without the surface just moves the invisibility*. These four routes are that
 consumer.
 
-Every route is a ``GET``. The API runs as the **app** role and the provenance
-tables carry ``REVOKE UPDATE`` (#54), so a mutating route here would not fail in
-review — it would fail at the database, in production.
+Every route is a ``GET``. The API runs as the **app** role; the provenance tables
+whose ``REVOKE UPDATE`` (#54) once made a mutating route fail at the database left
+with #412 PR F, so the route-method fitness test is what holds the line.
 """
 
 from datetime import UTC, datetime
@@ -142,8 +142,8 @@ async def get_source_coverage(
     Collapsing the two would recreate exactly the silence #180 exists to remove:
     "we have never audited this feed" and "this feed does not exist" are different
     facts, and so is "this feed covers nothing". The table is additive and rows
-    seed from ``get_or_create_source``, so it is empty in production until the next
-    harvest run — the unaudited answer is the *common* one today and has to be a
+    seed from ``get_or_create_source`` (the nightly ``coverage_seed``), so a feed
+    with no declared claims has no rows — the unaudited answer has to be a
     first-class response rather than an error.
 
     ``status`` is reported verbatim per span, and the ``absent`` subset is repeated

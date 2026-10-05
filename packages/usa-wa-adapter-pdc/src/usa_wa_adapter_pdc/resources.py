@@ -1,9 +1,9 @@
 """The PDC archive's resource-id prefixes (#412).
 
-Shared by the Postgres adapter, the raw-store harvest and the #302 pipeline's PDC staging
-model. They live apart from :mod:`usa_wa_adapter_pdc.adapter` and
-:mod:`usa_wa_adapter_pdc.harvest`, the Postgres write path #412 PR F deletes, so the
-pipeline and the raw harvest can name a cohort without importing either.
+Shared by the raw-store harvest and the #302 pipeline's PDC staging model. They moved out
+of ``usa_wa_adapter_pdc.adapter`` and ``usa_wa_adapter_pdc.harvest``, the Postgres write
+path deleted in #412 PR F, so the pipeline and the raw harvest could name a cohort without
+importing either.
 """
 
 from __future__ import annotations

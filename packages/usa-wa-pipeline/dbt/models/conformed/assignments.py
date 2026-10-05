@@ -23,8 +23,8 @@ from usa_wa_pipeline.registry_read import crosswalk_frame
 def model(dbt, session):
     dbt.config(materialized="table")
     # One resolve of the roster corpus feeds both families — see
-    # `conformed.spans.build_families`, the sequence `parity_spans` and
-    # `registry_coverage` run too.
+    # `conformed.spans.build_families`, the sequence `registry_coverage` runs
+    # too.
     families = build_families(
         SpanInputs(
             sponsors=dbt.ref("stg_wsl_sponsors").df().to_dict("records"),

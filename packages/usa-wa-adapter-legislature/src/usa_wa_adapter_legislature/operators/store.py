@@ -63,8 +63,9 @@ def _serialize_event(
 def _check_seat_scope(kind: str, seat_kind: str | None, seat_discriminator: str | None) -> None:
     """``kind in SEAT_SCOPED_KINDS`` iff both seat parts are present (CR 147).
 
-    Enforced here, at the one place every write path meets — a fresh record, a
-    supersede, the roster backfill — rather than at the CLI boundary alone. A
+    Enforced here, at the one place every write path meets — a fresh record or a
+    supersede (and the roster backfill, until #412 PR F) — rather than at the CLI
+    boundary alone. A
     seat-scoped event with no seat is not malformed on the way in:
     ``event_source_id`` substitutes ``-`` for each missing part, so the row lands
     well-formed and simply matches nothing in any overlay, forever. Half a seat is

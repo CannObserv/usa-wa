@@ -1,9 +1,9 @@
 """The SOS candidate filings archive's resource ids (#412).
 
-Shared by the Postgres adapter, the raw-store harvest and the #302 pipeline's SOS staging
-model. They live apart from :mod:`usa_wa_adapter_sos.filings.adapter`, which is built on the
-Postgres adapter base that #412 PR F deletes, so the pipeline and the raw harvest can key
-a cohort without importing it.
+Shared by the raw-store harvest and the #302 pipeline's SOS staging model. They moved out
+of ``usa_wa_adapter_sos.filings.adapter``, which was built on the Postgres adapter base
+deleted in #412 PR F, so the pipeline and the raw harvest could key a cohort without
+importing it.
 """
 
 from __future__ import annotations

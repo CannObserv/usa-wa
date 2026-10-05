@@ -23,9 +23,8 @@ publication probe. The nightly systemd chain (`scripts/pipeline-nightly.sh`,
 `build_warnings` → registrar → publish → serving load → `coverage_seed` → probes
 (`registry_coverage`, then `parity_citations`); any counted failure exits 1 so `OnFailure=` emails
 the operator, with each failed stage's summary line restated last (#331). `build_warnings`
-(#412 PR E) fails the run on any dbt `warn`, which `dbt build` alone exits 0 on; the four
-canonical-oracle parity probes left the chain in the same PR, and `coverage_seed` joined it:
-the refreshes it disabled were the only writer of `/sources`' coverage claims (#180).
+(#412 PR E) fails the run on any dbt `warn`, which `dbt build` alone exits 0 on;
+`coverage_seed` reconciles each adapter's declared coverage claims into `/sources` (#180).
 `USA_WA_JOB_LEDGER=0` outside a rehearsal is counted too: it blinds `/health/jobs` (#135).
 `PIPELINE_NIGHTLY_REHEARSAL` runs the same chain against scratch roots with the registrar,
 serving load and coverage seed skipped — the rollover rehearsal ([RUNBOOK-ROLLOVER.md](RUNBOOK-ROLLOVER.md)).

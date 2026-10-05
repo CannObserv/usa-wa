@@ -1,6 +1,6 @@
 -- No chamber has more open seats than it has seats. Ported from the
--- `succession-invariants` unit's chamber-count check, which reads canonical and
--- retires (#412 PR B).
+-- `succession-invariants` unit's chamber-count check, which read canonical and
+-- retired (#412 PR B).
 --
 -- An operator succession event is durable once entered, but a MISSING one is
 -- silent: a member dies, nobody records it, and a ghost-open span inflates the

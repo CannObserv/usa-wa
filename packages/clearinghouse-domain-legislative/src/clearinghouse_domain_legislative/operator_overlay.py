@@ -1,7 +1,7 @@
 """Operator-succession overlay (#107) — pure span-boundary correction.
 
-The authoritative layer that runs **after** ``build_tenure_spans`` and **before**
-``emit_spans`` in each span builder, applying the operator's :class:`OperatorEvent`
+The authoritative layer that runs **after** ``build_tenure_spans`` in each conformed span
+builder (``usa_wa_pipeline.conformed``), applying the operator's :class:`OperatorEvent`
 facts as precise sub-biennium boundaries the wire can't supply:
 
 - ``departed`` (person-scoped) — close every open span of the member at the date, **except one
@@ -13,17 +13,16 @@ facts as precise sub-biennium boundaries the wire can't supply:
   built span's ``valid_from`` — the span whose window holds the date, else one opening on
   the floor of the *next* biennium (usa-wa#282) — or **synthesize** the span if the wire
   built none — but only for a *current-biennium* appointee: a seated event dated outside
-  ``current_biennium`` with no built span is a historical appointee the daily restricted
-  rebuild doesn't build, and synthesizing would mint a bogus current-biennium seat for a
-  departed member (#119); the unrestricted backfill builds their span, so the event matches
-  there instead).
+  ``current_biennium`` with no built span is a historical appointee, and synthesizing would
+  mint a bogus current-biennium seat for a departed member (#119); the build covers every
+  biennium, so their span is built and the event matches it instead).
 
 Each builder passes ``owned_kinds`` — the span ``kind``\\s it produces — so an event for a
-seat another builder owns is ignored here (a ``seated chamber-house`` event is the SOS House
+seat another builder owns is ignored here (a ``seated chamber-house`` event is the House
 builder's, not the sponsor builder's). ``departed`` only ever touches the spans in this
 builder's set, so the three builders together close a dead member's seat + party + committees.
 
-Pure and idempotent: the daily refresh re-drives every builder, so the overlay re-applies on
+Pure and idempotent: the nightly pipeline re-drives every builder, so the overlay re-applies on
 each run and the wire can never win back a corrected span. A member with an operator event
 must be **exempted from the #105 stale exclusion** upstream so their span is built for the
 overlay to date — but only through their latest event biennium (see
@@ -259,7 +258,7 @@ def apply_operator_events(
     read-only: they inform the ``departed`` split's search for a return and are never modified,
     closed or returned. Without them the split is blind across the builder seam, which is how
     Liz Pike kept a 2,190-day party gap: her party span is the sponsor builder's and the House
-    seat she returned to is ``usa_wa_facts_seats.house.build``'s.
+    seat she returned to is the House builder's (``usa_wa_pipeline.conformed.house``).
 
     ``movers_by_biennium`` (#145) maps a biennium to the member ids the #105 mover-exclusion
     dropped from that biennium's House roster. A ``vacated`` event matching no built span
@@ -273,10 +272,10 @@ def apply_operator_events(
     above is about seats, and the seat boundaries were leaking into the member's party span —
     both from `build_tenure_spans`'s dormancy split and from the `departed` split just applied.
     It runs HERE rather than in each builder because this is the one funnel every party-span
-    producer already passes through (the sponsor build in both tiers, and the roster-family
-    build); five call sites would be five chances for the two tiers to disagree, which is the
-    shape #366 CR 12 had just finished removing elsewhere. A builder that owns no party spans
-    passes none, so the pass is a no-op for it.
+    producer already passes through (when #289 landed: the sponsor build in both tiers, and the
+    roster-family build); five call sites would have been five chances for the two tiers to
+    disagree, which is the shape #366 CR 12 had just finished removing elsewhere. A builder
+    that owns no party spans passes none, so the pass is a no-op for it.
 
     ``applied_departures`` (usa-wa#466) hands the ``departed`` miss report to the caller. A
     family runs one overlay per builder, and ``departed`` is person-scoped, so an overlay that
@@ -317,7 +316,7 @@ def apply_operator_events(
                         # both halves of a chamber move on one date (Derek Stanford:
                         # `Resigned July 1, 2019` on the House row, `Appointed July
                         # 1, 2019 to serve unexpired term` on the Senate row), and
-                        # the backfill projects the resignation as a person-scoped
+                        # the backfill projected the resignation as a person-scoped
                         # `departed`. Closing the tenure the seating just opened
                         # yields `valid_to = max(d, d)` — a zero-length span, which
                         # is never a fact about the world, and which no gate can see
@@ -348,8 +347,8 @@ def apply_operator_events(
                     tail = _split_tail(span, re_entry.valid_from)
                     if tail is None:
                         # The return lands inside the departure's own biennium, so the tail
-                        # would key to the same ``source_id`` and the emitter would upsert one
-                        # over the other. Leave the tenure whole rather than emit a collision.
+                        # would key to the same ``source_id`` and collide with it. Leave the
+                        # tenure whole rather than emit a collision.
                         result[i] = span
                         logger.info(
                             "operator_departed_split_same_biennium",
@@ -448,12 +447,11 @@ def apply_operator_events(
             if not hit:
                 # Synthesis is only ever legitimate for a *current-biennium* appointee the wire
                 # hasn't caught up on (#107). A seated event whose date lands outside the current
-                # biennium and matches no built span is a **historical** appointee: in the daily
-                # restricted rebuild (current cohort only) the wire built no span for them, and
-                # synthesizing would mint a bogus current-biennium open seat for a long-departed
-                # member (#119) — corrupting the record + tripping the succession invariant. The
-                # unrestricted backfill DOES build their span, so this event matches there and
-                # never reaches synthesis. Skip + log rather than mint a false seat.
+                # biennium and matches no built span is a **historical** appointee: synthesizing
+                # would mint a bogus current-biennium open seat for a long-departed member
+                # (#119) — corrupting the record + tripping the succession invariant. The build
+                # covers every biennium, so their span is built and a matching event never
+                # reaches synthesis. Skip + log rather than mint a false seat.
                 if _in_biennium(event.effective_date, current_biennium):
                     synthesized = _synthesize(event, current_biennium)
                     result.append(synthesized)
@@ -641,8 +639,8 @@ def _split_tail(span: TenureSpan, return_date: date) -> TenureSpan | None:
     :attr:`TenureSpan.source_id` already documents — "a post-gap tenure gets a new one").
 
     ``None`` when the return falls inside the closing span's own start biennium: the tail would
-    key to the same ``source_id`` and the emitter would upsert one row over the other, so the
-    caller leaves the tenure whole instead. Openness carries over — a member still serving keeps
+    key to the same ``source_id`` and collide with the head, so the caller leaves the tenure
+    whole instead. Openness carries over — a member still serving keeps
     an open second tenure, which is what makes the sitting-senator case (Chapman) correct."""
     biennium = biennium_for_date(return_date)
     if biennium == span.start_biennium:

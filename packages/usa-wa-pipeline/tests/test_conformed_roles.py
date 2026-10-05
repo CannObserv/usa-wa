@@ -3,7 +3,7 @@
 A Role is a named slot in an Organization; an Assignment binds one in time
 (ONTOLOGY.md § 2). The span already carries the slot's identity as
 ``(span_kind, span_discriminator)`` — these pin the derivation of the *key* the
-Postgres tier mints from that pair, so the published `assignments` can name its
+Postgres tier minted from that pair, so the published `assignments` can name its
 role and a consumer can join a real dimension instead of re-deriving one.
 
 Every key function is imported unchanged from the adapter and the vocabulary

@@ -5,18 +5,18 @@ rationale. The everyday subset is in [`AGENTS.md`](../AGENTS.md#common-commands)
 
 Grouped references split out so each stays loadable on its own:
 
-- [COMMANDS-SUCCESSION.md](COMMANDS-SUCCESSION.md) — operator succession events, odd-year corroboration, committee lineage
-- [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md) — historical harvests, span builders, one-shot migrations, write-free probes
-- [COMMANDS-SEATS.md](COMMANDS-SEATS.md) — the Layer-3b seat-fact backfills: PDC identifier links (#79), WSL+SOS House Position (#101)
-- [COMMANDS-ROSTER.md](COMMANDS-ROSTER.md) — the roster PDF: harvest + monthly edition re-check (#225/#237), succession backfill (#226), pre-1991 build (#228)
+- [COMMANDS-SUCCESSION.md](COMMANDS-SUCCESSION.md) — operator succession events, committee-succession links
+- [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md) — the write-free discovery probes
+- [COMMANDS-ROSTER.md](COMMANDS-ROSTER.md) — the roster PDF: raw harvest + monthly edition re-check (#421/#237)
 - [DEPLOYMENT-HOST.md](DEPLOYMENT-HOST.md) § Host maintenance — the disk GC and the slim ollama image (#394); plain bash, not job-harness CLIs
 
 ## Command index
 
-Every operational & backfill CLI, grouped by the reference that documents it. Prod runs the
+Every operational CLI, grouped by the reference that documents it. Prod runs the
 daily/weekly/monthly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server
-Lifecycle); the rest are run-once / ad-hoc. Pair backfills with `USA_WA_BIENNIUM` to target
-a non-current biennium.
+Lifecycle); the rest are ad-hoc. `USA_WA_BIENNIUM` pins the raw harvests and the pipeline's open
+biennium to a non-current one. The canonical tier's refreshes, builders, backfills and one-shot
+migrations were deleted in #412 PR F.
 Pinned both ways against the `run_job` entry points by
 [`scripts/tests/test_command_index_drift.py`](../scripts/tests/test_command_index_drift.py):
 a new CLI with no row, or a row naming a removed one, fails the suite.
@@ -42,7 +42,7 @@ no ledger row.
 | `python -m usa_wa_pipeline.adjudicate` | Merge/unmerge entities / move a key, `--note` mandatory, recorded in `registry.adjudications` (#308) |
 | `python -m usa_wa_pipeline.build_warnings` | The nightly's dbt-warning gate (#412 PR E): reads the build's `run_results.json` (`--run-results`, default `data/target/run_results.json`) and exits 1 naming every node whose status is not `pass`/`success` in `not_clean`. `dbt build` exits 0 on a `warn`, so this is how a chamber vacancy or a ratchet-me-down warning reaches the operator. 4 = no file, no nodes, or a run that was not a `build`. Counted by the nightly, never an abort |
 | `python -m usa_wa_pipeline.coverage_seed` | Reconcile every source's declared coverage claims (#180) into `source_coverage`, which `/sources/{slug}/coverage` serves: get-or-create each declaring source through its adapter's `provisioning`. Idempotent (writes nothing when the claims match); `--dry-run` rolls back. The nightly runs it since #412 PR E disabled the refreshes that used to |
-| `python -m usa_wa_pipeline.registry_coverage` | Write-free, post-registrar: rebuilds both span families from the built duckdb's staging tables (`--db`) and gates `unregistered_spans`/`_orgs`/`_roles` at zero against the registry as the registrar left it; reports `seat_overlaps_unclipped`. Exit 1 names them in `integrity_failures`; 4 = the build holds no sponsors, roster or ballot rows. Split out of `parity_spans`, whose oracle retires (#412 PR B) |
+| `python -m usa_wa_pipeline.registry_coverage` | Write-free, post-registrar: rebuilds both span families from the built duckdb's staging tables (`--db`) and gates `unregistered_spans`/`_orgs`/`_roles` at zero against the registry as the registrar left it; reports `seat_overlaps_unclipped`. Exit 1 names them in `integrity_failures`; 4 = the build holds no sponsors, roster or ballot rows. Split out of `parity_spans` (#412 PR B), deleted with its canonical oracle in PR F |
 | `python -m usa_wa_pipeline.parity_citations` | Write-free coverage probe over the published citations chain, asked of the BUILT duckdb rather than a recomputation. Gated at zero: `orphan_citations` (a citation naming a resource `stg_raw_fetches` does not carry), `uncited_assignments`, `uncited_roles` (**registered** roles only) and `uncited_organizations`. Ratcheted: `uncited_persons` (baseline 2). Counted only: `structural_organizations` (definitional rows no wire attests) and `unregistered_roles` (null `entity_id` — every new seat is one for exactly one build, since the nightly builds before it registers) (#313) |
 | `python -m usa_wa_pipeline.publish` | Publish versioned dataset snapshots + catalog from the built duckdb (#311); exit 1 = refused, nothing minted. Three refusals: a missing table; a row shrink past `--max-shrink` (a degraded build — override only for a verified contraction); and a contract gate (#385) — a dataset's published shape changed while its `schema_version` stood still, or the declared version sits below the published one. The contract refusal is fixed in `publish.PUBLISHED_DATASETS`, not by a flag: append a `ContractRelease` |
 | `python -m usa_wa_api.serving.load` | Published datasets → the disposable Postgres `serving` schema the API reads (#313). Catalog-driven; refuses on a datapackage/table contract break, loading nothing. Nightly, after publish |
@@ -55,7 +55,7 @@ Full options, exit codes and rationale: [COMMANDS-ROSTER.md](COMMANDS-ROSTER.md)
 |---|---|
 | `python -m usa_wa_adapter_legislature.roster_pdf.raw_harvest` | Archive the WA Legislature roster PDF (1889–2025, `usa_wa_legislature_roster`) into the raw store the #302 pipeline stages from — Phase A (#421); on demand, one edition, not a sweep; exit 4 = document unlocatable or a newer edition published. Run `--dry-run --force` monthly by `usa-wa-roster-pdf-recheck.timer` as the edition check (#237) |
 
-### Succession, corroboration, and committee lineage
+### Succession and committee lineage
 
 Full options, exit codes and rationale: [COMMANDS-SUCCESSION.md](COMMANDS-SUCCESSION.md).
 
@@ -73,7 +73,7 @@ Both hold no database credential and write no `job_runs` row (`needs_db=False`).
 | `python -m usa_wa_api.backup.run` | Nightly backup (#434): the database dump to `gs://<bucket>/db/<host>/<stamp>.dump`, verified, with the registry's row counts as metadata, and the raw store's new objects and manifests mirrored under `raw/` — create-only. `--dry-run` dumps, verifies and hashes but uploads nothing. Exit 1 = either half did not ship; 2 = no `USA_WA_BACKUP_BUCKET`, or a misplaced key. Daily on `usa-wa-backup.timer`, sandboxed |
 | `python -m usa_wa_api.backup.restore` | By hand, as root: `--list` the dumps; `--latest --prefix HOST` or `--object KEY` with `--download-only DIR` (fetch + prove) or `--into DB --run-as postgres` (load into an **empty** database, then check schema version, registry row counts and the published crosswalks' ULIDs); `--raw-into DIR` the raw store, `latest.json` rebuilt. Exit 1 = any refusal or failed check |
 
-### Historical backfill and probes
+### Probes
 
 Full options, exit codes and rationale: [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md).
 
@@ -206,60 +206,6 @@ sudo journalctl -u usa-wa -f
 See [DEPLOYMENT.md](DEPLOYMENT.md) § Lifecycle reference for the full unit-by-unit
 restart matrix, and [`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server Lifecycle
 for the `--no-sync` / `uv sync --locked` deploy convention.
-
-## Data refresh (daily)
-
-Prod runs these on systemd timers; the forms below are the ad-hoc / backfill
-surface. Pair with `USA_WA_BIENNIUM` to target a non-current biennium.
-
-```bash
-# WSL refresh — one-shot pull from CommitteeService.GetActiveCommittees, plus an additive
-# current-biennium meeting-window pull for Joint/Other discovery (#39). Prod runs this daily at
-# 06:00 UTC via usa-wa-wsl-refresh.timer; the form below is the manual / backfill one (pair with
-# USA_WA_BIENNIUM). Also drives the member cluster: forced GetSponsors + a per-committee
-# GetCommitteeMembers(current, ...) fan-out (#82), then re-drives BOTH span builders for the
-# current cohort — party/Senate-seat (#78-2c) and committee membership (#82). fill_only (#65 —
-# additive, never clobbers PM-curated rows). Exit 1 = the committees pull reported errors; the
-# work it reached still commits — hence no --dry-run (CR #196).
-python -m usa_wa_adapter_legislature.refresh
-
-# Each daily cycle is TWO jobs since #201 — archive (adapter, Phase A) then rebuild (fact, Phase
-# B) — one unit each. Flag semantics across the halves: COMMANDS-SEATS.md § Archive vs rebuild.
-
-# PDC cohort ARCHIVE (#201 Phase A) — archives every winner cohort the current biennium's
-# membership can be decided by (#121: both House generals + the three senate-winners:<Y>), each in
-# its own SAVEPOINT (a transient Socrata failure skips one cohort; a raceless year is an empty
-# cohort, a success), forced past the TTL. usa-wa-pdc-archive-refresh.service, pulled in by the
-# rebuild below. USA_WA_PDC_APP_TOKEN (optional). Exit 4 = every cohort unserved.
-python -m usa_wa_adapter_pdc.archive_refresh
-
-# PDC refresh (#69 + #75; IDENTIFIER-ONLY since #101, REBUILD-ONLY since #201) — re-drives
-# build_pdc_spans scoped to the current biennium off that archive, emitting the person_wa_pdc
-# cross-source links (House winners + #74 movers + #75 Senate). The House Position SEAT is the
-# WSL+SOS builder's (usa-wa-sos-refresh, below), usa_wa_legislature-sourced (#101). Prod runs this
-# daily at 06:30 UTC (after the WSL refresh) via usa-wa-pdc-refresh.timer.
-python -m usa_wa_facts_seats.pdc.refresh
-
-# SOS results ARCHIVE (#201 Phase A) — archives the current biennium's results cohorts
-# (sos-legresults:<YYYYMMDD>: even seating + odd mid-biennium special, #106), SAVEPOINT-guarded and
-# forced. usa-wa-sos-archive-refresh.service. Exit 4 = every cohort unserved.
-python -m usa_wa_adapter_sos.results.archive_refresh
-
-# SOS refresh (#101; REBUILD-ONLY since #201) — the daily driver of the WSL+SOS House
-# state_representative Position seat: re-drives build_house_position_spans scoped to the current
-# biennium -> usa_wa_legislature Position seat spans (current biennium = the open end), reading the
-# WSL sponsor archive (who sits) + the SOS archive (the Position). Prod runs this daily at 06:45
-# UTC (after the WSL refresh) via usa-wa-sos-refresh.timer; independent of the PDC refresh.
-python -m usa_wa_facts_seats.house.refresh
-```
-
-The seat-fact historical backfills those daily rebuilds re-drive — the PDC winner
-cohorts (#79) and the WSL+SOS House Position seat (#101), each with its Phase A /
-Phase B / migration sequence — are in
-[COMMANDS-SEATS.md](COMMANDS-SEATS.md).
-Which half of each daily cycle a flag governs — `--force`, `USA_WA_BIENNIUM`,
-`--dry-run`, failure semantics — is there too:
-[§ Archive vs rebuild](COMMANDS-SEATS.md#archive-vs-rebuild--which-half-each-flag-governs-201).
 
 ## Submodules
 

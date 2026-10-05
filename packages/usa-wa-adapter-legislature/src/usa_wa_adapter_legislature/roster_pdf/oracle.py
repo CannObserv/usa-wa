@@ -1,10 +1,10 @@
 """The pre-1991 roster build's acceptance oracle (#233, #267).
 
-Pure checks the build runs before any write: the identity partition is exact, no member
+Pure checks the build runs on its inputs: the identity partition is exact, no member
 sits on two Senate seats in one session year, and no overlay-synthesized span is emitted
-as if the edition attested it. The #302 pipeline runs the same checks on the same inputs,
-so they left :mod:`usa_wa_adapter_legislature.roster_pdf.build`, the Postgres write path
-#412 PR F deletes.
+as if the edition attested it. The #302 pipeline runs them, so they left
+``usa_wa_adapter_legislature.roster_pdf.build``, the Postgres write path deleted in
+#412 PR F.
 """
 
 from __future__ import annotations

@@ -2,7 +2,7 @@
 
 The row builder behind the ``seat_winners`` model. It exists for one consumer:
 ``dbt/tests/assignments_odd_year_winners_seated.sql``, the port of the House
-and Senate odd-year corroboration units, which read canonical and retire. That
+and Senate odd-year corroboration units, which read canonical and retired with it. That
 check is a join — a winner's seat against the spans that hold it — and SQL
 cannot pick a winner out of ``stg_sos_results`` without re-parsing its race
 labels, which this repo's rule forbids keying on (three audited House label

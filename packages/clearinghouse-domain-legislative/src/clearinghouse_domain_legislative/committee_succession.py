@@ -21,8 +21,8 @@ Each event carries exactly one linked entity (PM's constraint), so a multi-way r
 attested pairwise. ``effective_year`` is the optional boundary year (``succeeded_by`` is
 year-optional in PM).
 
-Backed by the shared ``usa_wa_operator`` provenance ``Source`` (as #107): every write
-appends a hashed ``FetchEvent`` + ``RawPayload`` (integrity-sweep covered, #54).
+Archived under the shared ``usa_wa_operator`` source (as #107): every write stores the
+serialized event in the raw store under its sha256 (integrity-sweep covered, #54).
 Corrections **append** a new row and stamp the prior one's ``superseded_by_id`` —
 provenance is never mutated. A re-link correction (wrong successor) is a supersede whose
 producer effect is create-new + retract-old (power-map#322).
@@ -39,8 +39,8 @@ from clearinghouse_core.db.ulid import ULID
 from clearinghouse_core.models import Base, TimestampMixin
 
 # SCHEMA + _new_ulid are defined locally per the domain-model convention (mirrors
-# operator_events.py / bills.py) so the module owns its table placement. ``registry``
-# beside the operator events (#412 Q1): curated human input that outlives the canonical tier.
+# operator_events.py) so the module owns its table placement. ``registry`` beside the
+# operator events (#412 Q1): curated human input that outlived the canonical tier.
 SCHEMA = "registry"
 
 
@@ -48,7 +48,7 @@ def _new_ulid() -> _ULID:
     return _ULID()
 
 
-#: Provenance source slug — shared with #107 operator events (the same operator identity).
+#: Source slug — shared with #107 operator events (the same operator identity).
 OPERATOR_SOURCE_SLUG = "usa_wa_operator"
 
 #: Succession relation slugs — mirror PM's org linked-entity event catalog (power-map#321).

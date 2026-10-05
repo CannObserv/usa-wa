@@ -142,7 +142,7 @@ class Citation(ServingBase):
     """One entity ↔ one raw resource that attests it (#313).
 
     The successor to the Postgres ``Citation`` chain, and the reason
-    ``/provenance/{type}/{id}`` survives the provenance tables retiring. The
+    ``/provenance/{type}/{id}`` survived the provenance tables retiring (#412 PR F). The
     whole row is the key — the artifact is a deduplicated set, so there is no
     surrogate id to invent and nothing a narrower PK would protect.
 

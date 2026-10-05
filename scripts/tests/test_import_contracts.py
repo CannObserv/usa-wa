@@ -66,12 +66,12 @@ def test_the_facts_transport_contract_carries_no_exceptions():
 
     `house/refresh.py` and `pdc/refresh.py` each ran a source's Phase-A harvest (live client)
     *and* rebuilt the fact from the resulting archive; only the second half is a fact. The
-    archive half moved to the adapters (`…results.archive_refresh`, `…pdc.archive_refresh`), so
-    the contract now holds unaided. An exception is the cheapest way to re-weld a fact to a
-    single source — the failure the 2026-07 votewa outage taught — and the previous pair carried
-    a *false* provenance claim ("tracked as the follow-on named in MODULES-FACTS-SEATS.md",
-    which said no such thing) for two releases. Adding one back must be a deliberate act that
-    fails here, not a line in a table nobody re-reads.
+    archive half moved to the adapters (`…results.archive_refresh`, `…pdc.archive_refresh`,
+    both deleted in #412 PR F), so the contract now holds unaided. An exception is the cheapest
+    way to re-weld a fact to a single source — the failure the 2026-07 votewa outage taught —
+    and the previous pair carried a *false* provenance claim ("tracked as the follow-on named
+    in MODULES-FACTS-SEATS.md", which said no such thing) for two releases. Adding one back
+    must be a deliberate act that fails here, not a line in a table nobody re-reads.
     """
     contract = next(
         c
@@ -85,7 +85,7 @@ def test_the_facts_transport_contract_carries_no_exceptions():
 
 
 def test_the_tier_contract_follows_indirect_imports():
-    """#412 PR F deletes the write path, so a chain through any module counts as much as a
+    """#412 PR F deleted the write path, so a chain through any module counts as much as a
     direct import: the pipeline reached ``span_emit`` only through ``roster_pdf.build``.
     ``allow_indirect_imports`` would let exactly that chain back in, and so would an
     exception, which is the cheapest way to make a violation "go away"."""

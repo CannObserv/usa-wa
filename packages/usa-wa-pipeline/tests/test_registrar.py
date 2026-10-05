@@ -238,7 +238,7 @@ def _job_context(db_session, db_path: str) -> JobContext:
 
 
 def test_org_natural_keys_are_every_staged_committee_plus_the_structural_orgs(tmp_path) -> None:
-    """The org universe the canonical tier holds, derived in the pipeline:
+    """The org universe the canonical tier held, derived in the pipeline:
     CommitteeService committees, the meeting-ref-only Joint/Other bodies no
     CommitteeService op carries (committee 36500 on 2026-09-22), and the
     synthesized structural orgs no wire carries at all."""
@@ -306,8 +306,8 @@ def test_a_sponsor_id_that_is_not_numeric_is_never_a_key(tmp_path) -> None:
 
 def test_a_malformed_sponsor_id_is_named_not_dropped(tmp_path) -> None:
     """#403 CR 5: CR 40's rule — nothing the registrar skips may vanish
-    silently. `person_missing` is no backstop: `parity-registry` diffs the
-    canonical tier, which retires. A NULL is reported too, not crashed on
+    silently. `person_missing` was no backstop: `parity-registry` diffed the
+    canonical tier, which retired. A NULL is reported too, not crashed on
     (CR 53's shape): `not_null` guards the nightly only by ordering."""
     db_path = str(tmp_path / "s.duckdb")
     con = duckdb.connect(db_path)

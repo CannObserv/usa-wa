@@ -18,7 +18,7 @@ Two objects, and the seam between them is the design decision:
 * :class:`CoverageClaim` — the **declaration**. A frozen dataclass, pure Python, no
   database. Each adapter package declares its sources' claims in its own ``coverage.py``.
 * :class:`SourceCoverage` — the **table**. :func:`seed_source_coverage` writes the declared
-  claims against a ``Source`` row so the coverage is queryable next to the provenance it
+  claims against a ``Source`` row so the coverage is queryable next to the feed it
   describes.
 
 **Why the constants derive from the declaration rather than from a query.** Most of the
@@ -204,7 +204,7 @@ class SourceCoverage(Base, TimestampMixin):
     """What one :class:`~clearinghouse_core.sources.Source` covers on one dimension.
 
     Seeded from the declared :class:`CoverageClaim` set by :func:`seed_source_coverage`, so
-    the audit's output lands next to the provenance it describes and "what do we actually
+    the audit's output lands next to the feed it describes and "what do we actually
     cover?" is a query rather than a grep through adapter comments.
 
     A source holds one row per (dimension, range_start), which is what lets a served span
