@@ -15,10 +15,10 @@
 
 App-role DML (writes ``registry.operator_events``; the attestation lands in the raw store under
 ``usa_wa_operator`` once the transaction commits); shell access is the trust boundary. Validates
-that ``member_id`` is a registered WSL member before writing (a typo would otherwise be a silent
-no-op overlay). ``--dry-run`` rolls back. The nightly pipeline applies each event as an
-authoritative overlay on its next build; provenance is append-only, corrections via
-``--supersede``.
+that ``member_id`` is a registered WSL member, and a committee seat's id a registered committee,
+before writing (a typo would otherwise be a silent no-op overlay). ``--dry-run`` rolls back. The
+nightly pipeline applies each event as an authoritative overlay on its next build; provenance is
+append-only, corrections via ``--supersede``.
 """
 
 from __future__ import annotations
@@ -136,7 +136,7 @@ async def _is_registered_member(session: AsyncSession, member_id: str) -> bool:
 async def validate_and_record(
     session: AsyncSession, spec: EventSpec, *, raw: PendingAttestations
 ) -> OperatorEvent:
-    """Validate ``spec`` (shape + member existence) and persist it; return the row.
+    """Validate ``spec`` (shape, member, committee seat) and persist it; return the row.
 
     A ``supersede_id`` records a correction of that prior event — a new date, or a
     reclassification within endings (``departed`` <-> ``vacated``, #363). Raises
