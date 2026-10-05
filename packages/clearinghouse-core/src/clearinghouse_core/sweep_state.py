@@ -42,6 +42,14 @@ class IntegritySweepState(Base, TimestampMixin):
     second stream without a schema change.
     """
 
+    # Retired tier (#412 PR F) — see the domain package's tests/test_declared_tier.py.
+    __implementation_status__ = "retired"
+    __implementation_tracking_issues__ = (412,)
+    __implementation_rationale__ = (
+        "Its writer was the Postgres RawPayload sweep, which PR C replaced with the raw-store "
+        "sweep and PR F deleted; the table drops with the provenance tables."
+    )
+
     __tablename__ = "integrity_sweep_state"
     __table_args__ = (
         UniqueConstraint("scope", name="uq_integrity_sweep_state_scope"),

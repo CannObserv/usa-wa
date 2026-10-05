@@ -90,6 +90,7 @@ OPEN_TRACKING_ISSUES = {
     67: "WSL committee activity + legislation-detail cluster",
     194: "Declared tier: 12 tables with no producer and no implementation issue",
     314: "PM sync cutover: retire the sidecar, its schema and the pm_* anchors",
+    412: "Retire the Postgres canonical tier: delete the write path, drop its tables",
 }
 
 #: Packages excluded from the producer scan.

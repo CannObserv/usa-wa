@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from usa_wa_adapter_legislature.roster_pdf.cohort import extract_pages
+from usa_wa_adapter_legislature.roster_pdf.extraction import extract_pages
 from usa_wa_adapter_legislature.roster_pdf.normalize import (
     PARTY_TOKENS,
     PageWords,

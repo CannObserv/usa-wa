@@ -5,7 +5,6 @@ from __future__ import annotations
 from sqlalchemy import select
 
 from clearinghouse_core.source_coverage import CoverageStatus, SourceCoverage, known_gaps
-from usa_wa_adapter_legislature.coverage import SPONSOR_ROSTER_COVERAGE
 from usa_wa_adapter_sos.coverage import (
     SOS_FILINGS_COVERAGE,
     SOS_FILINGS_ELECTION_YEARS,
@@ -13,11 +12,8 @@ from usa_wa_adapter_sos.coverage import (
     SOS_RESULTS_COVERAGE,
     SOS_RESULTS_ELECTION_YEARS,
 )
-from usa_wa_adapter_sos.filings.harvest import DEFAULT_ELECTION_CEILING, DEFAULT_ELECTION_FLOOR
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source, get_or_create_source
-from usa_wa_adapter_sos.results.harvest import DEFAULT_ELECTION_FLOOR as RESULTS_FLOOR
 from usa_wa_common.jurisdiction import resolve_jurisdiction
-from usa_wa_facts_seats.house_corroboration import SWEEP_FLOOR_YEAR
 
 
 def test_the_votewa_retirement_is_an_absent_claim_not_prose():
@@ -42,25 +38,6 @@ def test_the_results_feed_has_no_gap():
     assert SOS_RESULTS_ELECTION_YEARS.status == CoverageStatus.verified
     assert SOS_RESULTS_ELECTION_YEARS.range_end is None
     assert known_gaps(SOS_RESULTS_COVERAGE) == ()
-
-
-def test_the_filings_bounds_are_the_claim():
-    """#169's ceiling constant and the harvest floor are two ends of one claim, not two
-    independent constants that have to be kept in step by hand."""
-    assert DEFAULT_ELECTION_FLOOR == SOS_FILINGS_ELECTION_YEARS.floor_year == 2008
-    assert DEFAULT_ELECTION_CEILING == SOS_FILINGS_ELECTION_YEARS.ceiling_year == 2018
-
-
-def test_the_results_floor_is_the_claim():
-    assert RESULTS_FLOOR == SOS_RESULTS_ELECTION_YEARS.floor_year == 2008
-
-
-def test_the_house_sweep_floor_comes_from_the_wsl_claim_not_a_local_copy():
-    """``SWEEP_FLOOR_YEAR = 1991`` was declared identically in this package and in
-    ``usa_wa_adapter_legislature.operators.invariants``, both meaning "the WSL sponsor-archive
-    floor". The duplicate is gone: this reads the WSL claim, so a re-audit of that feed moves
-    both sweeps at once."""
-    assert SWEEP_FLOOR_YEAR == SPONSOR_ROSTER_COVERAGE.floor_year == 1991
 
 
 async def test_provisioning_seeds_both_sos_feeds(db_session, usa_wa):

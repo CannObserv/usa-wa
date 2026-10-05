@@ -28,6 +28,14 @@ def _new_ulid() -> _ULID:
 class LegislativeSession(Base, TimestampMixin):
     """A regular or special session of a legislature."""
 
+    # Retired tier (#412 PR F) — see the domain package's tests/test_declared_tier.py.
+    __implementation_status__ = "retired"
+    __implementation_tracking_issues__ = (412,)
+    __implementation_rationale__ = (
+        "Its writer was the WSL bootstrap, deleted with the canonical write path; the table "
+        "drops with the canonical schema."
+    )
+
     __tablename__ = "legislative_sessions"
     __table_args__ = (
         UniqueConstraint("source", "source_id", name="uq_legislative_sessions_natural_key"),

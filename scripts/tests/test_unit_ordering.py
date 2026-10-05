@@ -34,7 +34,6 @@ from systemd_units import (
     parse_seconds,
     parse_unit_deps,
     unit_value,
-    unit_values,
 )
 
 # Intended dependency graph, encoded as data. After=/Before=/OnFailure= are
@@ -64,66 +63,10 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": set(),
     },
-    "usa-wa-wsl-refresh.service": {
-        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
-        "Before": set(),
-        "OnFailure": NOTIFY,
-    },
-    # PDC cohort ARCHIVE refresh (#201) — the Phase-A half the fact rebuild used to run
-    # in-process. Sources only (Socrata → RawPayload), so it needs no WSL predecessor; it is
-    # pulled in and ordered by the rebuild unit below, not by a timer of its own.
-    # Nightly #302 dataset pipeline (#311): harvests → dbt → registrar → publish →
-    # parity. Ordered after the canonical refreshes (best-effort, no Wants=) because
-    # the parity probes at its tail compare against the same-day canonical oracle.
-    # The nightly pipeline ordered After the three canonical refreshes while they were its
-    # parity oracle. #412 PR E disabled them and retired the oracle probes, so it orders
-    # after nothing of theirs: a leftover edge would only delay it behind a dead unit
-    # someone started by hand.
+    # Nightly #302 dataset pipeline (#311): harvests → dbt → registrar → publish → probes.
+    # It ordered After the three canonical refreshes while they were its parity oracle;
+    # #412 PR E retired the oracle probes and PR F deleted the refreshes.
     "usa-wa-pipeline.service": {
-        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
-        "Before": set(),
-        "OnFailure": NOTIFY,
-    },
-    "usa-wa-pdc-archive-refresh.service": {
-        "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
-        "Before": set(),
-        "OnFailure": NOTIFY,
-    },
-    # PDC refresh (#69) binds Position onto the WSL House Persons, so it additionally
-    # orders After the WSL refresh (best-effort; a missing predecessor just leaves an
-    # unmatched winner logged, not wedged). Since #201 it is the REBUILD half only, and
-    # additionally orders After its archive half (Wants=, not Requires= — see
-    # test_archive_half_is_wanted_never_required).
-    "usa-wa-pdc-refresh.service": {
-        "After": {
-            "network-online.target",
-            "postgresql.service",
-            "usa-wa-migrate.service",
-            "usa-wa-wsl-refresh.service",
-            "usa-wa-pdc-archive-refresh.service",
-        },
-        "Before": set(),
-        "OnFailure": NOTIFY,
-    },
-    # SOS refresh (#101) drives the WSL+SOS House Position seat, reading the sitting
-    # roster from the WSL sponsor archive + binding to the WSL House Persons, so it
-    # additionally orders After the WSL refresh (best-effort; a missing predecessor
-    # just leaves an unmatched member logged, not wedged). Independent of the PDC
-    # refresh (PDC is identifier-only since #101).
-    "usa-wa-sos-refresh.service": {
-        "After": {
-            "network-online.target",
-            "postgresql.service",
-            "usa-wa-migrate.service",
-            "usa-wa-wsl-refresh.service",
-            "usa-wa-sos-archive-refresh.service",
-        },
-        "Before": set(),
-        "OnFailure": NOTIFY,
-    },
-    # SOS results ARCHIVE refresh (#201) — the Phase-A half. Sources only (votewa →
-    # RawPayload); no WSL predecessor, no timer of its own.
-    "usa-wa-sos-archive-refresh.service": {
         "After": {"network-online.target", "postgresql.service", "usa-wa-migrate.service"},
         "Before": set(),
         "OnFailure": NOTIFY,
@@ -154,62 +97,6 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
         "Before": set(),
         "OnFailure": NOTIFY,
     },
-    # Daily succession invariant check (#107): after the three refreshes rebuild the current
-    # cohort, assert chamber counts + seat occupancy. Read-only; exit 1 → notify handler.
-    "usa-wa-succession-invariants.service": {
-        "After": {
-            "network.target",
-            "postgresql.service",
-            "usa-wa-migrate.service",
-            "usa-wa-wsl-refresh.service",
-            "usa-wa-pdc-refresh.service",
-            "usa-wa-sos-refresh.service",
-        },
-        "Before": set(),
-        "OnFailure": NOTIFY,
-    },
-    # Daily Senate odd-year ballot corroboration (#123): after the WSL + SOS refreshes rebuild
-    # the open Senate cohort + archive the odd results cohort, cite elected senators (2a) and
-    # assert no odd-year winner lacks an open seat (2b). App-role DML (idempotent Citation
-    # insert); exit 1 on a missing winner → notify handler.
-    "usa-wa-senate-corroboration.service": {
-        "After": {
-            "network.target",
-            "postgresql.service",
-            "usa-wa-migrate.service",
-            "usa-wa-wsl-refresh.service",
-            "usa-wa-sos-refresh.service",
-        },
-        "Before": set(),
-        "OnFailure": NOTIFY,
-    },
-    # Daily House odd-year special-winner corroboration (#149): after the WSL + SOS refreshes
-    # rebuild the open House Position cohort + archive the odd results cohort, assert no odd-year
-    # House special winner lacks an open state_representative Position seat (the LD30/Hickel shape).
-    # Read-only (no citation half); exit 1 on a missing winner seat → notify handler.
-    "usa-wa-house-corroboration.service": {
-        "After": {
-            "network.target",
-            "postgresql.service",
-            "usa-wa-migrate.service",
-            "usa-wa-wsl-refresh.service",
-            "usa-wa-sos-refresh.service",
-        },
-        "Before": set(),
-        "OnFailure": NOTIFY,
-    },
-    # Daily committee lineage invariant check (#124): after the WSL refresh + migrate settle
-    # the committee cohort, assert dissolved-coherence + succession. Read-only; exit 1 → notify.
-    "usa-wa-committee-lineage-invariants.service": {
-        "After": {
-            "network.target",
-            "postgresql.service",
-            "usa-wa-migrate.service",
-            "usa-wa-wsl-refresh.service",
-        },
-        "Before": set(),
-        "OnFailure": NOTIFY,
-    },
     # Monthly roster-PDF edition re-check (#237): the roster harvest run `--dry-run --force`,
     # which fetches the document, verifies its stamp and archives nothing. Egress to
     # leg.wa.gov, so network-online; no refresh predecessor — it reads no cohort. Exit 4 on a
@@ -236,22 +123,11 @@ EXPECTED: dict[str, dict[str, set[str]]] = {
     "usa-wa-notify-failure@.service": {"After": set(), "Before": set(), "OnFailure": set()},
     # Timers carry their schedule in [Timer]; no [Unit] ordering by design.
     "usa-wa-disk-gc.timer": {"After": set(), "Before": set(), "OnFailure": set()},
-    "usa-wa-wsl-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-pipeline.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-backup.timer": {"After": set(), "Before": set(), "OnFailure": set()},
-    "usa-wa-pdc-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
-    "usa-wa-sos-refresh.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-integrity-sweep.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-roster-pdf-recheck.timer": {"After": set(), "Before": set(), "OnFailure": set()},
     "usa-wa-wsl-availability-probe.timer": {"After": set(), "Before": set(), "OnFailure": set()},
-    "usa-wa-succession-invariants.timer": {"After": set(), "Before": set(), "OnFailure": set()},
-    "usa-wa-senate-corroboration.timer": {"After": set(), "Before": set(), "OnFailure": set()},
-    "usa-wa-house-corroboration.timer": {"After": set(), "Before": set(), "OnFailure": set()},
-    "usa-wa-committee-lineage-invariants.timer": {
-        "After": set(),
-        "Before": set(),
-        "OnFailure": set(),
-    },
 }
 
 
@@ -397,45 +273,6 @@ def test_parse_seconds_handles_systemd_forms():
     assert parse_seconds("2h") == 7200
     with pytest.raises(ValueError):
         parse_seconds("5furlongs")  # unrecognized unit fails loudly, not silently
-
-
-#: The #201 archive/rebuild split, as unit topology: each timer still fires the REBUILD unit,
-#: which pulls its Phase-A archive unit in with ``Wants=`` and orders itself ``After=`` it.
-ARCHIVE_CHAIN = {
-    "usa-wa-sos-refresh.service": "usa-wa-sos-archive-refresh.service",
-    "usa-wa-pdc-refresh.service": "usa-wa-pdc-archive-refresh.service",
-}
-
-
-@pytest.mark.parametrize(("rebuild", "archive"), sorted(ARCHIVE_CHAIN.items()))
-def test_archive_half_is_wanted_never_required(rebuild, archive):
-    """``Wants=``, deliberately, not ``Requires=``/``BindsTo=`` (#201).
-
-    The rebuild is archive-first: on a source outage it must still re-derive the fact from the
-    **last good** archive — the seat keeps tracking the WSL roster, which does not depend on
-    votewa/Socrata at all. ``Requires=`` would cancel the rebuild when its archive half failed,
-    freezing the fact on a source problem and hiding it behind one alert instead of two. The
-    archive half raises its own ``OnFailure=``, so a failure is never silent.
-    """
-    path = DEPLOY / rebuild
-    wants = {token for value in unit_values(path, "Unit", "Wants") for token in value.split()}
-    hard = {
-        token
-        for key in ("Requires", "BindsTo", "Requisite")
-        for value in unit_values(path, "Unit", key)
-        for token in value.split()
-    }
-    after, _before, _on_failure = parse_unit_deps(path)
-
-    assert archive in wants, f"{rebuild} does not pull in {archive}"
-    assert archive not in hard, (
-        f"{rebuild} hard-depends on {archive}: a source outage would cancel the rebuild "
-        "instead of letting it re-derive from the last good archive"
-    )
-    assert archive in after, f"{rebuild} does not order itself after {archive}"
-    # The archive half is pulled in by the rebuild, not scheduled independently: a second timer
-    # would decouple the two halves' cadences and re-introduce a race the ordering removes.
-    assert not (DEPLOY / archive.replace(".service", ".timer")).exists()
 
 
 def test_every_unit_has_an_expected_entry():

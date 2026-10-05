@@ -161,17 +161,18 @@ def test_contracts_are_currently_kept():
             "Facts depend on cohort interfaces, never on a transport",
         ),
         # The pipeline reaching a Postgres writer directly (#412 PR D) — the shape
-        # conformed.spans had with roster_pdf.build.
+        # conformed.spans had with roster_pdf.build. PR F deleted that builder; the operator
+        # store is the writer the list still names.
         (
             "packages/usa-wa-pipeline/src/usa_wa_pipeline/_contract_probe.py",
-            "from usa_wa_adapter_legislature.roster_pdf import build  # noqa: F401",
+            "from usa_wa_adapter_legislature.operators import store  # noqa: F401",
             TIER_CONTRACT,
         ),
-        # ... and through a module that is not itself forbidden: the member normalizer is
-        # not on the list, but it imports the Postgres adapter base, so the chain counts.
+        # ... and through a module that is not itself forbidden: the operator CLI is not on
+        # the list, but it imports the store, so the chain counts.
         (
             "packages/usa-wa-pipeline/src/usa_wa_pipeline/_contract_probe_indirect.py",
-            "from usa_wa_adapter_legislature.normalize import members  # noqa: F401",
+            "from usa_wa_adapter_legislature.operators import cli  # noqa: F401",
             TIER_CONTRACT,
         ),
         # Vocabulary reaching down into a source — how the first shared kernel formed.

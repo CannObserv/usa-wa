@@ -332,6 +332,14 @@ class Assignment(Base, TimestampMixin, LifecycleMixin):
 class PersonIdentifier(Base, TimestampMixin):
     """External-ID mapping per Person — bioguide, LIS, FollowTheMoney, etc."""
 
+    # Retired tier (#412 PR F) — see the domain package's tests/test_declared_tier.py.
+    __implementation_status__ = "retired"
+    __implementation_tracking_issues__ = (412,)
+    __implementation_rationale__ = (
+        "Its writer was the WSL member normalizer, deleted with the canonical write path; "
+        "the table drops with the canonical schema."
+    )
+
     __tablename__ = "person_identifiers"
     __table_args__ = (
         UniqueConstraint("source", "source_id", name="uq_person_identifiers_natural_key"),

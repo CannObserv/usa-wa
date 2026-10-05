@@ -42,8 +42,9 @@ def job_modules() -> set[str]:
 
 
 def test_the_scan_found_the_fleet() -> None:
-    """A guard over an empty scan passes for the wrong reason."""
-    assert len(job_modules()) >= 40
+    """A guard over an empty scan passes for the wrong reason. 21 since #412 PR F deleted
+    the canonical tier's refreshes, builders and backfills (~47 before)."""
+    assert len(job_modules()) >= 20
 
 
 def test_every_job_has_an_index_row() -> None:

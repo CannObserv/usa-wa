@@ -47,12 +47,8 @@ from _job_scan import run_job_keyword as _run_job_keyword
 #: The alternative for any entry here is ``run_job(..., dry_run=False)``, which removes
 #: the flag outright. That is the better answer the day one of these grows a write.
 READ_ONLY = {
-    "usa_wa_adapter_legislature/committees/lineage_invariants.py": "daily invariant check",
-    "usa_wa_adapter_legislature/committees/lineage_suggest.py": "advisory; suggestions only",
     "usa_wa_adapter_legislature/committees/probe_extent.py": "needs_db=False WSL probe",
-    "usa_wa_adapter_legislature/operators/invariants.py": "read-only succession check",
     "usa_wa_adapter_legislature/sponsors/probe_identity.py": "needs_db=False WSL probe",
-    "usa_wa_facts_seats/house_corroboration.py": "report-only unless --strict",
 }
 
 
@@ -86,8 +82,8 @@ def _honesty(path: Path) -> tuple[str, str]:
 
 
 def test_the_scan_found_the_fleet() -> None:
-    """A guard over an empty glob passes for the wrong reason."""
-    assert len(_jobs()) >= 40, "the entry-point scan found almost nothing"
+    """A guard over an empty glob passes for the wrong reason. 21 since #412 PR F."""
+    assert len(_jobs()) >= 20, "the entry-point scan found almost nothing"
 
 
 @pytest.mark.parametrize("path", _jobs(), ids=_relative)

@@ -33,43 +33,19 @@ no ledger row.
 
 | Command | Purpose |
 |---|---|
-| `python -m usa_wa_adapter_legislature.refresh` | Daily WSL pull — committees + meeting window + member cluster |
-| `python -m usa_wa_adapter_pdc.archive_refresh` | Daily PDC winner-cohort archive — Phase A of the PDC cycle (#201); exit 4 = every cohort unserved |
-| `python -m usa_wa_facts_seats.pdc.refresh` | Daily PDC rebuild — `person_wa_pdc` identifier links off the archive (#69; identifier-only since #101, rebuild-only since #201) |
-| `python -m usa_wa_adapter_sos.results.archive_refresh` | Daily SOS results archive — Phase A of the SOS cycle (#201); exit 4 = every cohort unserved |
-| `python -m usa_wa_facts_seats.house.refresh` | Daily House Position rebuild — the WSL+SOS span builder off the archive (#101; rebuild-only since #201) |
 | `python -m usa_wa_adapter_legislature.raw_harvest` | Daily WSL SOAP set + member fan-out into the #302 raw file store (#304; no DB reads); `--root`, `--ttl-days` |
 | `python -m usa_wa_adapter_pdc.raw_harvest` | Winner-cohort wires into the raw file store (#304); exit 4 = whole-source outage |
 | `python -m usa_wa_adapter_sos.raw_harvest` | Filings + results wires into the raw file store (#304), both SOS sources one run. Exit 4 = a source landed nothing, **unless it is named in `ACCEPTED_OUTAGES`** — a known upstream outage exits 0 while still logging `sos_raw_harvest_accepted_outage` with its issue. An accepted source that RECOVERS exits 4 as `stale_acceptances`, which is what forces the entry's removal (#333) |
 | `python -m clearinghouse_core.raw_integrity` | Raw-store integrity sweep — re-hash file objects vs manifests, rolling byte-slice + cursor (#304; weekly since #412); exit 1 = corruption, and with `--expect-objects` (the unit's) exit 4 = a missing or empty store |
-| `python -m clearinghouse_core.raw_export` | Hash-preserving RawPayload corpus export into the raw store (#305); resumable cursor, so safe to re-run, `--reset-cursor`, mismatch = exit 1. Re-run in #412 PR A and PR F, and the recovery for an operator write that exits 4 (committed, raw copy missing) until PR F |
-| `python -m usa_wa_pipeline.parity_wsl` | Write-free parity probe: WSL staging rows vs. canonical Postgres (#306); exit 1 = unexplained divergence. Out of the nightly since #412 PR E, which stopped its canonical oracle refreshing; by hand only until PR F removes it |
-| `python -m usa_wa_pipeline.parity_pdc` | Write-free subset parity: canonical `wa_pdc` links ⊆ staging PDC winners (#307). Out of the nightly since #412 PR E, which stopped its canonical oracle refreshing; by hand only until PR F removes it |
-| `python -m usa_wa_pipeline.registry_seed` | Seed the identity registry from canonical persons/orgs/**roles**, ULIDs preserved (#308, #313); exit 4 = conflicts. **One-shot: run before the first registrar pass** — the registrar mints fresh person/org/role ULIDs for anything unregistered, and PM's #312 anchors break (docs/PIPELINE.md § Identity registry). A re-run no-ops on seeded rows but reports each canonical row born after the seed as a conflict — expected, not a duplicate |
 | `python -m usa_wa_common.seed_jurisdictions` | Assert the locally-owned WA jurisdiction vocabulary into the table (#310); idempotent; strangers reported, never deleted |
 | `python -m usa_wa_pipeline.registrar` | Cluster `proposed_links` (union-find) and apply the registry decision table (#308); also registers every staged WSL sponsor (#403), orgs (staged committees + meeting refs + structural orgs) and roles (the conformed dimension, #313) as singleton clusters; `--dry-run` previews; exit 4 = conflicts or malformed sponsor ids to triage |
 | `python -m usa_wa_pipeline.adjudicate` | Merge/unmerge entities / move a key, `--note` mandatory, recorded in `registry.adjudications` (#308) |
 | `python -m usa_wa_pipeline.build_warnings` | The nightly's dbt-warning gate (#412 PR E): reads the build's `run_results.json` (`--run-results`, default `data/target/run_results.json`) and exits 1 naming every node whose status is not `pass`/`success` in `not_clean`. `dbt build` exits 0 on a `warn`, so this is how a chamber vacancy or a ratchet-me-down warning reaches the operator. 4 = no file, no nodes, or a run that was not a `build`. Counted by the nightly, never an abort |
 | `python -m usa_wa_pipeline.coverage_seed` | Reconcile every source's declared coverage claims (#180) into `source_coverage`, which `/sources/{slug}/coverage` serves: get-or-create each declaring source through its adapter's `provisioning`. Idempotent (writes nothing when the claims match); `--dry-run` rolls back. The nightly runs it since #412 PR E disabled the refreshes that used to |
 | `python -m usa_wa_pipeline.registry_coverage` | Write-free, post-registrar: rebuilds both span families from the built duckdb's staging tables (`--db`) and gates `unregistered_spans`/`_orgs`/`_roles` at zero against the registry as the registrar left it; reports `seat_overlaps_unclipped`. Exit 1 names them in `integrity_failures`; 4 = the build holds no sponsors, roster or ballot rows. Split out of `parity_spans`, whose oracle retires (#412 PR B) |
-| `python -m usa_wa_pipeline.parity_spans` | Write-free parity: conformed tenure spans vs `canonical.assignments` **and** the derived role dimension (key + `role_type`/`name`/`qualifier`) vs `canonical.roles`. Two ratchets (`--baseline`, `--role-baseline`) plus integrity counters gated at zero; a failing run names them in `ratchet_failures`/`integrity_failures` (#309); a role minted after the seed counts as `role_post_seed`, not `role_entity_mismatches` (#402). The `unregistered_*` counters moved to `registry_coverage` (#412 PR B). Out of the nightly since #412 PR E, which stopped its canonical oracle refreshing; by hand only until PR F removes it |
 | `python -m usa_wa_pipeline.parity_citations` | Write-free coverage probe over the published citations chain, asked of the BUILT duckdb rather than a recomputation. Gated at zero: `orphan_citations` (a citation naming a resource `stg_raw_fetches` does not carry), `uncited_assignments`, `uncited_roles` (**registered** roles only) and `uncited_organizations`. Ratcheted: `uncited_persons` (baseline 2). Counted only: `structural_organizations` (definitional rows no wire attests) and `unregistered_roles` (null `entity_id` — every new seat is one for exactly one build, since the nightly builds before it registers) (#313) |
-| `python -m usa_wa_pipeline.parity_registry` | Write-free parity: every canonical row's key maps to its own ULID in the registry (#308); a canonical row minted after the seed counts as `post_seed`, not `mismapped`. Out of the nightly since #412 PR E, which stopped its canonical oracle refreshing; by hand only until PR F removes it |
 | `python -m usa_wa_pipeline.publish` | Publish versioned dataset snapshots + catalog from the built duckdb (#311); exit 1 = refused, nothing minted. Three refusals: a missing table; a row shrink past `--max-shrink` (a degraded build — override only for a verified contraction); and a contract gate (#385) — a dataset's published shape changed while its `schema_version` stood still, or the declared version sits below the published one. The contract refusal is fixed in `publish.PUBLISHED_DATASETS`, not by a flag: append a `ContractRelease` |
 | `python -m usa_wa_api.serving.load` | Published datasets → the disposable Postgres `serving` schema the API reads (#313). Catalog-driven; refuses on a datapackage/table contract break, loading nothing. Nightly, after publish |
-
-### Seat-fact backfills
-
-Full options, exit codes and rationale: [COMMANDS-SEATS.md](COMMANDS-SEATS.md).
-
-| Command | Purpose |
-|---|---|
-| `python -m usa_wa_adapter_pdc.harvest` | Historical PDC winner cohorts — archive-only, Phase A (#79) |
-| `python -m usa_wa_facts_seats.pdc.build_pdc_spans` | Era-matched `person_wa_pdc` identifier links, Phase B (#79; identifier-only since #101) |
-| `python -m usa_wa_facts_seats.pdc.migrate_pdc_spans` | Retire pre-#79 per-biennium PDC House rows onto spans (#79) |
-| `python -m usa_wa_adapter_sos.results.harvest` | Archive WA SOS **results** cohorts (the House Position source, `usa_wa_sos_results`) — Phase A (#101) |
-| `python -m usa_wa_facts_seats.house.build` | WSL+SOS House Position seat spans (2008→present) incl. #103 elimination inference, Phase B (#101) |
-| `python -m usa_wa_facts_seats.house.migrate` | Superseded-collapse (#103) + re-source usa_wa_pdc House rows → usa_wa_legislature (owner role, #101) |
 
 ### Roster PDF
 
@@ -78,9 +54,6 @@ Full options, exit codes and rationale: [COMMANDS-ROSTER.md](COMMANDS-ROSTER.md)
 | Command | Purpose |
 |---|---|
 | `python -m usa_wa_adapter_legislature.roster_pdf.raw_harvest` | Archive the WA Legislature roster PDF (1889–2025, `usa_wa_legislature_roster`) into the raw store the #302 pipeline stages from — Phase A (#421); on demand, one edition, not a sweep; exit 4 = document unlocatable or a newer edition published. Run `--dry-run --force` monthly by `usa-wa-roster-pdf-recheck.timer` as the edition check (#237) |
-| `python -m usa_wa_adapter_legislature.roster_pdf.harvest` | **Superseded by `roster_pdf.raw_harvest` (#421); #412 PR F deletes it.** Archives a roster edition into Postgres only, which the #302 pipeline never reads — do not use to publish a new edition |
-| `python -m usa_wa_adapter_legislature.roster_pdf.backfill` | Roster succession dates → operator events (#226); defers to every existing attestation, `--dry-run` rolls back; exit 4 = nothing resolved |
-| `python -m usa_wa_adapter_legislature.roster_pdf.build` | Pre-1991 roster Persons, party spans and Senate seat spans — Phase B (#228); `--dry-run` rolls back |
 
 ### Succession, corroboration, and committee lineage
 
@@ -89,19 +62,7 @@ Full options, exit codes and rationale: [COMMANDS-SUCCESSION.md](COMMANDS-SUCCES
 | Command | Purpose |
 |---|---|
 | `python -m usa_wa_adapter_legislature.operators.cli` | Record operator succession events — the live interjection surface (#107) |
-| `python -m usa_wa_adapter_legislature.operators.invariants` | Assert chamber counts + seat occupancy; exit 1 on drift (#107; daily) |
-| `python -m usa_wa_facts_seats.senate_corroboration` | Cite elected senators + assert no odd-year Senate winner lacks an open seat; exit 1 on drift (#123; daily) |
-| `python -m usa_wa_facts_seats.house_corroboration` | Assert no odd-year House special winner lacks an open Position seat; `--sweep-biennia` historical audit; exit 1 on drift (#149; daily) |
 | `python -m usa_wa_adapter_legislature.committees.succession_cli` | Record operator committee-succession links — the judgment layer (#124 C2) |
-| `python -m usa_wa_adapter_legislature.committees.lineage_invariants` | Assert committee lineage coherence (INV1/INV2); exit 1 on drift (#124 C4; daily) |
-| `python -m usa_wa_adapter_legislature.committees.lineage_suggest` | Advisory: rank committee succession-candidate pairs (#124 C5) |
-
-### Provenance and integrity
-
-| Command | Purpose |
-|---|---|
-| `python -m clearinghouse_core.integrity` | Provenance integrity sweep — rolling byte-slice (#54/#55); ad-hoc only since #412 PR C moved the weekly unit to `raw_integrity`, removed in PR F |
-| `python -m usa_wa_adapter_legislature.committees.migrate_fetch_baseline` | OWNER-role provenance repair (#64) |
 
 ### Backup and recovery — [RECOVERY.md](RECOVERY.md)
 
@@ -121,17 +82,6 @@ Full options, exit codes and rationale: [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL
 | `python -m usa_wa_adapter_legislature.committees.probe_extent` | Write-free: how much committee history exists (#64) |
 | `python -m usa_wa_adapter_legislature.sponsors.probe_identity [--history]` | Write-free: is the WSL member Id stable (#27/#81) |
 | `python -m usa_wa_adapter_legislature.probe_availability --biennium B [--log PATH] [--until YYYY-MM-DD]` | Write-free (#135): how much of biennium B's rosters WSL serves — `GetSponsors` by chamber, `GetCommittees` (`null` while it faults), committee members — appended to a JSONL log; exit 4 when a count changed **state** — faulting, empty, has rows (the news) — 0 otherwise (growth between published counts is logged only) or past `--until`. `--dry-run` measures without logging. Daily on `usa-wa-wsl-availability-probe.timer` for 2027-28 through 2027-02-28; runbook `docs/RUNBOOK-ROLLOVER.md` |
-| `python -m usa_wa_adapter_legislature.meetings.harvest` | Joint/Other backfill + seed freeze (#39) |
-| `python -m usa_wa_adapter_legislature.committees.ingest_seed` | No-WSL Joint/Other seed loader (#39) |
-| `python -m usa_wa_adapter_legislature.sponsors.harvest` | Historical member backfill — Persons only, Phase A (#77) |
-| `python -m usa_wa_adapter_legislature.sponsors.build` | Merged-span member Assignments, Phase B (#78) |
-| `python -m usa_wa_adapter_legislature.sponsors.migrate_spans` | Collapse stranded party/Senate rows (3-part legacy #78-3 + superseded 4-part #97) onto merged spans (owner role) |
-| `python -m usa_wa_adapter_legislature.membership.harvest` | Historical committee rosters — Persons only, Phase A (#82) |
-| `python -m usa_wa_adapter_legislature.membership.build` | Merged committee-membership spans, Phase B (#82) |
-| `python -m usa_wa_adapter_legislature.membership.migrate_spans` | Retire per-biennium committee rows stranded by deeper spans (#82) |
-| `python -m usa_wa_adapter_legislature.migrate_role_types` | Reclassify generic `member` Roles → PM catalog slugs (`committee_member`/`party_member`) to stop the #110 no-op-gate churn |
-| `python -m usa_wa_adapter_legislature.committees.harvest` | Committee historical backfill, Phase A (sub-project 3) |
-| `python -m usa_wa_adapter_sos.filings.harvest` | Archive WA SOS votewa **filing** cohorts (candidacy metadata, `usa_wa_sos`) — Phase A (#100); closed archive, caps at 2018 (#169) |
 
 ## Setup
 
