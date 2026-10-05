@@ -64,7 +64,8 @@ def upgrade() -> None:
     # The canonical schema whole, CASCADE: 33 tables whose foreign keys point at one
     # another and out at clearinghouse_core.jurisdictions, never in from outside. That was
     # verified before this was written, and it is asserted here rather than assumed: a
-    # CASCADE that found a dependant outside the schema would take it too, silently.
+    # CASCADE that found a dependant outside the schema (a foreign key, a materialized
+    # view in serving) would take it too, silently.
     outside = op.get_bind().execute(sa.text(_OUTSIDE_DEPENDANTS)).scalars().all()
     if outside:
         raise RuntimeError(f"objects outside canonical depend on it: {outside}")
@@ -88,16 +89,54 @@ def upgrade() -> None:
     op.drop_column("jurisdictions", "pm_jurisdiction_id", schema="clearinghouse_core")
 
 
-#: Anything outside ``canonical`` that a CASCADE on the schema would also drop: a foreign
-#: key from another schema's table, or a view over one of its tables.
+#: Anything outside ``canonical`` that a CASCADE on the schema would also drop, read off
+#: ``pg_depend`` rather than ``information_schema`` (whose ``view_table_usage`` omits
+#: materialized views): every normal or auto dependency on a canonical table, type or
+#: function, kept when the dependant lives in another schema — a foreign key from outside,
+#: a view or materialized view over a canonical table, an outside column of a canonical
+#: row type, a trigger or function that names one. A dependant in a catalog this does not
+#: place is reported rather than assumed inside, so the check fails safe.
 _OUTSIDE_DEPENDANTS = """
-SELECT conrelid::regclass::text FROM pg_constraint
- WHERE contype = 'f'
-   AND confrelid IN (SELECT oid FROM pg_class WHERE relnamespace = 'canonical'::regnamespace)
-   AND conrelid NOT IN (SELECT oid FROM pg_class WHERE relnamespace = 'canonical'::regnamespace)
-UNION
-SELECT DISTINCT view_schema || '.' || view_name FROM information_schema.view_table_usage
- WHERE table_schema = 'canonical' AND view_schema <> 'canonical'
+WITH canonical AS (
+    SELECT 'pg_class'::regclass AS classid, oid FROM pg_class
+     WHERE relnamespace = 'canonical'::regnamespace
+    UNION ALL
+    SELECT 'pg_type'::regclass, oid FROM pg_type
+     WHERE typnamespace = 'canonical'::regnamespace
+    UNION ALL
+    SELECT 'pg_proc'::regclass, oid FROM pg_proc
+     WHERE pronamespace = 'canonical'::regnamespace
+)
+SELECT DISTINCT pg_describe_object(d.classid, d.objid, d.objsubid)
+  FROM pg_depend d
+  JOIN canonical c ON c.classid = d.refclassid AND c.oid = d.refobjid
+ WHERE d.deptype IN ('n', 'a')
+   AND coalesce(
+         CASE d.classid
+           WHEN 'pg_class'::regclass THEN
+             (SELECT relnamespace FROM pg_class WHERE oid = d.objid)
+           WHEN 'pg_type'::regclass THEN
+             (SELECT typnamespace FROM pg_type WHERE oid = d.objid)
+           WHEN 'pg_proc'::regclass THEN
+             (SELECT pronamespace FROM pg_proc WHERE oid = d.objid)
+           WHEN 'pg_constraint'::regclass THEN
+             (SELECT r.relnamespace FROM pg_constraint k
+                JOIN pg_class r ON r.oid = k.conrelid WHERE k.oid = d.objid)
+           WHEN 'pg_attrdef'::regclass THEN
+             (SELECT r.relnamespace FROM pg_attrdef a
+                JOIN pg_class r ON r.oid = a.adrelid WHERE a.oid = d.objid)
+           WHEN 'pg_rewrite'::regclass THEN
+             (SELECT r.relnamespace FROM pg_rewrite w
+                JOIN pg_class r ON r.oid = w.ev_class WHERE w.oid = d.objid)
+           WHEN 'pg_trigger'::regclass THEN
+             (SELECT r.relnamespace FROM pg_trigger t
+                JOIN pg_class r ON r.oid = t.tgrelid WHERE t.oid = d.objid)
+           WHEN 'pg_policy'::regclass THEN
+             (SELECT r.relnamespace FROM pg_policy p
+                JOIN pg_class r ON r.oid = p.polrelid WHERE p.oid = d.objid)
+         END,
+         0
+       ) <> 'canonical'::regnamespace
 """
 
 
