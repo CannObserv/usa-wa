@@ -10,6 +10,10 @@ Every write buffers the serialized event for the raw store
 dropped the Postgres ``FetchEvent`` + ``RawPayload`` copy; the raw-store integrity sweep
 covers it (#54). A correction appends a new row and stamps the prior one's
 ``superseded_by_id``; provenance is never mutated.
+
+:func:`is_registered_committee` is the #445 check that a WSL id names a registered
+committee org. It lives here so both entry points that need it — this store's CLI and the
+operator CLI's committee seats — import it from the store rather than from each other.
 """
 
 from __future__ import annotations
