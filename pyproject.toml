@@ -206,7 +206,7 @@ modules = [
 [[tool.importlinter.contracts]]
 # A Layer-4 deployment package doing Layer-3 sourcing: the PM sync sidecar was making
 # live SOAP calls to the Washington State Legislature from four reconcilers and a
-# producer. A sync path depends on the *archive* (a cohort provider), never on a wire.
+# producer. A sync path depends on the *archive*, never on a wire.
 #
 # #314 deleted the offender, and the rule outlives it deliberately. The contract was
 # never about that package — it is about what a deployment may reach for, and the API
@@ -214,10 +214,11 @@ modules = [
 # Layer-4 arrival to rediscover AR-14 the hard way.
 name = "Deployment packages never touch an adapter transport"
 type = "forbidden"
-# Direct imports only. A cohort provider *owns* a transport internally — that is the
-# seam — so following the chain would forbid depending on a provider at all, which is
-# the opposite of the rule. What must not happen is a deployment module naming the
-# transport itself and driving the wire.
+# Direct imports only. An adapter module *owns* its transport internally (a raw harvest
+# drives it; until #412 PR F, a cohort provider did) — that is the seam — so following
+# the chain would forbid depending on an adapter at all, which is the opposite of the
+# rule. What must not happen is a deployment module naming the transport itself and
+# driving the wire.
 allow_indirect_imports = true
 source_modules = ["usa_wa_api"]
 forbidden_modules = [
@@ -228,12 +229,13 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-# Same rule one layer down: a fact composes cohort *interfaces*. Reaching for a
-# transport re-welds the fact to a single source, which is the failure the 2026-07
-# votewa outage taught (ARCHITECTURE.md § sourcing vs application).
-name = "Facts depend on cohort interfaces, never on a transport"
+# Same rule one layer down: a fact composes archived, parsed records — through cohort
+# interfaces until #412 PR F retired them, through the pipeline's staging since.
+# Reaching for a transport re-welds the fact to a single source, which is the failure
+# the 2026-07 votewa outage taught (ARCHITECTURE.md § sourcing vs application).
+name = "Facts and the pipeline never depend on a transport"
 type = "forbidden"
-allow_indirect_imports = true  # as above: a provider legitimately owns its transport
+allow_indirect_imports = true  # as above: an adapter legitimately owns its transport
 # usa_wa_pipeline sits under the same rule (#303): its staging models re-parse
 # the *archive* (raw/ files) through adapter parse functions; driving a wire
 # from a dbt model would put a harvest inside a transform.

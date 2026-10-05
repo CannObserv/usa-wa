@@ -42,7 +42,7 @@ EXPECTED_CONTRACTS = {
     "Layers: core < domain < common < adapter < facts < deployment",
     "No adapter imports a peer adapter",
     "Deployment packages never touch an adapter transport",
-    "Facts depend on cohort interfaces, never on a transport",
+    "Facts and the pipeline never depend on a transport",
     "usa-wa-common is source-free",
     # #412 PR D: what survives the Postgres tier must not reach its write path.
     TIER_CONTRACT,
@@ -74,9 +74,7 @@ def test_the_facts_transport_contract_carries_no_exceptions():
     must be a deliberate act that fails here, not a line in a table nobody re-reads.
     """
     contract = next(
-        c
-        for c in _contracts()
-        if c["name"] == "Facts depend on cohort interfaces, never on a transport"
+        c for c in _contracts() if c["name"] == "Facts and the pipeline never depend on a transport"
     )
     assert not contract.get("ignore_imports"), (
         "the facts→transport contract has exceptions again: "
@@ -178,7 +176,7 @@ def test_contracts_are_currently_kept():
         (
             "packages/usa-wa-facts-seats/src/usa_wa_facts_seats/_contract_probe.py",
             "from usa_wa_adapter_pdc.transport import PDCClient  # noqa: F401",
-            "Facts depend on cohort interfaces, never on a transport",
+            "Facts and the pipeline never depend on a transport",
         ),
         # The pipeline reaching a Postgres writer directly (#412 PR D) — the shape
         # conformed.spans had with roster_pdf.build. PR F deleted that builder; the operator
