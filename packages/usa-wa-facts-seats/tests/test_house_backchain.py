@@ -9,14 +9,16 @@ stops at redistricting era boundaries, at an LD move / tenure gap (via the roste
 
 from __future__ import annotations
 
+from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from clearinghouse_domain_legislative.tenure_spans import Observation
-from usa_wa_adapter_sos.filings.normalize import build_house_filings
+from usa_wa_common.ballot import HousePosition
+from usa_wa_common.names import surname_match_set
+from usa_wa_common.parties import sos_party_slug
 from usa_wa_facts_seats.house.backchain import (
     REDISTRICTING_ERA_START_BIENNIA,
     backchain_house_observations,
 )
 from usa_wa_facts_seats.pdc.matching import build_house_roster
-from usa_wa_facts_seats.pdc.observations import KIND_HOUSE
 
 # 2001-map era bienniums (no redistricting break between them); 2003-04 is the era floor.
 ERA_2001 = ["2003-04", "2005-06", "2007-08", "2009-10"]
@@ -35,12 +37,19 @@ def _sponsor(mid, ld, last, *, party="Democrat", first="Ann"):
 
 
 def _filing(ld, position, ballot_name, *, party="(Prefers Democratic Party)"):
-    return {
-        "RaceName": f"State Representative Pos. {position}",
-        "RaceJurisdictionName": f"Legislative District {ld}",
-        "BallotName": ballot_name,
-        "PartyName": party,
-    }
+    return ld, HousePosition(
+        qualifier=f"Position {position}",
+        name_keys=frozenset(surname_match_set(ballot_name)),
+        party_slug=sos_party_slug(party),
+    )
+
+
+def _house_positions(filings):
+    """``{LD: [HousePosition]}`` — the map a ballot source's ``normalize`` yields."""
+    by_ld = {}
+    for ld, position in filings:
+        by_ld.setdefault(ld, []).append(position)
+    return by_ld
 
 
 def _rosters(spec):
@@ -48,7 +57,7 @@ def _rosters(spec):
 
 
 def _positions(spec):
-    return {b: build_house_filings(filings) for b, filings in spec.items()}
+    return {b: _house_positions(filings) for b, filings in spec.items()}
 
 
 def test_2003_04_is_a_redistricting_era_start():

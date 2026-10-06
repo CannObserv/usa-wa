@@ -40,13 +40,9 @@ packages/
                               whose `Id` also appears in a named Senate row of the same wire is
                               dropped, so the #103 elimination can seat the appointed replacement)
                               and `house_mover_ids` (#145 — that mover set, which the conformed
-                              House passes to the overlay as `movers_by_biennium`). Also the
-                              within-LD `match_house_member` / `find_confirming_senator` primitives
-                              `observations.py` uses
-        observations.py   —   `KIND_HOUSE` (re-exported to `house.projector`) and the #79/#138 PDC
-                              winner projectors `build_house_position_observations` /
-                              `build_senate_identity_links`, which have had no caller outside their
-                              tests since #412 PR F deleted the PDC identifier builder
+                              House passes to the overlay as `movers_by_biennium`). The PDC
+                              winner matchers and the `observations.py` projectors that used them
+                              were deleted in #471, after #412 PR F removed their last caller
 ```
 
 ## Layering rules

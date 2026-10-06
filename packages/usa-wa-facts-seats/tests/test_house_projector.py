@@ -9,11 +9,13 @@ discriminator. Pure — no DB, no session. A member with no resolvable SOS posit
 
 from __future__ import annotations
 
+from clearinghouse_domain_legislative.span_kinds import KIND_HOUSE
 from clearinghouse_domain_legislative.tenure_spans import Observation
-from usa_wa_adapter_sos.filings.normalize import build_house_filings
+from usa_wa_common.ballot import HousePosition
+from usa_wa_common.names import surname_match_set
+from usa_wa_common.parties import sos_party_slug
 from usa_wa_facts_seats.house.projector import build_house_seat_observations
 from usa_wa_facts_seats.pdc.matching import build_house_roster
-from usa_wa_facts_seats.pdc.observations import KIND_HOUSE
 
 BIENNIUM = "2013-14"
 
@@ -31,17 +33,24 @@ def _sponsor(mid, ld, last, *, party="Democrat", first="Ann"):
 
 
 def _filing(ld, position, ballot_name, *, party="(Prefers Democratic Party)"):
-    return {
-        "RaceName": f"State Representative Pos. {position}",
-        "RaceJurisdictionName": f"Legislative District {ld}",
-        "BallotName": ballot_name,
-        "PartyName": party,
-    }
+    return ld, HousePosition(
+        qualifier=f"Position {position}",
+        name_keys=frozenset(surname_match_set(ballot_name)),
+        party_slug=sos_party_slug(party),
+    )
+
+
+def _house_positions(filings):
+    """``{LD: [HousePosition]}`` — the map a ballot source's ``normalize`` yields."""
+    by_ld = {}
+    for ld, position in filings:
+        by_ld.setdefault(ld, []).append(position)
+    return by_ld
 
 
 def test_member_with_sos_filing_yields_positioned_observation():
     roster = build_house_roster([_sponsor(100, 5, "Rivers")])
-    filings = build_house_filings([_filing(5, 1, "Ann Rivers")])
+    filings = _house_positions([_filing(5, 1, "Ann Rivers")])
 
     proj = build_house_seat_observations(roster, filings, biennium=BIENNIUM)
 
@@ -53,7 +62,7 @@ def test_member_with_sos_filing_yields_positioned_observation():
 def test_member_without_sos_position_emits_nothing():
     # Position unknown (no filing in the LD) → no seat, counted missing_position (OQ1).
     roster = build_house_roster([_sponsor(200, 9, "Jones")])
-    filings = build_house_filings([])  # empty SOS cohort
+    filings = _house_positions([])  # empty SOS cohort
 
     proj = build_house_seat_observations(roster, filings, biennium=BIENNIUM)
 
@@ -64,7 +73,7 @@ def test_member_without_sos_position_emits_nothing():
 
 def test_two_positions_same_ld_resolve_independently():
     roster = build_house_roster([_sponsor(100, 5, "Rivers"), _sponsor(101, 5, "Chase")])
-    filings = build_house_filings([_filing(5, 1, "Ann Rivers"), _filing(5, 2, "Ann Chase")])
+    filings = _house_positions([_filing(5, 1, "Ann Rivers"), _filing(5, 2, "Ann Chase")])
 
     proj = build_house_seat_observations(roster, filings, biennium=BIENNIUM)
 
@@ -83,7 +92,7 @@ def test_shared_surname_broken_by_party():
             _sponsor(101, 5, "Smith", party="Republican"),
         ]
     )
-    filings = build_house_filings(
+    filings = _house_positions(
         [
             _filing(5, 1, "Al Smith", party="(Prefers Democratic Party)"),
             _filing(5, 2, "Bo Smith", party="(Prefers Republican Party)"),
@@ -107,7 +116,7 @@ def test_lone_unmatched_member_takes_the_remaining_position_by_elimination():
     roster = build_house_roster([_sponsor(100, 33, "Gregerson"), _sponsor(101, 33, "Obras")])
     # The 2024 ballot: Gregerson won Pos 2; Pos 1's winner (Orwall) departed → blanked out of the
     # roster. Obras (her appointed successor) appears on no ballot line.
-    filings = build_house_filings([_filing(33, 2, "Mia Gregerson"), _filing(33, 1, "Tina Orwall")])
+    filings = _house_positions([_filing(33, 2, "Mia Gregerson"), _filing(33, 1, "Tina Orwall")])
 
     proj = build_house_seat_observations(roster, filings, biennium=BIENNIUM)
 
@@ -128,9 +137,7 @@ def test_elimination_declines_when_a_named_predecessor_still_claims_the_position
     roster = build_house_roster(
         [_sponsor(100, 46, "Pollet"), _sponsor(101, 46, "Farrell"), _sponsor(102, 46, "Valdez")]
     )
-    filings = build_house_filings(
-        [_filing(46, 1, "Gerry Pollet"), _filing(46, 2, "Jessyn Farrell")]
-    )
+    filings = _house_positions([_filing(46, 1, "Gerry Pollet"), _filing(46, 2, "Jessyn Farrell")])
 
     proj = build_house_seat_observations(roster, filings, biennium=BIENNIUM)
 
@@ -145,7 +152,7 @@ def test_elimination_declines_when_both_members_are_unmatched():
     """No seat is ballot-claimed (a double turnover, or a pre-2008 biennium below the SOS floor)
     → there is no single 'remaining' position to assign; both stay unpositioned."""
     roster = build_house_roster([_sponsor(100, 30, "Gregory"), _sponsor(101, 30, "Hickel")])
-    filings = build_house_filings([])
+    filings = _house_positions([])
 
     proj = build_house_seat_observations(roster, filings, biennium=BIENNIUM)
 
@@ -159,7 +166,7 @@ def test_seed_positions_seats_an_otherwise_unmatched_member():
     (carried back from a later biennium's ballot anchor) is seated. It cites the roster, so it
     joins ``inferred_keys``, and is tracked distinctly in ``seeded_keys`` for carry-back."""
     roster = build_house_roster([_sponsor(100, 5, "Rivers")])
-    filings = build_house_filings([])  # pre-2008 biennium, no ballot
+    filings = _house_positions([])  # pre-2008 biennium, no ballot
 
     proj = build_house_seat_observations(
         roster, filings, biennium=BIENNIUM, seed_positions={5: {"100": "Position 1"}}
@@ -176,7 +183,7 @@ def test_seed_enables_within_biennium_elimination_of_the_mate():
     """A seeded seat is a claimed position for the LD, so the #103 elimination resolves the
     unmatched mate — the 1-hop within-biennium cascade (#118 Phase 1)."""
     roster = build_house_roster([_sponsor(100, 5, "Rivers"), _sponsor(101, 5, "Chase")])
-    filings = build_house_filings([])
+    filings = _house_positions([])
 
     proj = build_house_seat_observations(
         roster, filings, biennium=BIENNIUM, seed_positions={5: {"100": "Position 1"}}
@@ -195,7 +202,7 @@ def test_seed_ignored_when_member_not_rostered_in_that_ld():
     """A seed keyed to an LD the member does not sit in that biennium (an LD move, or a tenure
     gap) is not applied — the chain breaks naturally at the roster."""
     roster = build_house_roster([_sponsor(100, 5, "Rivers")])
-    filings = build_house_filings([])
+    filings = _house_positions([])
 
     proj = build_house_seat_observations(
         roster, filings, biennium=BIENNIUM, seed_positions={9: {"100": "Position 1"}}
@@ -210,7 +217,7 @@ def test_ballot_match_wins_over_a_conflicting_seed():
     """A member resolved by their own ballot this biennium is not also seeded — ballot is the
     stronger evidence and the member is counted ``matched``, not ``seeded``."""
     roster = build_house_roster([_sponsor(100, 5, "Rivers")])
-    filings = build_house_filings([_filing(5, 1, "Ann Rivers")])
+    filings = _house_positions([_filing(5, 1, "Ann Rivers")])
 
     proj = build_house_seat_observations(
         roster, filings, biennium=BIENNIUM, seed_positions={5: {"100": "Position 2"}}
