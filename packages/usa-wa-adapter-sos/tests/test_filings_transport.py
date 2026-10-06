@@ -56,7 +56,8 @@ async def test_fetch_whofiled_round_trip(sos_vcr) -> None:
     assert fetch.wire, "expected pristine archival CSV bytes"
     assert "csv" in fetch.content_type
 
-    # State Representative rows carry the position + district + party the resolver keys on.
+    # State Representative rows carry the race + district + ballot name + party columns that
+    # `staging.sos.filing_rows` stages into `stg_sos_filings`.
     reps = [r for r in fetch.records if r.get("RaceName", "").startswith("State Representative")]
     assert reps, "expected State Representative rows"
     for row in reps:
