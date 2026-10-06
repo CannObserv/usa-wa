@@ -18,7 +18,8 @@ so an LD with exactly one ballot-claimed seat and exactly one unmatched sitting 
 that member the remaining position deterministically. This seats a mid-biennium appointee (never
 on the ballot — Obras/Salahuddin 2025-26) and heals a ballot↔roster name change
 (Caldier→Valdez, McCabe→Mosbrucker) alike; inferred seats are tracked in ``inferred_keys``
-(the PDC #74 precedent) so the emitter can cite the roster wire and the operator can audit.
+(the PDC #74 precedent) so the operator can audit them (the emitter, until #412 PR F, also
+cited the roster wire).
 
 A ``seed_positions`` entry (#118, from :mod:`.backchain`) likewise seats an otherwise-unmatched
 member rostered in that LD — a Position back-chained from a later biennium's ballot anchor — and

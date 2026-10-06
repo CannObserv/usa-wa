@@ -1,7 +1,7 @@
 """WSL raw-tier harvest (#304): the daily SOAP set + member fan-out into files.
 
 The fan-out enumerates committees from the wire fetched in the same run (not
-from Postgres, as the daily refresh does) — the raw tier must be buildable with
+from Postgres, as the deleted daily refresh did) — the raw tier must be buildable with
 no database at all.
 """
 

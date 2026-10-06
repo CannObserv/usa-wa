@@ -10,7 +10,7 @@ older ones carry a certification timestamp (``export/20121106_Legislative_201212
 the client **traverses** the election's ``export.html`` index to discover the actual href, then
 fetches it (the CSV 302s to a lowercase path — redirects are followed). Like the sibling filings
 transport it mirrors the :class:`WireFetch` contract: the pristine CSV body is archived + hashed
-(#54); the derived parse is a convenience so Phase B doesn't re-decode.
+(#54); the derived parse is a convenience so a caller doesn't re-decode.
 
 A central courtesy min-interval gate (:data:`_RESULTS_LIMITER`, the #77 pattern) spaces calls to
 the ``results.vote.wa.gov`` host — a *distinct* host from the filings source, hence its own limiter

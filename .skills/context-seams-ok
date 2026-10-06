@@ -17,7 +17,6 @@
 #    Renaming them here would break links this same run wired.
 
 # --- back-references to AGENTS.md ------------------------------------------
-docs/ARCHITECTURE.md :: and the module in [`AGENTS.md`](../AGENTS.md).
 docs/COMMANDS.md :: The everyday subset is in [`AGENTS.md`](../AGENTS.md#common-commands).
 docs/COMMANDS.md :: daily/weekly/monthly ones on systemd timers ([`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server
 docs/COMMANDS.md :: restart matrix, and [`AGENTS.md`](../AGENTS.md#server-lifecycle) § Server Lifecycle
@@ -27,22 +26,14 @@ docs/SKILLS.md :: | `curating-context` | Curate the agent-context surface (`AGEN
 docs/SKILLS.md :: `curating-context` (#161) keeps `AGENTS.md` and the docs it links under a token budget
 
 # --- provenance in heading text --------------------------------------------
-docs/ARCHITECTURE.md :: When a target publishes only one source (#183)
-docs/COMMANDS-BACKFILL.md :: Historical backfill (epic #76 / sub-project 3 / #100)
-docs/COMMANDS-SEATS.md :: PDC historical backfill (#79)
-docs/COMMANDS-SEATS.md :: WSL+SOS House Position backfill (#101)
-docs/COMMANDS-SUCCESSION.md :: Senate odd-year corroboration (#123)
-docs/COMMANDS-SUCCESSION.md :: House odd-year special-winner corroboration (#149)
 docs/COMMANDS-SUCCESSION.md :: Operator succession (#107)
 docs/COMMANDS-SUCCESSION.md :: Committee lineage & lifecycle (#124)
-docs/COMMANDS-SEATS.md :: Archive vs rebuild — which half each flag governs (#201)
 docs/DEPLOYMENT.md :: Failure alerting (#49)
 docs/DEPLOYMENT.md :: DB role topology (defense-in-depth, issue #22)
 docs/DEPLOYMENT-HOST.md :: Main-only checkout (issue #87)
 docs/DEPLOYMENT.md :: Deploy convention: units never sync the venv (issue #30)
 docs/DEPLOYMENT.md :: Validating unit edits (#51)
 docs/LWW-NOOP-GATE.md :: Sibling: the rejected-UPDATE replay guard (#132)
-docs/MODULES-FACTS-SEATS.md :: The archive/rebuild split (#201)
 docs/MODULES-LEGISLATURE.md :: Package layout (#183)
 
 # --- #263 round: one seam this run created, two verified truthful ----------
@@ -59,7 +50,6 @@ docs/SKILLS.md :: [`AGENTS.md`](../AGENTS.md) § Infrastructure fixes this repo 
 # under class 2 above: the numbers are the design record and the slugs are
 # load-bearing. Acked so the ledger's seam count reflects judgement, not backlog.
 docs/COMMANDS-ROSTER.md :: ## Roster PDF — the archival member source (#225, epic #219)
-docs/COMMANDS-ROSTER.md :: ## Pre-1991 build (#228) — roster Persons, party spans, Senate seat spans
 docs/COMMANDS-SYNC.md :: ### Retract spurious anchored assignments (#144 Phase 2)
 docs/COMMANDS-SYNC.md :: ### Retire superseded outbox rejections (#258)
 docs/DEPLOYMENT.md :: ## Scheduled work outside systemd (#221)
@@ -94,18 +84,8 @@ scripts/tests/test_coverage_profiles.py :: DOCS_WITH_TEST_COMMANDS = ("AGENTS.md
 .socraticodecontextartifacts.json :: "path": "./AGENTS.md",
 conftest_db.py :: #: Production secrets (AGENTS.md § Environment Variables). Deliberately *not* where
 conftest_db.py :: nothing seeds it — while AGENTS.md § Server Lifecycle mandates worktree-based
-deploy/usa-wa-committee-lineage-invariants.service :: # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
-deploy/usa-wa-house-corroboration.service :: # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
 deploy/usa-wa-integrity-sweep.service :: # at unit start (AGENTS.md § Server Lifecycle, #30).
-deploy/usa-wa-pdc-archive-refresh.service :: # at unit start (AGENTS.md § Server Lifecycle, #30).
-deploy/usa-wa-pdc-refresh.service :: # at unit start (AGENTS.md § Server Lifecycle, #30).
-deploy/usa-wa-senate-corroboration.service :: # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
-deploy/usa-wa-sos-archive-refresh.service :: # at unit start (AGENTS.md § Server Lifecycle, #30).
-deploy/usa-wa-sos-refresh.service :: # at unit start (AGENTS.md § Server Lifecycle, #30).
-deploy/usa-wa-succession-invariants.service :: # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
-deploy/usa-wa-wsl-refresh.service :: # deliberate `uv sync` in the deploy runbook (AGENTS.md § Server Lifecycle, #30).
 deploy/usa-wa.service :: # in the deploy runbook (AGENTS.md § Server Lifecycle, issue #30).
-packages/usa-wa-adapter-legislature/tests/test_refresh_e2e.py :: #: spelled out — an assertion must never key on an exact upstream string (AGENTS.md).
 packages/usa-wa-api/tests/test_log_config.py :: for doc in ("README.md", "AGENTS.md", "docs/COMMANDS.md"):
 packages/usa-wa-common/src/usa_wa_common/parties.py :: **On holding a source's abbreviations in a source-free package (#227 CR #63).** AGENTS.md
 packages/usa-wa-common/src/usa_wa_common/parties.py :: non-breaking space must not fall to ``unknown_token`` (CR #54, and AGENTS.md's rule against
@@ -171,7 +151,6 @@ docs/SOCRATICODE.md :: The server is pinned, not installed per launch (#389)
 # parents. Each back-reference below is the new doc's own "split out of" lead-in, or a
 # pointer retargeted to where its content now lives — judged true against the split.
 docs/COMMANDS-ROSTER.md :: Split out of [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md); the index lives in
-docs/COMMANDS-ROSTER.md :: [COMMANDS.md](COMMANDS.md). The Legislature's own roster PDF (#225, epic #219): the Phase A
 docs/COMMANDS-ROSTER.md :: [MODULES-LEGISLATURE-ROSTER.md](MODULES-LEGISLATURE-ROSTER.md).
 docs/DEPLOYMENT-HOST.md :: Split out of [`DEPLOYMENT.md`](DEPLOYMENT.md), which keeps the unit table, alerting, DB
 docs/DEPLOYMENT-HOST.md :: The disk-GC commands came here from [`COMMANDS.md`](COMMANDS.md).

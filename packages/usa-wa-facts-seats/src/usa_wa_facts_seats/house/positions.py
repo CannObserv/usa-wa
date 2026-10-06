@@ -1,9 +1,8 @@
 """A biennium's House position map: even seating candidacies plus odd-special winners.
 
-Pure. Shared by the Postgres House span build and the #302 pipeline's conformed House
-model, which must resolve positions identically. It left
-:mod:`usa_wa_facts_seats.house.build`, the Postgres write path #412 PR F deletes, so the
-pipeline can compose the map without importing it.
+Pure. Read by the #302 pipeline's conformed House model. It left
+``usa_wa_facts_seats.house.build``, the Postgres write path deleted in #412 PR F, so the
+pipeline could compose the map without importing it.
 """
 
 from __future__ import annotations

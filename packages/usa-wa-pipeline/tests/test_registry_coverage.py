@@ -1,7 +1,7 @@
 """The post-registrar registry-coverage probe (#412 PR B).
 
-Three counters split out of ``parity_spans``, which PR E retires with the
-canonical oracle it compares against. These three never needed that oracle:
+Three counters split out of ``parity_spans``, which PR E retired with the
+canonical oracle it compared against. These three never needed that oracle:
 each asks whether the REGISTRY, as the registrar has just left it, binds every
 identity the build derives. They must not become in-build dbt tests — a new
 legislator or committee is unregistered in the first build that sees it by

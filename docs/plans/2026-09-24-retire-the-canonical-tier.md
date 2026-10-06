@@ -1,7 +1,7 @@
 ---
 title: Retire the canonical tier (#412)
 date: 2026-09-24
-status: draft
+status: implemented
 ---
 
 # Retire the canonical tier (#412)
@@ -23,7 +23,7 @@ found more couplings than the oracle, and each one blocks a deletion:
 | Unported checks: chamber counts 49/98, one person on two seats, misdated spans (#272), House and Senate odd-year corroboration, lineage INV1/INV2 | four units | retiring units |
 | The pipeline imports DB-writing modules transitively: `conformed/spans` → `roster_pdf/build` → `span_emit`, `operators.store`; `conformed/house` → `facts_seats/house/build`; `conformed/roles` → `normalize/members` → `.adapter`, `.jurisdictions`; the job harness → `models` → `provenance`, `jurisdictions` (registration only; both survive trimmed) | usa-wa-pipeline, clearinghouse-core | deleting modules |
 | `/sources` routes read `sources` + `source_coverage`; `sources.jurisdiction_id` FKs `jurisdictions` | `usa_wa_api/api/v1/ops.py` | dropping provenance and jurisdictions whole |
-| `source_coverage.evidence_citation_id` FKs `citations`, and `SourceCoverageOut` publishes it (populated in 0 of 5 rows) | `source_coverage.py:246`, `v1/schemas.py:218` | dropping `citations` (Q5) |
+| `source_coverage.evidence_citation_id` FKs `citations`, and `SourceCoverageOut` publishes it (populated in 0 of 5 rows, 2026-09-24) | `source_coverage.py:246`, `v1/schemas.py:218` | dropping `citations` (Q5) |
 | Not every nightly probe needs canonical: `parity_citations` reads only the duckdb, and four of `parity_spans`' zero-gated counters (`unregistered_spans`, `unregistered_orgs`, `unregistered_roles`, `malformed_roster_rows`) have no dbt equivalent — `roles.org_entity_id` is untested, `roles.entity_id` is only `unique`, and unregistered spans drop silently at the inner join. The three `unregistered_*` counters only work **after** the registrar: `dbt build` runs before it, and a new entity is unregistered in the first build that sees it by design | `parity_citations.py`, `parity_spans.INTEGRITY_COUNTERS`, `pipeline-nightly.sh:84-94` | retiring the parity stage whole |
 | The file integrity sweep exists but nothing runs it (idle since 09-03) | `clearinghouse_core.raw_integrity` | retiring the Postgres sweep |
 | 15 payloads fetched after the 09-03 export exist only in Postgres (6 WSL, 5 PDC, 4 operator) | `raw_payloads` | dropping provenance |
@@ -124,6 +124,16 @@ What survives:
    - Write one alembic migration that drops the `canonical` schema, `fetch_events`, `raw_payloads`, `citations`, `integrity_sweep_state`, `notes`, `document_identifiers`, both jurisdiction-relationship tables, and every `pm_*` column.
    - In the same commit, update `grants.sql`, `LEGACY_MIGRATION_SCHEMAS`, `test_grants_append_only` and the `test_declared_tier` markers.
    - Done when #412's acceptance holds.
+   - *As built:*
+     - The final `raw_export` (2026-10-05) moved one payload: its cursor had already passed the rest. Checked independently by hash, not by cursor: all 1,435 Postgres bodies are present in the raw store, 0 mismatched. The file sweep verified 1,394 objects clean. The `pg_dump` is the whole database, taken as `postgres` and verified with a full `pg_restore` read: `/var/backups/usa_wa-412-predrop-20261005T172128Z.dump`.
+     - The deletion went past the named modules to everything only the tier reached: every cohort provider and with them the cohort Protocols (`clearinghouse_domain_legislative.cohorts`, `usa_wa_common.ballot.HousePositionCohortProvider`, whose `CitationTarget` named a `FetchEvent`), the normalizers, `bootstrap`, `synthesis`, `seed_manifest`, `raw_export` and the Postgres sweep. Pure parsers of wires the nightly still harvests stay (SOS filings, PDC positions), as do the two write-free WSL probes.
+     - `provenance.py` kept only `Source` (+ `RetentionPolicy`) and was renamed `clearinghouse_core.sources`; `SourceCoverage` was already its own module. `jurisdictions.py` stays, trimmed (Q4), so #412's "four core modules are gone" holds for `adapter`, `runner` and `provenance`, not `jurisdictions`.
+     - The operator CLI validates a member against the registry's person key, as #445 did for committees, since the canonical persons table drops. A failed post-commit archive is recovered by recording the event again as it stands: with no Postgres copy left, `raw_export` has nothing to carry.
+     - Q5 resolved as recommended: the column and the API field were dropped (0 of 7 rows ever set on 2026-10-05: the table gained two rows since the plan's count), with an API.md note.
+     - The migration drops `canonical` with `DROP SCHEMA … CASCADE` behind a run-time check for dependants outside it, and recreates every structure on downgrade (one FK cycle, `bills` ↔ `bill_versions`, closed after both exist). Verified on a scratch database: upgrade, downgrade, schema dump identical but for a column position, upgrade, `alembic check` clean, `grants.sql` applied with `ON_ERROR_STOP`.
+     - `test_grants_append_only` gained the guard this step needed: any table or schema `grants.sql` names must still exist, since a stale one errors and wedges `usa-wa-migrate`.
+     - The contract's tombstones are vacuous until a deleted name returns (import-linter keeps a contract whose forbidden module is missing). The operator stores are the entries still standing, and the probe tests aim at them.
+     - #413's second pass, measured on the branch: unit tier 88.38% (floor 72), whole tree 97.69% (floor 95).
 7. **Docs, in PR F.** Update every maintained doc that describes the tier as live, plus the AGENTS.md layer table and ARCHITECTURE.md. The drift gates run in that commit. Then run #413's second pass.
 
 **Timing.** #135's early capture (due 2026-11-03) comes first. PRs A–F then land before the #135 rehearsal (due 2026-12-31), so that the rehearsal runs the final system.
@@ -134,6 +144,6 @@ What survives:
 - **Q2: committee lineage (#124).** Published `organizations` has carried no `active` flag and no succession since #313, so this is already a product gap. Recommended porting `active` in a bundled 2.1.0 contract bump (#384, #369), gating INV1 on it, and deferring a succession dataset. *Decided 2026-09-25, not bundled:* versions are per-dataset since #385, so #428 ships `organizations` 1.1.0 on its own, before PR E, with INV1 as a dbt test. INV2 and the succession dataset stay deferred, and `committee_succession_events` moved in PR A so the option stays open.
 - **Q3: the Senate corroboration citation writer.** It cites SOS on `valid_from`, and the citations artifact excludes SOS by design. Recommend keeping the check (PR B) and dropping the writer, with that reason recorded.
 - **Q4: `sources.jurisdiction_id` is in the API (`SourceOut`).** Recommend keeping a trimmed `jurisdictions` table seeded from `usa_wa_common` as the FK target, rather than changing the contract.
-- **Q5: `source_coverage.evidence_citation_id`.** It FKs `citations`, which PR F drops, and `/sources/{slug}/coverage` publishes it as `SourceCoverageOut.evidence_citation_id`. It has never carried a value (0 of 5 rows). Recommend dropping the column and the API field in PR F, with an API.md migration note; keeping the field as always-null is the alternative if removing a field counts as breaking for `/api/v1`'s consumers.
+- **Q5: `source_coverage.evidence_citation_id`.** It FKs `citations`, which PR F drops, and `/sources/{slug}/coverage` publishes it as `SourceCoverageOut.evidence_citation_id`. It has never carried a value (0 of 5 rows on 2026-09-24). Recommend dropping the column and the API field in PR F, with an API.md migration note; keeping the field as always-null is the alternative if removing a field counts as breaking for `/api/v1`'s consumers.
 - **Risk: PR D is the only step that could change published bytes by accident.** The digest comparison is its gate.
 - **Risk: after PR E nothing re-derives canonical.** A rollback past E means re-running the refreshes, which are idempotent. That holds until PR F drops the tables.

@@ -1,4 +1,9 @@
-"""Assert the append-only grant topology on the clearinghouse_core provenance spine (#54).
+"""Assert the append-only grant topology on the clearinghouse_core schema (#54).
+
+No clearinghouse_core table is append-only since #412 PR F dropped the provenance spine
+(``fetch_events``, ``raw_payloads``, ``citations``) whose REVOKEs this guarded; the raw
+store's objects are write-once by construction instead. The guard stays for the next
+table: it still forces the decision below.
 
 `scripts/grants.sql` REVOKEs UPDATE/DELETE from the app role to make the
 provenance ledger write-once (CR finding #1/#2). But step 5's
@@ -22,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+import clearinghouse_domain_legislative  # noqa: F401 — registers the domain's registry tables
 from clearinghouse_core.models import Base
 
 REPO = Path(__file__).parent.parent.parent  # scripts/tests/ → repo
@@ -31,23 +37,11 @@ SCHEMA = "clearinghouse_core"
 # Intended grant treatment per clearinghouse_core table, encoded as data.
 #   revoke_update — the stored row is immutable (no app UPDATE).
 #   revoke_delete — the row is permanent (no app DELETE).
-# raw_payloads is the deliberate split: immutable bytes (no UPDATE) but GC-able
-# (DELETE kept for the retention GC). Mutable lookup/editorial tables carry
-# neither revocation. A new table here forces an explicit row.
+# Mutable lookup tables carry neither revocation. A new table here forces an explicit row.
 EXPECTED: dict[str, dict[str, bool]] = {
     "jurisdiction_types": {"revoke_update": False, "revoke_delete": False},
-    "jurisdiction_relationship_types": {"revoke_update": False, "revoke_delete": False},
     "jurisdictions": {"revoke_update": False, "revoke_delete": False},
-    "jurisdiction_relationships": {"revoke_update": False, "revoke_delete": False},
     "sources": {"revoke_update": False, "revoke_delete": False},
-    "fetch_events": {"revoke_update": True, "revoke_delete": True},
-    "raw_payloads": {"revoke_update": True, "revoke_delete": False},
-    "citations": {"revoke_update": True, "revoke_delete": True},
-    "notes": {"revoke_update": False, "revoke_delete": False},
-    "document_identifiers": {"revoke_update": False, "revoke_delete": False},
-    # #55 rolling-sweep cursor: mutable by design — the sweep UPDATEs the
-    # watermark each run. Not a provenance ledger row, so neither revocation.
-    "integrity_sweep_state": {"revoke_update": False, "revoke_delete": False},
     # #178 job-run ledger: mutable by design — the harness opens an in-flight row
     # and UPDATEs it terminal when the job reports back, and old runs are
     # DELETE-able for retention. Operational telemetry, not a provenance ledger
@@ -122,12 +116,50 @@ def test_revoke_delete_matches_intent(table):
 
 
 def test_insert_and_select_are_never_revoked():
-    """The append path needs INSERT (+ SELECT) on the provenance tables.
-
-    The complement of write-once: only UPDATE/DELETE may be revoked. An
-    over-broad REVOKE INSERT/SELECT would break the runner's append path, and the
-    runner's own tests run as the test-owner role (immune to grants), so they
-    would not catch it — this guard does.
+    """The complement of write-once: only UPDATE/DELETE may ever be revoked. An
+    over-broad REVOKE INSERT/SELECT would break a writer that the test-owner role (immune
+    to grants) never exercises, so no other test would catch it — this guard does.
     """
     assert _revoked_tables("INSERT") == set()
     assert _revoked_tables("SELECT") == set()
+
+
+def _statements() -> str:
+    """grants.sql with its comment lines stripped — prose names dropped tables freely."""
+    return "\n".join(
+        line for line in GRANTS.read_text().splitlines() if not line.lstrip().startswith("--")
+    )
+
+
+def test_every_table_grants_sql_names_still_exists():
+    """``usa-wa-migrate`` runs grants.sql after every ``alembic upgrade head``, and a GRANT or
+    REVOKE on a table that no longer exists is an ERROR, not a no-op: a drop migration that
+    left its table in this file would wedge the unit on the deploy that ran it (#412 PR F).
+
+    Every model-declared schema, not only ``clearinghouse_core``: a ``registry`` table is
+    dropped the same way. ``serving`` is out of reach — its tables are the serving load's,
+    created at run time, and no model declares them. The domain import at the top puts
+    ``registry.operator_events`` and its sibling in the metadata whichever tests ran
+    first."""
+    declared = {t.schema for t in Base.metadata.tables.values() if t.schema}
+    pattern = rf"\b({'|'.join(sorted(declared))})\.(\w+)"
+    named = {f"{schema}.{table}" for schema, table in re.findall(pattern, _statements())}
+    dropped = named - set(Base.metadata.tables)
+    assert not dropped, f"grants.sql names dropped tables: {dropped}"
+
+
+#: Created by grants.sql itself (``CREATE SCHEMA IF NOT EXISTS serving``) for the app role's
+#: serving load (#313), so no model declares it.
+SELF_CREATED_SCHEMAS = {"serving"}
+
+
+def test_every_schema_grants_sql_names_is_declared():
+    """The schema-level twin: a migration that drops a schema must leave this file in the
+    same change (#314 step C did, for ``sync``; #412 PR F, for ``canonical``)."""
+    lists = re.findall(r"\b(?:ON|IN) SCHEMA\s+([\w,\s]+?)\s+(?:TO|GRANT)\b", _statements())
+    named = {name.strip() for group in lists for name in group.split(",")}
+    declared = {t.schema for t in Base.metadata.tables.values() if t.schema}
+    assert named, "the schema scan found nothing — the pattern no longer matches grants.sql"
+    assert named <= declared | SELF_CREATED_SCHEMAS, (
+        f"grants.sql grants on undeclared schemas: {named - declared - SELF_CREATED_SCHEMAS}"
+    )

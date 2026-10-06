@@ -1,1 +1,1 @@
-"""PDC normalizers — pure functions mapping SODA rows to canonical entities."""
+"""PDC identifier keying — pure functions over SODA ids (see ``positions``)."""

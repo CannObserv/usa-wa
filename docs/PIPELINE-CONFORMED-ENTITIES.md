@@ -41,7 +41,7 @@ pandas' `string` dtype and its null is `pd.NA`.
 `profiles.yml` pins `threads: 1`: threaded Python models race first-imports of
 the workspace packages. Verified on the real archive 2026-09-10: 3,134 persons
 (2,999 roster-named / 135 WSL / **no gap**) and 219 orgs, type distribution
-matching canonical exactly. Was 3,135 with one nameless entity — #366 merged
+matching the then-live Postgres tier exactly. Was 3,135 with one nameless entity — #366 merged
 Denny Heck's WSL id with the roster identity his 1977-85 listings minted, which
 is the registry's first real merge tombstone. Assignments (the span
 engine as a Python model) landed next — see [`PIPELINE-CONFORMED.md`](PIPELINE-CONFORMED.md); roles/seats complete the
@@ -49,8 +49,8 @@ layer.
 
 **A blank is not a name** (#364). `GetSponsors` answers with a name-blanked
 STUB for a superseded / departed (member, chamber-tenure) — a real `Id`, `Name`
-a single space, no first/last — the shape `member_rows.is_person` has
-always screened on the canonical path. Survivorship did not: `' '` is truthy,
+a single space, no first/last — the shape `member_rows.is_person` screens
+out. Survivorship did not: `' '` is truthy,
 so the stub read as the member's newest attestation and Tina Orwall, Tim
 Sheldon, Robert Sutherland and Simon Sefzik published `' '` as their legal name.
 Nothing here noticed; power-map#497 found it downstream a week later (the
@@ -130,8 +130,8 @@ zero, so the 18th fails `dbt build` rather than shipping.
 is `identity_fold` — Python, in `usa-wa-adapter-legislature` — and `persons`
 publishes only `(entity_id, name_full, name_source)`, so there is no fold in
 SQL's reach; re-deriving one there is the second implementation CR 155
-consolidated out of `usa_wa_common.names`. The parity probes were the other
-candidate home and run *after* `dataset-publish`: they can report that a bad
+consolidated out of `usa_wa_common.names`. The nightly probes were the other
+candidate home and run *after* publish: they can report that a bad
 dataset shipped, never stop it shipping, which is precisely how the 17 got out.
 The model materializes (it is not in `PUBLISHED_DATASETS`) because on a red
 build the table is the hand-review work order — both sides of every pair, since
@@ -150,10 +150,9 @@ time one is added; plus `bobmccaslin` and `briansullivan`, each carrying the
 evidence that settled it — an allowlist entry tells the build to stop looking
 forever, so an unexplained one is a duplicate someone waved through.
 
-This does not fix the cause. `registry_seed` still has no `deleted_at` filter,
-so a producer-side soft-delete is still ignored and an 18th duplicate can still
-be *minted*; the gate catches it at build time. That split is deliberate — the
-gate survives `canonical.*` retiring at #314, the seed fix does not.
+This does not fix the cause: the namespaces still mint independently, so an
+18th duplicate can still be *minted*. The gate catches it at build time, and an
+adjudicated merge resolves it.
 
 ## Conformed: committee lineage (#447)
 

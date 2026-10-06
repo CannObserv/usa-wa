@@ -1,6 +1,6 @@
 -- One member holds one legislative seat at a time. Ported from the
 -- `succession-invariants` unit's member-side duplicate check, which reads
--- canonical and retires (#412 PR B).
+-- canonical and retired (#412 PR B).
 --
 -- The seat-side twin is `assignments_seat_occupancy` (two holders, one seat).
 -- This is the other half: ONE entity with two overlapping seat spans, whether

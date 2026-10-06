@@ -265,9 +265,9 @@ def test_every_shipped_timer_is_enabled_or_retired_by_the_readme():
     assert enabled | retired == shipped_timers()
 
 
-#: The canonical tier's timers, retired by #412 PR E: the three refreshes that rebuilt it
-#: and the four invariant gates that checked it. Their checks run as dbt tests on the
-#: conformed tier since PR B and #428; their unit files stay until PR F deletes them.
+#: The canonical tier's timers: the three refreshes that rebuilt it and the four invariant
+#: gates that checked it. #412 PR E disabled them; their checks run as dbt tests on the
+#: conformed tier since PR B and #428. PR F deleted the unit files with the modules they ran.
 RETIRED_BY_412 = {
     "usa-wa-wsl-refresh.timer",
     "usa-wa-pdc-refresh.timer",
@@ -279,10 +279,15 @@ RETIRED_BY_412 = {
 }
 
 
-def test_exactly_the_canonical_tiers_timers_are_retired():
-    """A host provisioned from README must not re-enable a canonical refresh, and must
-    not lose a live timer to a stray `disable` line."""
-    assert set(disable_block()) == RETIRED_BY_412
+def test_the_canonical_tiers_timers_are_gone():
+    """None may ship again: each would start a module #412 PR F deleted, and fail every run."""
+    assert not RETIRED_BY_412 & shipped_timers()
+
+
+def test_the_readme_neither_enables_nor_disables_a_deleted_timer():
+    """`systemctl disable --now` on a unit that is not installed is an error, so a stale
+    retirement line would break provisioning a fresh host from README."""
+    assert not RETIRED_BY_412 & (set(enable_block()) | set(disable_block()))
 
 
 @pytest.mark.parametrize("timer", sorted(shipped_timers()))

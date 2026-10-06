@@ -6,7 +6,6 @@ from sqlalchemy import select
 
 from clearinghouse_core.source_coverage import CoverageStatus, SourceCoverage
 from usa_wa_adapter_pdc.coverage import ELECTION_YEAR, PDC_COVERAGE, PDC_ELECTION_YEARS
-from usa_wa_adapter_pdc.harvest import DEFAULT_ELECTION_FLOOR
 from usa_wa_adapter_pdc.provisioning import get_or_create_source
 from usa_wa_common.jurisdiction import resolve_jurisdiction
 
@@ -19,10 +18,6 @@ def test_the_pdc_floor_is_declared_assumed():
     assert PDC_ELECTION_YEARS.status == CoverageStatus.assumed
     assert PDC_ELECTION_YEARS.dimension == ELECTION_YEAR
     assert PDC_ELECTION_YEARS.range_end is None  # open-ended — the dataset still publishes
-
-
-def test_the_harvest_floor_is_the_claim():
-    assert DEFAULT_ELECTION_FLOOR == PDC_ELECTION_YEARS.floor_year == 2008
 
 
 async def test_provisioning_seeds_the_claim(db_session, usa_wa):

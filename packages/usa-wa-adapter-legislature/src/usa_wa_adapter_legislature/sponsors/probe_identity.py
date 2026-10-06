@@ -10,8 +10,8 @@ if it diverges cross-endpoint, the committee normalizer must instead name-match 
 members against the sponsor cohort.
 
 **Read-only, no archival.** Like :mod:`committees.probe_extent`, it talks to
-:class:`~usa_wa_adapter_legislature.transport.WSLClient` directly — **not** the
-:class:`AdapterRunner` — so nothing writes a ``FetchEvent`` / ``RawPayload``. The
+:class:`~usa_wa_adapter_legislature.transport.WSLClient` directly — **not** a harvest — so
+nothing is archived. The
 matching is by name (``LastName``, ``FirstName``) so it can *detect* an ``Id`` mismatch
 independently of the very ``Id`` under test.
 
@@ -63,9 +63,9 @@ JOB_SLUG = "wsl-member-identity-probe"
 #: moves this default, the #77 harvest, and both succession sweeps together.
 DEFAULT_HISTORY_FLOOR = SPONSOR_ROSTER_COVERAGE.range_start
 
-# ``is_person`` (imported from normalize.members, the single source of truth) filters the
+# ``is_person`` (imported from member_rows, the single source of truth) filters the
 # name-blanked stubs GetSponsors returns for a superseded/departed (member, chamber-tenure)
-# — the same predicate the real Person normalizer skips on.
+# — the same predicate every member-wire reader screens on.
 
 #: Default number of active committees to sample for the cross-endpoint check. A dozen
 #: rosters cover ~100 distinct members — plenty to detect an Id re-key without pulling

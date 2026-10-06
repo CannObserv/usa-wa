@@ -1,75 +1,12 @@
-# Commands — succession, corroboration, and committee lineage
+# Commands — succession and committee lineage
 
 Split out of [COMMANDS.md](COMMANDS.md), which is where the index lives.
 
-**Ported to dbt tests (#412 PR B).** Both corroborations and the succession invariants' chamber
-count, member-duplicate and #272 checks now also run in-build on the conformed `assignments`
+The checks that used to run beside these recorders — the Senate and House odd-year
+corroborations (#123/#149), the succession invariants (#107/#119) and the committee-lineage
+invariants and candidate report (#124 C4/C5) — read the canonical tier and were deleted with it in
+#412 PR F. Their gates run in-build as dbt tests on the published tier
 ([PIPELINE.md § Ported from the canonical tier](PIPELINE.md#ported-from-the-canonical-tier-412)).
-The units below still run, against canonical, until #412 PR E disables them.
-
-## Senate odd-year corroboration (#123)
-
-The odd-year November general seats senators mid-biennium by special (Hunt, LD5, Nov 2025). The
-even seating year's winners are already dated by the WSL sponsor roster, so only the **odd** cohort
-is consumed here. The Senate seat is WSL-sponsor-built (`usa_wa_legislature`); SOS only consumes its
-ballot evidence, so this lives SOS-side (SOS→legislature, never the reverse). Two consumers:
-
-- **2a citation** — an elected senator's open span `valid_from` is field-cited to the odd wire
-  (`sos-legresults:<odd>`): attestation of the *elected* status the operator-dated (appointed)
-  boundary lacked. The Nov win does **not** move the boundary — tenure is continuous.
-- **2b corroboration** — an odd-year winner with **no open `state_senator` seat** at that LD is a
-  silent **missing operator `seated` event** (the failure mode the chamber-count gate only catches
-  after the count has already drifted). Named + exit 1 → operator email.
-
-Runs daily 07:00 UTC (`usa-wa-senate-corroboration.timer`), after the WSL + SOS refreshes rebuild
-the open Senate cohort and archive the odd results wire. App-role DML (the citation is an idempotent
-`Citation` insert; the corroboration is read-only). Exit 0 clean / 1 on a missing winner / 2 config
-— unchanged by #179b. **The citations still commit on a violation**: this gate writes and *then*
-exits 1, so it keeps `commit=False` and its own transaction rather than letting the harness roll
-the citations back behind an unchanged exit code.
-
-```bash
-# Daily gate (also the ad-hoc invocation); --dry-run builds citations then rolls back.
-python -m usa_wa_facts_seats.senate_corroboration
-python -m usa_wa_facts_seats.senate_corroboration --dry-run
-python -m usa_wa_facts_seats.senate_corroboration --biennium 2025-26   # pin a non-current biennium
-```
-
-## House odd-year special-winner corroboration (#149)
-
-The **House sibling** of `senate_corroboration` 2b. A House odd-year **special** winner who never
-materializes into a `state_representative` Position seat was caught by nothing — the LD30 Pos 2
-2015-16 / Teri Hickel case: she won the Nov 2015 special, the odd cohort was archived and named her,
-she was rostered, yet she sat *unseated* for months because the backfill hadn't been run and the
-daily refresh runs `restrict_to_biennium=current` (never re-emits a historical biennium). A **unit**
-guard (#148) covers the odd-merge code path but cannot detect an *operational* gap (a backfill that
-wasn't run). This makes it loud.
-
-`corroborate_house_winners` consumes the odd-year `house_winners()` cohort (winners-only — a *loser*
-candidacy must never false-match) and asserts every `(LD, position)` a special decided has an open
-seat. Two differences from the Senate check: keyed on **`(LD, position)`** not LD (two seats/LD),
-and **read-only** — no 2a citation half, since the House Position spans already cite the odd wire
-(`house/build.py`'s `special_events`). Gate on seat **existence**, not identity: a wholly unoccupied
-winner seat is the missing `seated` (exit 1); a seat held by someone other than the ballot winner is
-`mismatched` (surfaced, not gated — a surname divergence is usually a legitimate name change).
-
-Runs daily 07:05 UTC (`usa-wa-house-corroboration.timer`), after the WSL + SOS refreshes rebuild the
-open House Position cohort and archive the odd results wire, beside Senate corroboration (07:00) and
-before the succession invariants (07:15). Read-only (app role). Exit 0 clean / 1 on a missing winner
-seat / 2 config.
-
-```bash
-# Daily gate (also the ad-hoc invocation).
-python -m usa_wa_facts_seats.house_corroboration
-python -m usa_wa_facts_seats.house_corroboration --biennium 2025-26   # pin a non-current biennium
-
-# Historical audit (#119 report-only pattern): every archived odd year vs the point-in-time
-# occupancy that covered it — the LD30-as-history regression the current-biennium daily gate can't
-# reach. Exit 0 unless --strict (the post-backfill regression guard). House Position coverage floors
-# at 2003-04, so pre-coverage odd years under-report (reported, not gated).
-python -m usa_wa_facts_seats.house_corroboration --sweep-biennia
-python -m usa_wa_facts_seats.house_corroboration --sweep-biennia --strict
-```
 
 ## Operator succession (#107)
 
@@ -77,13 +14,14 @@ Mid-biennium successions (death, resignation, appointment) are invisible to ever
 wire signal — the cumulative WSL wire keeps a departed member named + committee-listed,
 so their tenure span stays ghost-open, and an appointee's span starts at the biennium
 floor, not the appointment date. Operators know these facts (news-first) and **interject**
-them as `OperatorEvent`s. Each event is applied as an authoritative **overlay** by all
-three span builders (sponsor / SOS-house / committee) after `build_tenure_spans`, before
-emit; the daily refreshes re-drive the builders, so the overlay re-applies every run and
-the wire can never win back a corrected span (self-durable). Provenance is first-class:
-each write appends a hashed `FetchEvent` + `RawPayload` under the `usa_wa_operator` Source
-and, since #412, the same bytes into the raw store, which the weekly integrity sweep covers;
-the touched span carries a field-level `Citation`.
+them as `OperatorEvent`s, stored in `registry.operator_events`. The nightly pipeline reads
+them as a curated input (`usa_wa_pipeline.operator_read`) and applies each as an authoritative
+**overlay** on every span family after `build_tenure_spans` (`conformed/spans.py`,
+`conformed/house.py`), so the overlay re-applies every build and the wire can never win back a
+corrected span (self-durable). A recorded event publishes after the next nightly. Provenance:
+each write's attestation body lands in the raw store under the `usa_wa_operator` source, which
+the weekly integrity sweep covers — its only provenance since #412 PR F dropped the Postgres
+`FetchEvent`/`RawPayload` tables.
 
 ```bash
 # Record operator succession events (#107) — the live interjection surface. Three kinds
@@ -94,18 +32,22 @@ the touched span carries a field-level `Citation`.
 #     untouched. A chamber move's old seat, or a single-seat resignation.
 #   seated   (seat-scoped) — one named seat's span opens at the date (instead of the
 #     biennium floor), synthesized if the wire built none. Appointment, swearing-in.
-# A chamber move = vacated(old seat) + seated(new seat) on the same member, each applied by
-# the builder that owns that seat kind. seat_kind/seat_discriminator name the seat the same
-# way the builders key it: chamber-senate + LD, chamber-house + ld-{n}-position-{p},
+# A chamber move = vacated(old seat) + seated(new seat) on the same member, each applied to
+# the span family that owns that seat kind. seat_kind/seat_discriminator name the seat the same
+# way the pipeline keys it: chamber-senate + LD, chamber-house + ld-{n}-position-{p},
 # committee + the WSL committee id. Validates kind/reason/seat shape AND that member_id
-# resolves to a usa_wa_legislature Person (a typo would be a silent no-op overlay).
-# App-role DML (writes registry.operator_events + provenance, and the attestation body to the
-# raw store after the commit — run it from the primary checkout, or set USA_WA_RAW_ROOT, so it
-# lands in the prod raw/ and not a worktree's, #412; exit 4 = the write committed but the raw
-# copy did not land — run `uv run python -m clearinghouse_core.raw_export` to carry it over, not a
-# re-run, which a --supersede refuses); shell access is the trust boundary,
-# as with the redrive CLI. Provenance is append-only — a date-correction is --supersede
-# (a NEW row stamping the prior one's superseded_by_id), never a mutation (#54).
+# is a registered person key (usa_wa_legislature:<id> in registry.entity_keys), and a
+# committee seat's id a registered committee org (the #445 check) — a typo would be a
+# silent no-op overlay.
+# App-role DML (writes registry.operator_events, and the attestation body — its only
+# provenance since #412 PR F — to the raw store after the commit: run it from the primary
+# checkout, or set USA_WA_RAW_ROOT, so it lands in the prod raw/ and not a worktree's; exit 4 =
+# the write committed but the raw copy did not land — record the event again as it now
+# stands, without --supersede, which a superseded prior refuses — a --file batch is re-run
+# with every supersede_id removed: the write is idempotent and archives its bytes, and it
+# restamps the row's entered_by with whoever ran the recovery); shell access is the trust boundary. Provenance is append-only — a
+# date-correction is --supersede (a NEW row stamping the prior one's superseded_by_id), never
+# a mutation (#54).
 # A supersede may also RECLASSIFY, within endings only (#363): departed <-> vacated are
 # two readings of one boundary (left the legislature / moved seats within it), and
 # append-only provenance leaves no other way to say the projection changed its mind.
@@ -126,69 +68,34 @@ python -m usa_wa_adapter_legislature.operators.cli --supersede <id> \
     --seat-kind chamber-senate --seat-discriminator 5 \
     --effective-date 2025-06-10 --evidence-url https://...   # date-correction of <id>
 python -m usa_wa_adapter_legislature.operators.cli --list               # current events
-
-# Succession invariant check (#107) — read-only anti-drift backstop + the #107 acceptance
-# oracle. A MISSING operator event is silent (a member dies, nobody records it → a ghost-open
-# span inflates the chamber for up to a biennium); this oneshot makes that loud. Against the
-# live open-seat cohort it asserts:
-#   chamber-count — open state_senator == 49, open state_representative == 98 (147 total).
-#     High (50/99) ⇒ a ghost-open predecessor (a missing departed/vacated); low (48/97) ⇒
-#     an over-closed / unfilled seat (a missing seated).
-#   duplicate-occupancy — no seat Role with two open occupants, and no member holding two
-#     open seats in the same chamber (the "two open senators in LD5" shape).
-# Read-only (app role, no writes). Exit 0 clean / 1 on any violation (the offending
-# seats/members named in the succession_invariants_violation log line) — the exit 1 is what
-# the OnFailure=usa-wa-notify-failure@ handler emails the operator on. Prod runs this daily
-# at 07:15 UTC via usa-wa-succession-invariants.timer, AFTER the WSL 06:00 / PDC 06:30 /
-# SOS 06:45 refreshes rebuild the current-biennium cohort. --expected-senate/--expected-house
-# override the WA chamber constants for a redistricting count change.
-python -m usa_wa_adapter_legislature.operators.invariants
-
-# Historical duplicate-occupancy audit (#119) — the daily gate probes the OPEN cohort only, so
-# a duplicate occupancy that has since CLOSED is invisible to it forever (sub-biennium
-# sequential occupancy collapsed onto the shared biennium floor — both occupants dated to the
-# floor because the wire can't date a mid-biennium handoff). --as-of / --sweep-biennia re-run
-# BOTH duplicate halves against a point-in-time snapshot (valid_from <= D and (valid_to is null
-# or valid_to >= D)) instead of is_active: seat-side (a seat with >1 occupant → named
-# seat+occupants) and member-side (a member holding >1 distinct same-chamber seat, keyed on
-# person_id so a name collision can't false-merge), naming every offending tuple. Ad-hoc audit,
-# NOT a timer (closed history isn't actionable in the daily
-# "someone died NOW" sense). Counts are reported, not gated (House Position coverage floors at
-# 2003-04, so pre-2003 biennia legitimately under-count) — exits 0 unless --strict, which
-# exits 1 on any duplicate (the post-backfill regression guard).
-python -m usa_wa_adapter_legislature.operators.invariants --as-of 2009-01-01
-python -m usa_wa_adapter_legislature.operators.invariants --sweep-biennia
-python -m usa_wa_adapter_legislature.operators.invariants --sweep-biennia --strict  # CI guard
 ```
 
 ## Committee lineage & lifecycle (#124)
 
 WA re-keys standing committees across eras (new WSL `Id` ~each decade), so the same
-body appears as several `active=true` orgs with disparate dated names and no visible
-lifecycle. Three layers restore a coherent timeline. **Objective** facts auto-derive
-from the roster archive: each `Id`'s founded/dissolved window (C1a) + the `active` flag
-(C1b bulk deactivation of the ~150 defunct-era backfill Ids). The **judgment** layer is
+body appears as several orgs with disparate dated names and no visible lifecycle. The
+**objective** half derives in the nightly build: `organizations.active` is true while the
+current biennium's roster wire attests a committee (#428). The **judgment** layer is
 operator-attested succession links (C2) — which era-`Id` continued / split from / merged
-with which — published as the `org_lineage` dataset since #447 (the C3 push of PM
-`succeeded_by` / `split_from` / `merged_with` entity events retired with #314). A daily **coherence** invariant (C4) + an advisory **candidate report** (C5) close
-the loop. See [`docs/specs/2026-07-25-committee-lineage-lifecycle-design.md`](specs/2026-07-25-committee-lineage-lifecycle-design.md).
+with which — published as the `org_lineage` dataset since #447, which also derives a
+succeeded or merged predecessor inactive. Their coherence gates are dbt tests
+(`organizations_inactive_have_no_live_members`, `organizations_succeeded_are_inactive`). The
+C1/C3 PM producers retired with #314, and the C1a lifecycle windows, C4 invariant unit and C5
+candidate report with the canonical tier (#412 PR F). See
+[`docs/specs/2026-07-25-committee-lineage-lifecycle-design.md`](specs/2026-07-25-committee-lineage-lifecycle-design.md).
 
 ```bash
-# C1b — one-time bulk deactivation of the defunct-era backfill. RETIRED at #314 with
-# the PM producer CLI that ran it (reconcile_committee_active): it emitted PM `active`
-# transitions, and PM now reads the published datasets instead of being pushed to. The
-# local C1a lifecycle windows below are unaffected — they were never this CLI's work.
-
 # C2 — record an operator-attested succession link (the judgment layer). Both --subject and
 # --linked are WSL committee Ids that must be registered org keys (usa_wa_legislature:<Id>
 # in registry.entity_keys) — standing, Joint or Other alike (an integer Id, negative for some
 # Other bodies), never a STRUCTURAL_ORGS id
-# (#445: the registry, not the canonical tier #412 froze, so a committee first staged after
-# the freeze links once the nightly registrar binds it). A typo is a hard error, not a
-# silent no-op link. App-role DML (writes
-# registry.committee_succession_events + provenance under usa_wa_operator, and the body to the
-# raw store after the commit, exit 4 if only that copy failed, as C1 above); provenance is
-# append-only.
+# (#445: the registry, so a committee first staged links once the nightly registrar binds
+# it). A typo is a hard error, not a silent no-op link. App-role DML (writes
+# registry.committee_succession_events, and the attestation body to the raw store under
+# usa_wa_operator after the commit — its only provenance since #412 PR F; exit 4 if only that
+# copy failed, recovered as for operator events above: record the link again as it now
+# stands, without --supersede or --clear-year, or a batch's supersede_id and clear_year: a
+# link recorded with no year is the cleared one); provenance is append-only.
 # A wrong-successor / year fix is --supersede (a NEW row stamping the prior's superseded_by_id).
 # On a supersede: --year sets, --clear-year clears, omitting both inherits the prior's year.
 # --dry-run validates + writes, then rolls back — but --list is read-only and commits even
@@ -206,28 +113,8 @@ python -m usa_wa_adapter_legislature.committees.succession_cli --supersede <id> 
     --evidence-url https://...                        # clear the year (vs omit --year = inherit)
 python -m usa_wa_adapter_legislature.committees.succession_cli --list               # current links
 
-# C3 — emitting the C1a windows + C2 links to PM as org entity events. RETIRED at #314
-# with committee_event_producer. Since #447 the nightly publishes C2's current links as the
-# `org_lineage` dataset (PM pulls it), so a link recorded here publishes after the next
+# Publication: the nightly publishes C2's current links as the
+# `org_lineage` dataset since #447 (PM pulls it), so a link recorded here publishes after the next
 # pipeline run — and a --supersede retracts the old edge the same way. Gates and contract:
 # docs/PIPELINE-CONFORMED-ENTITIES.md § Conformed: committee lineage.
-
-# C4 — daily coherence invariant (read-only anti-drift backstop): INV1 no active=false
-# committee carries a live membership Assignment; INV2 the subject of a non-superseded
-# succeeded_by/merged_with link is active=false (split_from exempt). Exit 1 on any violation
-# → the OnFailure=usa-wa-notify-failure@ handler emails the operator. Prod runs it daily at
-# 07:30 UTC via usa-wa-committee-lineage-invariants.timer, AFTER the refreshes + reconcile
-# have deactivated defunct committees + closed their spans (else it pages on pre-existing drift).
-# Since #428 INV1 is ALSO a dbt error test on the published tier
-# (organizations_inactive_have_no_live_members, docs/PIPELINE.md), so #412 PR E can retire this
-# unit without losing it. INV2 likewise since #447: organizations.active DERIVES false for a
-# succeeded/merged predecessor and organizations_succeeded_are_inactive gates it, over every
-# org type. This unit reads canonical org_type='committee' only, so a by-hand run is blind
-# to a Joint/Other link (C2 accepts them since #445); the dbt test is not.
-python -m usa_wa_adapter_legislature.committees.lineage_invariants
-
-# C5 — advisory candidate report (read-only; suggests which era-Id pairs to attest via C2).
-# Ranks same-chamber name-similar pairs by name Jaccard + adjacent windows + shared members.
-# Nothing is written — ground truth stays with the operator.
-python -m usa_wa_adapter_legislature.committees.lineage_suggest
 ```

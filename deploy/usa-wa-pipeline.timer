@@ -3,8 +3,8 @@ Description=usa-wa — nightly dataset pipeline
 Documentation=https://github.com/CannObserv/usa-wa/issues/311
 
 [Timer]
-# Daily at 08:00 UTC — after the 06:00–07:30 canonical refreshes + invariant
-# gates, so the parity probes compare against a same-day oracle. Same-day
+# Daily at 08:00 UTC — the slot once trailed the 06:00–07:30 canonical
+# refreshes (the parity oracle), deleted in #412 PR F; it stays. Same-day
 # re-runs are safe end to end: harvests dedup byte-identical wires, the build
 # is a rebuild, the registrar no-ops on known clusters, and the publisher
 # skips unchanged content.

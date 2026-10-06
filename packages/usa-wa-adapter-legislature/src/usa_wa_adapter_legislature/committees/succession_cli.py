@@ -8,12 +8,13 @@
     python -m usa_wa_adapter_legislature.committees.succession_cli --supersede <id> ... # correction
     python -m usa_wa_adapter_legislature.committees.succession_cli --list               # inspect
 
-App-role DML (writes ``committee_succession_events`` + provenance under
-``usa_wa_operator``); shell access is the trust boundary, as with #107. Validates that
-**both** ``--subject`` and ``--linked`` are registered ``usa_wa_legislature`` committee
-orgs before writing (a typo'd WSL Id would otherwise be a silent no-op link): an integer
-WSL Id (negative for some Other bodies) — standing, Joint or Other, never a structural
-org. The registry is the authority, not the canonical tier #412 froze (#445).
+App-role DML (writes ``registry.committee_succession_events``; the attestation lands in the
+raw store under ``usa_wa_operator`` once the transaction commits); shell access is the trust
+boundary, as with #107. Validates that **both** ``--subject`` and ``--linked`` are registered
+``usa_wa_legislature`` committee orgs before writing (a typo'd WSL Id would otherwise be a
+silent no-op link): an integer WSL Id (negative for some Other bodies) — standing, Joint or
+Other, never a structural org. The registry is the authority (#445); #412 PR F dropped the
+canonical tier.
 ``--dry-run`` rolls back. A ``--supersede`` correction is a new row stamping the prior's
 ``superseded_by_id`` (provenance stays append-only). ``entered_by`` is recorded from
 ``$USA_WA_OPERATOR``, else ``$USER`` — there is no flag for it.
@@ -28,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 from dataclasses import dataclass
 
@@ -43,7 +43,6 @@ from clearinghouse_core.job import (
     run_job,
 )
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.registry import KIND_ORG, RegistryKey
 from clearinghouse_domain_legislative.committee_succession import (
     SLUGS,
     CommitteeSuccessionEvent,
@@ -51,24 +50,16 @@ from clearinghouse_domain_legislative.committee_succession import (
 from usa_wa_adapter_legislature.committees.succession_store import (
     INHERIT_YEAR,
     current_events,
-    get_or_create_operator_source,
+    is_registered_committee,
     record_succession_event,
     supersede_event,
 )
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
-from usa_wa_common.jurisdiction import resolve_jurisdiction
-from usa_wa_common.orgs import STRUCTURAL_ORGS
 
 logger = get_logger(__name__)
 
 #: Stable ledger identity (#178) — a module path can move without orphaning run history.
 JOB_SLUG = "committee-succession-record"
-
-#: The namespace of committee org keys — both ends of a link must be registered in it.
-_COMMITTEE_SOURCE = "usa_wa_legislature"
-
-#: A WSL committee ``Id`` is an integer — negative for some Other bodies (JLARC is ``-5``).
-_WSL_COMMITTEE_ID = re.compile(r"-?\d+")
 
 
 class SuccessionError(ValueError):
@@ -105,29 +96,8 @@ def _validate_shape(spec: LinkSpec) -> None:
         raise SuccessionError("--clear-year and --year are mutually exclusive")
 
 
-async def _is_registered_committee(session: AsyncSession, source_id: str) -> bool:
-    """Whether a WSL ``Id`` is a registered committee org (#445).
-
-    The registrar binds every staged committee id — standing, Joint and Other alike —
-    plus the ``STRUCTURAL_ORGS`` ids under one namespace, so a committee is a registered
-    key that is not structural. The integer shape backs the denylist: a key never unbinds,
-    so a structural org later dropped from ``STRUCTURAL_ORGS`` keeps its key, and only the
-    shape still refuses it (CR 2). A merge chain ends at a live survivor, so registered
-    means live.
-    """
-    if source_id in STRUCTURAL_ORGS or not _WSL_COMMITTEE_ID.fullmatch(source_id):
-        return False
-    key = await session.scalar(
-        select(RegistryKey.id).where(
-            RegistryKey.kind == KIND_ORG,
-            RegistryKey.natural_key == f"{_COMMITTEE_SOURCE}:{source_id}",
-        )
-    )
-    return key is not None
-
-
 async def validate_and_record(
-    session: AsyncSession, source, spec: LinkSpec, *, raw: PendingAttestations | None = None
+    session: AsyncSession, spec: LinkSpec, *, raw: PendingAttestations
 ) -> CommitteeSuccessionEvent:
     """Validate ``spec`` (shape + both ends registered committee orgs) and persist it.
 
@@ -135,7 +105,7 @@ async def validate_and_record(
     Raises :class:`SuccessionError` on any validation failure (no partial write)."""
     _validate_shape(spec)
     for role, sid in (("subject", spec.subject_source_id), ("linked", spec.linked_source_id)):
-        if not await _is_registered_committee(session, sid):
+        if not await is_registered_committee(session, sid):
             raise SuccessionError(
                 f"--{role} {sid!r} is no registered usa_wa_legislature committee org "
                 "(typo, a structural org, or not yet registered — the nightly registrar "
@@ -171,18 +141,17 @@ async def validate_and_record(
             year_arg = INHERIT_YEAR
         return await supersede_event(
             session,
-            source,
             prior,
+            raw=raw,
             linked_source_id=spec.linked_source_id,
             effective_year=year_arg,
             evidence_url=spec.evidence_url,
             notes=spec.notes,
             entered_by=_entered_by(),
-            raw=raw,
         )
     return await record_succession_event(
         session,
-        source,
+        raw=raw,
         subject_source_id=spec.subject_source_id,
         linked_source_id=spec.linked_source_id,
         slug=spec.slug,
@@ -190,7 +159,6 @@ async def validate_and_record(
         evidence_url=spec.evidence_url,
         notes=spec.notes,
         entered_by=_entered_by(),
-        raw=raw,
     )
 
 
@@ -260,15 +228,12 @@ async def _run(session: AsyncSession, args: argparse.Namespace, raw: PendingAtte
         print(f"{len(events)} current committee-succession link(s)")
         return 0
 
-    jurisdiction = await resolve_jurisdiction(session)
-    source = await get_or_create_operator_source(session, jurisdiction)
-
     if args.file:
         specs = await load_json_batch(args.file, load_specs)
     else:
         specs = [_spec_from_args(args)]
 
-    recorded = [await validate_and_record(session, source, spec, raw=raw) for spec in specs]
+    recorded = [await validate_and_record(session, spec, raw=raw) for spec in specs]
     for event in recorded:
         print(_format_event(event))
     print(f"recorded {len(recorded)} committee-succession link(s)")

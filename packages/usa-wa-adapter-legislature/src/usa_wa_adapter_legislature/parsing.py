@@ -8,7 +8,7 @@ amortized across a build by the module-singleton clients). This module exists
 so `usa_wa_pipeline` depends on *parsing* without importing `transport`
 directly — the layer contract forbids a pipeline module naming the transport
 and driving the wire; a parse-only facade that owns its client internally is
-the same "provider owns its transport" seam the cohort providers use.
+the same "provider owns its transport" seam the cohort providers used.
 
 An empty wire is the archived form of a benign fault (an absent committee
 roster, #82) — parsed as an empty list, not an error.

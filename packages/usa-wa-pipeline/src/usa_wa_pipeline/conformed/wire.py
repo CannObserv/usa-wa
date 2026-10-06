@@ -1,6 +1,6 @@
 """Staging rows → the wire shapes the imported projectors consume (#309).
 
-Every span family reuses the Postgres tier's own projectors, and those read the
+Every span family reuses the projectors the Postgres tier used, and those read the
 upstream wire's field names. Staging carries the same facts under normalized
 names, so one adapter restores the shape — re-labelling, never re-interpreting
 (the AGENTS.md rule: never key a parser on an exact upstream string; these

@@ -2,12 +2,12 @@
 
     python -m usa_wa_adapter_legislature.raw_harvest [--root PATH] [--ttl-days N]
 
-The file-store sibling of :mod:`usa_wa_adapter_legislature.refresh`'s Phase-A
-pulls, feeding the #302 pipeline: the biennium committee roster
+The file-store successor to ``usa_wa_adapter_legislature.refresh``'s Phase-A
+pulls (deleted in #412 PR F), feeding the #302 pipeline: the biennium committee roster
 (``GetCommittees``), the active-committee snapshot, the full-biennium meeting
 window, the sponsor roster, and the per-committee ``GetCommitteeMembers``
-fan-out — under the same resource ids the Postgres archive uses. Two deliberate
-differences from the daily refresh: the fan-out enumerates committees from the
+fan-out — under the same resource ids the Postgres archive used. Two deliberate
+differences from that refresh: the fan-out enumerates committees from the
 roster wire fetched *in this run* (parsed offline through the same SOAP
 binding), never from Postgres — the raw tier must be buildable with no
 database — and nothing here normalizes; bytes in, bytes stored. Every SOAP

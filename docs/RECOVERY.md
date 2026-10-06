@@ -18,9 +18,10 @@ Two things here cannot be rebuilt from anything else:
 
 Everything else is derived. `serving` reloads from `data/datasets/`; the datasets and
 `data/pipeline.duckdb` rebuild from the raw store plus the registry (one nightly run).
-`canonical` is frozen (#412 PR E) and `clearinghouse_core` is run history and
-pre-#302 leftovers. The backup dumps the whole database anyway — 13.2 MB, 2.2 s
-(#430) — because a one-step restore beats saving 28 MB of `serving`.
+`clearinghouse_core` is run history (`job_runs`) plus the source and jurisdiction
+vocabulary that `coverage_seed` (nightly) and `seed_jurisdictions` (by hand) reassert; the
+`canonical` schema and the Postgres provenance tables were dropped in #412 PR F. The
+backup dumps the whole database anyway — 13.2 MB, 2.2 s (#430) — because a one-step restore beats saving 28 MB of `serving`.
 
 **Not here, and kept elsewhere by hand:** `/etc/usa-wa/.env` (the database passwords,
 the alert address) belongs in the password manager, never in a bucket. The cluster's

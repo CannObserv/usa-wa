@@ -1,9 +1,8 @@
 """The biennium term calendar — pure label arithmetic over ``YYYY-YY`` biennia (#189).
 
 A **biennium** is the two-year term a biennial legislature keys its sessions, rosters and
-tenures on. Layer 2 already models it as data (``LegislativeSession.biennium_label``,
-``classification='biennium'``); this module is the arithmetic that goes with the column, so
-the span engine next door can do term algebra without importing a jurisdiction adapter.
+tenures on; this module is its label arithmetic, so the span engine next door can do term
+algebra without importing a jurisdiction adapter.
 
 It lived in ``usa_wa_adapter_legislature.synthesis`` — the WSL *anchor synthesizer* — purely
 because that is where the first caller needed it, which is how the WSL adapter became a

@@ -10,10 +10,11 @@ Step B deleted the writer. That left four tables holding a frozen copy of PM's
 state as of 2026-09-08 (323 + 240 + 467 + 13 rows), maintained by nothing, in the
 schema the serving projection reads from. This is the drop.
 
-**Not gated on power-map#500.** The four anchor columns on the LIVE canonical
-tables (`persons.pm_person_id` and its three siblings) are, because PM must
-archive against them first. The `pm_*` columns on these four go with their own
-tables and answer to nobody — which is the whole reason step C splits here.
+**Not gated on power-map#500.** The four anchor columns on the then-live canonical
+tables (`persons.pm_person_id` and its three siblings) were, because PM had to archive
+against them first; they went with the schema in #412 PR F. The `pm_*` columns on these
+four go with their own tables and answer to nobody — which is the whole reason step C
+splits here.
 """
 
 from __future__ import annotations

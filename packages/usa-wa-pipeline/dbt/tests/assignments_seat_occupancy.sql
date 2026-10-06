@@ -105,7 +105,7 @@
 -- Known weakness, stated rather than papered over: a count baseline can mask
 -- one new conflict behind one repaired elsewhere. Acceptable while the set is
 -- being actively drained in #360; if that stalls, the upgrade is a named-pair
--- baseline in the `parity_wsl.ACCEPTED` idiom.
+-- baseline in the idiom of the retired `parity_wsl.ACCEPTED`.
 {% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 35 %}
 {{ config(severity='error', error_if='>' ~ baseline, warn_if='!=' ~ baseline) }}
 select

@@ -94,10 +94,10 @@ def test_seated_synthesizes_when_no_wire_span():
 
 
 def test_seated_out_of_current_biennium_does_not_synthesize():
-    """#119: a historical seated event with no matching span (the daily *restricted* rebuild
-    builds only the current cohort) must NOT mint a bogus current-biennium span for a departed
-    member. Synthesis is only legitimate for a current-biennium appointee. The unrestricted
-    backfill builds the historical span, so this event matches there — no synthesis needed."""
+    """#119: a historical seated event with no matching span must NOT mint a bogus
+    current-biennium span for a departed member. Synthesis is only legitimate for a
+    current-biennium appointee. The build covers every biennium, so the historical span is
+    built and the event matches it — no synthesis needed."""
     events = [
         SuccessionEvent("77777", "seated", date(2009, 11, 1), "chamber-house", "ld-16-position-2")
     ]
@@ -533,7 +533,7 @@ def test_a_sitting_members_party_tenure_stays_open_across_the_move():
 
 
 def test_departed_split_sees_a_return_another_builder_owns():
-    """Pike: returned to a HOUSE seat, which `usa_wa_facts_seats.house.build` owns — invisible
+    """Pike: returned to a HOUSE seat, which the House builder owns — invisible
     to the sponsor builder's own span list (#268's structural limit). ``context_spans`` supplies
     it read-only: it informs the split and never appears in the output.
 
@@ -617,7 +617,7 @@ def test_a_seated_event_dates_the_seat_it_names():
 def test_departed_does_not_split_within_one_biennium():
     """A return inside the departure's own biennium would key the new span to the SAME
     biennium — a duplicate `source_id`. Leave the span whole and log instead of emitting a
-    key collision the emitter would silently upsert over."""
+    key collision."""
     party = _span(
         "x",
         "party",

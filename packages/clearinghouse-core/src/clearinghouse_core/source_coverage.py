@@ -1,6 +1,6 @@
 """Source coverage as data (#180) — what a feed actually covers, and how we know.
 
-:class:`~clearinghouse_core.provenance.Source` records how a feed is *configured*
+:class:`~clearinghouse_core.sources.Source` records how a feed is *configured*
 (``reliability``, ``cache_ttl_days``, ``retention_policy``) but nothing about what it
 **covers**: no range, no audit date, no known gaps. The facts that answer "which years of
 which fact rest on which archive?" lived instead as module constants declared
@@ -18,7 +18,7 @@ Two objects, and the seam between them is the design decision:
 * :class:`CoverageClaim` — the **declaration**. A frozen dataclass, pure Python, no
   database. Each adapter package declares its sources' claims in its own ``coverage.py``.
 * :class:`SourceCoverage` — the **table**. :func:`seed_source_coverage` writes the declared
-  claims against a ``Source`` row so the coverage is queryable next to the provenance it
+  claims against a ``Source`` row so the coverage is queryable next to the feed it
   describes.
 
 **Why the constants derive from the declaration rather than from a query.** Most of the
@@ -56,7 +56,7 @@ from ulid import ULID as _ULID
 
 from clearinghouse_core.db.ulid import ULID
 from clearinghouse_core.models import Base, TimestampMixin
-from clearinghouse_core.provenance import Source
+from clearinghouse_core.sources import Source
 
 SCHEMA = "clearinghouse_core"
 
@@ -201,10 +201,10 @@ def known_gaps(claims: Iterable[CoverageClaim]) -> tuple[CoverageClaim, ...]:
 
 
 class SourceCoverage(Base, TimestampMixin):
-    """What one :class:`~clearinghouse_core.provenance.Source` covers on one dimension.
+    """What one :class:`~clearinghouse_core.sources.Source` covers on one dimension.
 
     Seeded from the declared :class:`CoverageClaim` set by :func:`seed_source_coverage`, so
-    the audit's output lands next to the provenance it describes and "what do we actually
+    the audit's output lands next to the feed it describes and "what do we actually
     cover?" is a query rather than a grep through adapter comments.
 
     A source holds one row per (dimension, range_start), which is what lets a served span
@@ -242,14 +242,6 @@ class SourceCoverage(Base, TimestampMixin):
     """When the claim was last established against the feed. A staleness query over this
     column is the automated form of the votewa lesson (a feed's range moving without
     anyone noticing)."""
-
-    evidence_citation_id: Mapped[_ULID | None] = mapped_column(
-        ULID(),
-        ForeignKey(f"{SCHEMA}.citations.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    """Optional link to the :class:`~clearinghouse_core.provenance.Citation` recording the
-    probe that established the claim."""
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 

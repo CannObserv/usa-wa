@@ -92,8 +92,8 @@ async def adjudicate_unmerge(
     stay where they are; the returned inventory names those still bound
     elsewhere, so the operator can move them back deliberately instead of
     mining the ledger mid-incident (CR 41/52) — the CLI reports it in its
-    counters (CR 51). A revived entity left keyless stays out of conformed and
-    trips the parity probes until the moves are resolved."""
+    counters (CR 51). A revived entity left keyless stays out of conformed
+    until the moves are resolved."""
     row = await _require_entity(session, kind, entity)
     if row.merged_into is None:
         raise ValueError(f"{kind} entity {entity!r} is not merged — nothing to unmerge")

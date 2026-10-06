@@ -4,7 +4,7 @@ The meeting docket (`CommitteeMeetingService.GetCommitteeMeetings`) is fetched p
 **date window** so each closed window is a stable cache key fetched once — request
 frugality, since WSL is a vital upstream we must not hammer. A biennium maps to its
 full two-year window; the ``committee-meetings:<begin>:<end>`` resource id keys the
-runner's cache-or-fetch decision and the archival ``RawPayload``.
+raw harvest's cache-or-fetch decision and the archived object.
 
 Windows are UTC-naive ``datetime``s because the WSDL parameter is a bare
 ``s:dateTime`` and zeep serializes naive values without an offset.

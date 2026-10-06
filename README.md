@@ -87,10 +87,9 @@ uv run ruff format .
 ```
 
 Full command reference: [`docs/COMMANDS.md`](docs/COMMANDS.md) — it carries the
-index of every operational and backfill CLI, grouped by the reference that
-documents each: [succession](docs/COMMANDS-SUCCESSION.md),
-[backfill](docs/COMMANDS-BACKFILL.md),
-[seat facts](docs/COMMANDS-SEATS.md),
+index of every operational CLI, grouped by the reference that documents each:
+[succession](docs/COMMANDS-SUCCESSION.md),
+[probes](docs/COMMANDS-BACKFILL.md),
 [roster PDF](docs/COMMANDS-ROSTER.md).
 
 Agent-facing docs (architecture, per-package module maps, deployment,
@@ -99,9 +98,9 @@ environment) are indexed under **Detail Docs** in [`AGENTS.md`](AGENTS.md).
 ## Deploy
 
 The systemd units live under [`deploy/`](deploy/) — the live API, a migrate
-oneshot, and thirteen timer-driven oneshots, seven of them retired and kept
-disabled (#412). (The PM sync sidecar and its three weekly committee reconcilers
-were four more until usa-wa#314 retired the PM sync stack.)
+oneshot, and six timer-driven oneshots. (The PM sync sidecar and its three weekly
+committee reconcilers were four more until usa-wa#314 retired the PM sync stack, and
+the Postgres canonical tier's refreshes and invariant gates nine more until #412.)
 
 Production secrets live in `/etc/usa-wa/.env` (managed manually on the VM, not in
 the repo) — **this file must exist before enabling any unit**, or migrate (owner
@@ -167,17 +166,6 @@ sudo systemctl enable --now usa-wa-integrity-sweep.timer                    # we
 
 # Edition re-check (monthly) — dry-run fetch; exit 4 = new roster edition → operator email
 sudo systemctl enable --now usa-wa-roster-pdf-recheck.timer                 # monthly 1st 09:00 UTC (#237)
-
-# Retired (#412): the Postgres canonical tier's refreshes and invariant gates. The
-# unit files stay, so a by-hand `systemctl start <unit>.service` can still re-derive
-# canonical until #412 PR F deletes them; their checks run as dbt tests in the nightly.
-sudo systemctl disable --now usa-wa-wsl-refresh.timer                       # retired (#412 PR E)
-sudo systemctl disable --now usa-wa-pdc-refresh.timer                       # retired (#412 PR E)
-sudo systemctl disable --now usa-wa-sos-refresh.timer                       # retired (#412 PR E)
-sudo systemctl disable --now usa-wa-senate-corroboration.timer              # retired (#412 PR E)
-sudo systemctl disable --now usa-wa-house-corroboration.timer               # retired (#412 PR E)
-sudo systemctl disable --now usa-wa-succession-invariants.timer             # retired (#412 PR E)
-sudo systemctl disable --now usa-wa-committee-lineage-invariants.timer      # retired (#412 PR E)
 
 sudo systemctl list-timers 'usa-wa-*'                                       # verify next-elapse
 ```

@@ -1,10 +1,10 @@
 """Settings + DSN resolution (#179b).
 
-``get_database_url()`` was single-role until the #179b sweep reached the five
-owner-role CLIs (the span/source migrations, which hard-delete citations the app role
-is REVOKEd on). Those five each read ``DATABASE_URL_OWNER`` straight off
-``os.environ`` with their own error text and their own exit code — exactly the split
-brain #179 exists to close, one variable further along.
+``get_database_url()`` was single-role until the #179b sweep reached the five owner-role
+CLIs (the span/source migrations, which hard-deleted citations the app role was REVOKEd
+on; #412 PR F deleted them with the table). Those five each read ``DATABASE_URL_OWNER``
+straight off ``os.environ`` with their own error text and their own exit code — exactly
+the split brain #179 exists to close, one variable further along.
 """
 
 import pytest

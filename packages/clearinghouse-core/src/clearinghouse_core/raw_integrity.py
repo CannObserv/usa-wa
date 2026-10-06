@@ -3,7 +3,7 @@
     python -m clearinghouse_core.raw_integrity [--root PATH] [--source SLUG]
                                                [--byte-budget BYTES] [--expect-objects]
 
-The file-store successor to :mod:`clearinghouse_core.integrity` (#54/#55), for
+The file-store successor to ``clearinghouse_core.integrity`` (#54/#55), for
 the #302 raw tier: every manifest-referenced object is re-hashed against the
 sha256 it is stored under — the name *is* the baseline, as
 ``FetchEvent.content_hash`` was. A mismatch or a missing object is

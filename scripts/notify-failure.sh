@@ -2,16 +2,15 @@
 # OnFailure= handler for usa-wa's unattended oneshots (issue #49).
 #
 # Started by `usa-wa-notify-failure@<failed-unit>.service` when a failable
-# oneshot — usa-wa-migrate, usa-wa-wsl-refresh, usa-wa-reconcile-committee-active,
-# usa-wa-reconcile-committee-names — exits non-zero or times out. Emails the
+# oneshot — usa-wa-migrate, usa-wa-pipeline, usa-wa-backup and every other unit
+# that declares OnFailure= — exits non-zero or times out. Emails the
 # operator via the exe.dev email
 # gateway (a documented VM feature: https://exe.dev/docs/send-email.md), so it
 # needs no MTA and no SMTP creds on this single headless VM.
 #
-# The reconcile CLI's exit-code contract (#44: 1 rejected / 2 auth / 3 guardrail
-# abort) is surfaced in the subject line so the operator can triage without
-# opening the journal — the whole point #49 makes about the codes being
-# "observable" only if something is watching.
+# The failing unit's exit code and systemd result are surfaced in the subject
+# line so the operator can triage without opening the journal — the whole point
+# #49 makes about exit codes being "observable" only if something is watching.
 #
 # Fail-closed: a missing recipient aborts loudly rather than silently dropping
 # the alert. A failed send is logged but does not retry (no OnFailure on the

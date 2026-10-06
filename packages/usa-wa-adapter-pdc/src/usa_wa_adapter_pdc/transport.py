@@ -9,7 +9,7 @@ PDC ``person_id``.
 Unlike the WSL SOAP transport (synchronous zeep behind ``asyncio.to_thread``), SODA is
 plain REST/JSON, so this client is natively async over ``httpx``. It mirrors the WSL
 :class:`WireFetch` contract — the pristine response body is archived + hashed (#54); the
-derived parse is a convenience so the normalizer doesn't re-decode.
+derived parse is a convenience so a caller doesn't re-decode.
 
 An optional application token (``USA_WA_PDC_APP_TOKEN`` → ``X-App-Token`` header) raises
 Socrata's per-IP rate limit. It is **not** authentication and **not** required: the
@@ -60,7 +60,7 @@ def _parse_winner_rows(wire: bytes) -> list[dict[str, Any]]:
     """Decode a SODA response body (a top-level JSON array of row objects) offline.
 
     The #56 cache path, shared by the House and Senate re-parsers: re-derive the parse
-    from stored ``RawPayload`` bytes without a re-pull.
+    from archived bytes without a re-pull.
     """
     decoded = json.loads(wire.decode("utf-8"))
     if not isinstance(decoded, list):

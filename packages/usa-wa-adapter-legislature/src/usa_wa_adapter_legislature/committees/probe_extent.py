@@ -9,10 +9,10 @@ rows, meeting records, and meeting wire bytes. Stops after ``--max-empty`` conse
 empty bienniums (a body absent from *both* services → earliest available reached),
 bounded by ``--max-bienniums`` so a never-empty source can't loop forever.
 
-**Read-only, no archival.** It talks to :class:`WSLClient` directly — **not** the
-:class:`AdapterRunner` — so exploratory pulls never write a ``FetchEvent`` /
-``RawPayload``. We learn the extent before committing to archive it; the real backfill
-(sub-project 3) does archival properly through the runner.
+**Read-only, no archival.** It talks to :class:`WSLClient` directly — **not** a harvest —
+so exploratory pulls archive nothing. We learn the extent before committing to archive it;
+the real backfill (sub-project 3) archived through the ``AdapterRunner``, deleted in
+#412 PR F.
 
 Committee wire bytes are not measured (``GetCommittees`` returns parsed rows, not the
 envelope, and committee payloads are small); the reported wire volume is the meeting

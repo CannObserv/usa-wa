@@ -12,8 +12,8 @@ DATABASE_ROLE_APP = "app"
 """The everyday least-privilege role (``DATABASE_URL``) — every job but the migrations."""
 
 DATABASE_ROLE_OWNER = "owner"
-"""The schema-owning role (``DATABASE_URL_OWNER``). Needed only where a job hard-deletes
-provenance rows the app role is REVOKEd on (#54) or runs DDL — see docs/DEPLOYMENT.md."""
+"""The schema-owning role (``DATABASE_URL_OWNER``). Needed only for DDL, or a hard-delete of
+rows the app role is REVOKEd on (#54; none since #412 PR F) — see docs/DEPLOYMENT.md."""
 
 _ROLE_ENV_VARS = {
     DATABASE_ROLE_APP: "DATABASE_URL",

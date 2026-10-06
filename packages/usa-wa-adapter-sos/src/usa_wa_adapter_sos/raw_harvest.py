@@ -2,11 +2,11 @@
 
     python -m usa_wa_adapter_sos.raw_harvest [--root PATH] [--ttl-days N]
 
-The file-store sibling of the two Postgres-tier Phase-A jobs
-(``sos-filings-harvest`` / ``sos-archive-refresh``), feeding the #302
+The file-store successor to the two Postgres-tier Phase-A jobs
+(``sos-filings-harvest`` / ``sos-archive-refresh``, deleted in #412 PR F), feeding the #302
 pipeline: for each election year seating the biennium, the WhoFiled filings
 export and the legislative results export, written as pristine wires under the
-same resource ids the Postgres archive uses (``sos-whofiled:<date>`` /
+same resource ids the Postgres archive used (``sos-whofiled:<date>`` /
 ``sos-legresults:<date>``) into their own source slices (``usa_wa_sos`` /
 ``usa_wa_sos_results``). Per-cohort and per-source failures are contained as
 ``err`` manifest entries; both stores close their run manifests regardless.
@@ -137,7 +137,7 @@ async def harvest_raw(
         *([lookahead] if lookahead is not None else []),
     ]
     # Per-source counters (#302 CR): a total filings outage must not be masked
-    # by healthy results — the sibling Postgres-tier jobs alert per source.
+    # by healthy results — the Postgres-tier jobs it replaced alerted per source.
     filings_counters = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
     results_counters = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
     # from the clients actually fetching when they can say (CR 45)

@@ -215,7 +215,6 @@ class CoverageSpan(ApiModel):
         )
     )
     audited_at: datetime
-    evidence_citation_id: ULIDStr | None = None
     notes: str | None = None
 
 

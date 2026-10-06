@@ -2,7 +2,7 @@
 
 Chamber + election year ride the resource id (``house-winners:<year>`` /
 ``senate-winners:<year>``); the SODA row's identifier trio (``person_id`` —
-the value canonical links as the ``wa_pdc`` scheme — plus ``filer_id`` and
+the value canonical linked as the ``wa_pdc`` scheme — plus ``filer_id`` and
 ``filer_name``) is what the matching tier keys on. The full SODA record
 carries ~50 columns; staging keeps the identity- and seat-relevant subset and
 never keys on the rest.

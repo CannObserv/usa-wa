@@ -3,7 +3,7 @@ Description=usa-wa — daily host disk GC and free-space check
 Documentation=https://github.com/CannObserv/usa-wa/issues/394
 
 [Timer]
-# Daily, 05:45 UTC — first in the chain, ahead of the 06:00 WSL refresh. The
+# Daily, 05:45 UTC — first in the chain, ahead of the 08:00 pipeline. The
 # order is the point: reclaim, then ingest. The day's work (harvests, a dbt
 # build, a publish) is what consumes space, so space is freed before it runs
 # rather than after it has already failed.

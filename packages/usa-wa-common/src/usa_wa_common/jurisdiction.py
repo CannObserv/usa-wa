@@ -1,12 +1,12 @@
 """The ``usa-wa`` Jurisdiction lookup (#189).
 
-Every runner path in this deployment — WSL, PDC, both SOS sources, every fact builder —
-needs the same pre-seeded Jurisdiction row before it can drive an
-:class:`~clearinghouse_core.runner.AdapterRunner`. It is the deployment's jurisdiction, not
-any adapter's, but it was defined in `usa_wa_adapter_legislature.provisioning` (alongside the
-get-or-create of the **WSL SOAP Source**, which genuinely is that adapter's) and imported from
-there by the PDC harvest and both SOS harvests — pure *sourcing* modules reaching into a peer
-adapter for a row that has nothing to do with SOAP.
+Every ``Source`` row in this deployment — WSL, PDC, both SOS sources, the roster PDF — hangs off
+the same pre-seeded Jurisdiction row, which ``usa_wa_pipeline.coverage_seed`` resolves nightly.
+It is the deployment's jurisdiction, not any adapter's, but it was defined in
+`usa_wa_adapter_legislature.provisioning` (alongside the get-or-create of the **WSL SOAP
+Source**, which genuinely is that adapter's) and imported from there by the PDC harvest and both
+SOS harvests — pure *sourcing* modules reaching into a peer adapter for a row that has nothing
+to do with SOAP.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ JURISDICTION_SLUG = "usa-wa"
 
 async def resolve_jurisdiction(session: AsyncSession) -> Jurisdiction:
     """Return the pre-seeded ``usa-wa`` Jurisdiction, or raise if the IA bootstrap
-    hasn't run (it must exist before any runner path)."""
+    hasn't run (it must exist before any Source row is provisioned)."""
     row = (
         await session.execute(select(Jurisdiction).where(Jurisdiction.slug == JURISDICTION_SLUG))
     ).scalar_one_or_none()

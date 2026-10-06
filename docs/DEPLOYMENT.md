@@ -13,21 +13,12 @@ integrity (#279), memory pressure (#389) and the disk GC (#394) — are in
 | Service | Framework | Port | Managed by |
 |---|---|---|---|
 | API (live) | FastAPI | 8000 | `systemctl` (`usa-wa.service`) |
-| WSL refresh (retired, #412) | oneshot + timer | — | **Disabled since #412 PR E**: the canonical tier stopped, and the checks run as dbt tests in the nightly. The unit files stay for a by-hand re-derive until PR F. `systemctl` (`usa-wa-wsl-refresh.timer` → `.service`; 06:00 UTC). Pulls committees **and** the current-biennium meeting window for additive Joint/`Other` discovery (#39) |
-| PDC archive refresh (retired, #412) | oneshot, no timer | — | **Disabled since #412 PR E**: the canonical tier stopped, and the checks run as dbt tests in the nightly. The unit files stay for a by-hand re-derive until PR F. `systemctl` (`usa-wa-pdc-archive-refresh.service`, #201 Phase A). Archives the current biennium's winner cohorts (#121: both House generals + the three Senate cohorts), each SAVEPOINT-guarded, forced past the TTL. **No timer of its own** — pulled in by the rebuild unit below (`Wants=`) and ordered before it. Exit 4 = every cohort unserved |
-| PDC refresh (retired, #412) | oneshot + timer | — | **Disabled since #412 PR E**: the canonical tier stopped, and the checks run as dbt tests in the nightly. The unit files stay for a by-hand re-derive until PR F. `systemctl` (`usa-wa-pdc-refresh.timer` → `.service`; 06:30 UTC, #69; **identifier-only since #101, rebuild-only since #201**). Re-drives the builder off the archive → `person_wa_pdc` cross-links only (the House Position seat is the SOS refresh's since #101). Ordered after the WSL refresh (binds onto its House Persons + sponsor archive) and after its own archive half — `Wants=`, not `Requires=`: a Socrata outage alerts on the archive unit while this one re-derives from the last good archive |
-| SOS archive refresh (retired, #412) | oneshot, no timer | — | **Disabled since #412 PR E**: the canonical tier stopped, and the checks run as dbt tests in the nightly. The unit files stay for a by-hand re-derive until PR F. `systemctl` (`usa-wa-sos-archive-refresh.service`, #201 Phase A). Archives the current biennium's results cohorts — both the even seating year and the odd mid-biennium special (#106), each SAVEPOINT-guarded, forced past the TTL. **No timer of its own** — pulled in by the rebuild unit below. Exit 4 = every cohort unserved |
-| SOS refresh (retired, #412) | oneshot + timer | — | **Disabled since #412 PR E**: the canonical tier stopped, and the checks run as dbt tests in the nightly. The unit files stay for a by-hand re-derive until PR F. `systemctl` (`usa-wa-sos-refresh.timer` → `.service`; 06:45 UTC, #101; **rebuild-only since #201**). Re-drives the WSL+SOS House Position span builder off the archive → `usa_wa_legislature` `state_representative` Position seat **spans**. Ordered after the WSL refresh (reads its sponsor archive + binds its Persons) and after its own archive half (`Wants=`, not `Requires=` — see above); independent of the PDC refresh |
-| Senate corroboration (retired, #412) | oneshot + timer | — | **Disabled since #412 PR E**: the canonical tier stopped, and the checks run as dbt tests in the nightly. The unit files stay for a by-hand re-derive until PR F. `systemctl` (`usa-wa-senate-corroboration.timer` → `.service`; 07:00 UTC, #123). Consumes the odd-year `senate_winners()` cohort: field-cites each elected senator's open span `valid_from` to `sos-legresults:<odd>` (2a) + asserts no odd-year Senate winner lacks an open seat (2b — a silent missing operator `seated`); exit 1 → operator email. App-role DML (idempotent Citation insert). Ordered after the WSL + SOS refreshes rebuild the open Senate cohort + archive the odd results wire |
-| House corroboration (retired, #412) | oneshot + timer | — | **Disabled since #412 PR E**: the canonical tier stopped, and the checks run as dbt tests in the nightly. The unit files stay for a by-hand re-derive until PR F. `systemctl` (`usa-wa-house-corroboration.timer` → `.service`; 07:05 UTC, #149). The House sibling of Senate 2b — consumes the odd-year `house_winners()` cohort and asserts no odd-year House **special** winner `(LD, position)` lacks an open `state_representative` Position seat (the LD30/Hickel unseated-appointee shape a unit test can't catch); exit 1 → operator email. Read-only (no citation half — the House Position spans already cite the odd wire). `--sweep-biennia` is the #119 report-only historical audit. Ordered after the WSL + SOS refreshes rebuild the open House cohort + archive the odd results wire |
-| Succession invariants (retired, #412) | oneshot + timer | — | **Disabled since #412 PR E**: the canonical tier stopped, and the checks run as dbt tests in the nightly. The unit files stay for a by-hand re-derive until PR F. `systemctl` (`usa-wa-succession-invariants.timer` → `.service`; 07:15 UTC, #107). Read-only assertion of the open-seat cohort — 49 Senate / 98 House chamber counts + no duplicate occupancy; exit 1 → operator email (a missing operator succession event is otherwise silent). Ordered after the WSL/PDC/SOS refreshes rebuild the cohort |
-| Committee lineage invariants (retired, #412) | oneshot + timer | — | **Disabled since #412 PR E**: the canonical tier stopped, and the checks run as dbt tests in the nightly. The unit files stay for a by-hand re-derive until PR F. `systemctl` (`usa-wa-committee-lineage-invariants.timer` → `.service`; 07:30 UTC, #124 C4). Read-only coherence assertion — INV1 no `active=false` committee carries a live membership Assignment; INV2 the subject of a non-superseded `succeeded_by`/`merged_with` link is `active=false` (`split_from` exempt); exit 1 → operator email. Ordered after the refreshes + reconcile deactivate defunct committees + close their spans |
 | Dataset pipeline (daily) | oneshot + timer | — | `systemctl` (`usa-wa-pipeline.timer` → `.service`; 08:00 UTC, #311). The #302 nightly chain: three raw harvests → dbt build → `build_warnings` → registrar → publish → serving load → `coverage_seed` → probes: `registry_coverage` then `parity_citations` (#412; `scripts/pipeline-nightly.sh`). Harvest failures contained (last good wires + publish gates protect); a build failure aborts; a dbt warning (#412 PR E: `dbt build` exits 0 on one), registrar conflicts, a publish-gate refusal, or a probe failure exit 1 → operator email while the last good catalog stands. Either exit restates each failed stage's last stdout line (its harness summary, counters included) as the run's closing lines, since the email carries only the last 25 (#331). Since #412 PR E it orders after no refresh: the canonical oracle probes retired with them |
-| Raw-store integrity sweep (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-integrity-sweep.timer` → `.service`; Sun 08:00 UTC). `python -m clearinghouse_core.raw_integrity` (#304): re-hashes the raw file store's objects against the sha256 they are stored under, a 256 MiB rolling slice per run; exit 1 = a mismatched or missing object → operator email. The unit passes `--expect-objects`, so a missing or empty store exits 4 (a moved store or a renamed `USA_WA_RAW_ROOT`) rather than passing. Since #412 PR C; it re-hashed Postgres `RawPayload` rows before (#54), and that module now runs only by hand. Overlapping the 08:00 harvests is safe: a run manifest lands by tmp+replace, after its objects |
+| Raw-store integrity sweep (weekly) | oneshot + timer | — | `systemctl` (`usa-wa-integrity-sweep.timer` → `.service`; Sun 08:00 UTC). `python -m clearinghouse_core.raw_integrity` (#304): re-hashes the raw file store's objects against the sha256 they are stored under, a 256 MiB rolling slice per run; exit 1 = a mismatched or missing object → operator email. The unit passes `--expect-objects`, so a missing or empty store exits 4 (a moved store or a renamed `USA_WA_RAW_ROOT`) rather than passing. Since #412 PR C; it re-hashed Postgres `RawPayload` rows before (#54), until PR F dropped them. Overlapping the 08:00 harvests is safe: a run manifest lands by tmp+replace, after its objects |
 | Roster PDF edition re-check (monthly) | oneshot + timer | — | `systemctl` (`usa-wa-roster-pdf-recheck.timer` → `.service`; 1st 09:00 UTC, #237). The roster raw harvest (#421) run `--dry-run --force`: fetches the *Members of the Legislature* PDF, verifies its `Revision Date` against `DEFAULT_REVISION` in code, and writes nothing. Exit 4 = a new edition is published (or the document cannot be located, or its stamp can no longer be read) → operator email, repeated monthly until the edition is harvested **and** the default bumped on `main` — runbook: [COMMANDS-ROSTER.md](COMMANDS-ROSTER.md) § Roster PDF. `--force` is load-bearing: the harvest's 90-day freshness window would otherwise make every run a fetch-free cache hit. Not a refresh — nothing downstream reads it |
 | WSL availability probe (daily, #135) | oneshot + timer | — | `systemctl` (`usa-wa-wsl-availability-probe.timer` → `.service`; 09:20 UTC, #135). `python -m usa_wa_adapter_legislature.probe_availability --biennium 2027-28 --until 2027-02-28`: write-free (no raw store, no database, no ledger row). Appends how much of 2027-28 WSL serves to `data/research/wsl-availability.jsonl`; **exit 4 = a count changed state** (faulting → empty → has rows; growth alone is logged, not mailed) — the morning WSL starts publishing the new biennium, which is when the rollover's nightly warnings can stop. After `--until` it asks nothing and exits 0; disable the timer then. Runbook: [RUNBOOK-ROLLOVER.md](RUNBOOK-ROLLOVER.md) |
 | Nightly backup (daily) | oneshot + timer | — | `systemctl` (`usa-wa-backup.timer` → `.service`; 10:17 UTC, #434). `python -m usa_wa_api.backup.run`: dumps the database (`pg_dump -Fc`, verified, the registry's row counts as metadata) to `gs://co-gcs-usa-wa-backup/db/<host>/<stamp>.dump` and mirrors the raw store's new objects and manifests under `raw/`, create-only. Exit 1 = either half did not ship → operator email; exit 2 = no bucket configured or a misplaced key. Every run but a dry one checks in to the co-status dead-man monitor (#455), which alarms when a night's check-in never arrives. Runs sandboxed as its own dynamic user `usa_wa_backup` with no capabilities, no database credential (peer auth to a `pg_read_all_data` role) and the GCS key as a systemd credential — the one unit that loads `/etc/usa-wa/backup.env` and **not** `/etc/usa-wa/.env`. Two hours after the pipeline so each night carries that day's registrations. Runbook, restore and provisioning: [RECOVERY.md](RECOVERY.md) |
-| Disk GC + free-space sensor (daily) | oneshot + timer | — | `systemctl` (`usa-wa-disk-gc.timer` → `.service`; 05:45 UTC, #394). `scripts/disk-gc.sh --prune`: reclaims tooling copies no running process references (VS Code server builds, Claude Code extension versions (#399), Claude plugin-cache versions no live session marks in use (#407), `_npx` trees), measures the repo tiers without touching them (#396 owns their retention), and exits 1 below the free-space floor → operator email. First in the chain, ahead of the 06:00 ingest — reclaim, then work. The one unit carrying **neither** `ExecStartPre` guard: it runs no repo code, and #87/#279 both fail in the worktree-heavy state that fills the disk |
+| Disk GC + free-space sensor (daily) | oneshot + timer | — | `systemctl` (`usa-wa-disk-gc.timer` → `.service`; 05:45 UTC, #394). `scripts/disk-gc.sh --prune`: reclaims tooling copies no running process references (VS Code server builds, Claude Code extension versions (#399), Claude plugin-cache versions no live session marks in use (#407), `_npx` trees), measures the repo tiers without touching them (#396 owns their retention), and exits 1 below the free-space floor → operator email. First in the chain, ahead of the 08:00 pipeline — reclaim, then work. The one unit carrying **neither** `ExecStartPre` guard: it runs no repo code, and #87/#279 both fail in the worktree-heavy state that fills the disk |
 | Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
 
@@ -72,14 +63,7 @@ Wed 18:11 UTC window.
 
 The unattended oneshots fail silently on a headless box — a `failed` state in the
 journal nobody is watching. Each failable oneshot (`usa-wa-migrate`,
-`usa-wa-wsl-refresh`, `usa-wa-pdc-refresh`, `usa-wa-sos-refresh`,
-`usa-wa-pdc-archive-refresh`, `usa-wa-sos-archive-refresh` (#201 — each half of a
-daily cycle alerts on its own, so a source outage and a rebuild failure are
-distinguishable from the email alone),
-`usa-wa-integrity-sweep`,
-`usa-wa-senate-corroboration`, `usa-wa-house-corroboration`,
-`usa-wa-succession-invariants`,
-`usa-wa-committee-lineage-invariants`, `usa-wa-pipeline` (#311), `usa-wa-disk-gc` (#394),
+`usa-wa-integrity-sweep`, `usa-wa-pipeline` (#311), `usa-wa-disk-gc` (#394),
 `usa-wa-roster-pdf-recheck` (#237 — its exit 4 is the new-edition notice),
 `usa-wa-wsl-availability-probe` (#135 — its exit 4 is "a WSL 2027-28 roster changed state"),
 `usa-wa-backup` (#434 — exit 1 = a half did not ship, exit 2 = no bucket or a misplaced key)) carries
@@ -91,9 +75,9 @@ unit's full name) becomes the handler's instance.
 runs [`scripts/notify-failure.sh`](../scripts/notify-failure.sh), which emails the
 operator via the **exe.dev email gateway** (`POST
 http://169.254.169.254/gateway/email/send`, a documented VM feature — no MTA/SMTP
-creds needed). The reconcile exit-code contract (#44: 1 rejected / 2 auth / 3
-guardrail abort) is surfaced **in the subject line** so a mass-retirement abort is
-triageable without opening the journal. Recipient is `USA_WA_ALERT_EMAIL`
+creds needed). The failing unit's exit code and systemd result (`exit-code`,
+`timeout`) are surfaced **in the subject line**, and the journal's tail in the body,
+so a failure is triageable without opening the journal. Recipient is `USA_WA_ALERT_EMAIL`
 (`/etc/usa-wa/.env`); the script **fails closed** if it's unset — set it before
 relying on alerts. The handler has no `OnFailure=` on itself (a failed send must
 not recurse); a dropped alert still leaves the failure in the journal. The
@@ -109,7 +93,7 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 | Role | Rights | Used by |
 |---|---|---|
 | `usa_wa_owner` | owns all tables/sequences; CREATE/ALTER/DROP | `alembic upgrade head` only — the `usa-wa-migrate.service` oneshot |
-| `usa_wa_app` | SELECT/INSERT/UPDATE/DELETE only (no DDL) | live API, WSL refresh timer, on-box CLIs |
+| `usa_wa_app` | SELECT/INSERT/UPDATE/DELETE only (no DDL) | live API, the nightly pipeline, on-box CLIs |
 | `usa_wa_backup` | `pg_read_all_data`, LOGIN, no password; peer auth only | the nightly backup's `pg_dump` (#434) — created by [`scripts/setup-backup-role.sql`](../scripts/setup-backup-role.sql), once per cluster; [RECOVERY.md](RECOVERY.md) |
 | `usa_wa_test_owner` | owns the **separate** `usa_wa_test` database; DDL | `TEST_DATABASE_URL` — the suite owns its own schema lifecycle (`create_all`/drop per session) |
 
@@ -135,12 +119,7 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 
 **Deploy convention: units never sync the venv (issue #30).** Every systemd
 entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
-`usa-wa-wsl-refresh.service`,
-`usa-wa-pdc-refresh.service`, `usa-wa-sos-refresh.service`,
-`usa-wa-pdc-archive-refresh.service`, `usa-wa-sos-archive-refresh.service`,
-`usa-wa-integrity-sweep.service`, `usa-wa-senate-corroboration.service`,
-`usa-wa-house-corroboration.service`, `usa-wa-succession-invariants.service`,
-`usa-wa-committee-lineage-invariants.service`, `usa-wa-roster-pdf-recheck.service`,
+`usa-wa-integrity-sweep.service`, `usa-wa-roster-pdf-recheck.service`,
 `usa-wa-wsl-availability-probe.service`,
 `scripts/migrate.sh`, `scripts/pipeline-nightly.sh`). Two exceptions, neither of
 which syncs either: `usa-wa-disk-gc.service`, which runs plain bash and no Python at
@@ -148,7 +127,7 @@ all (#394), and `usa-wa-backup.service` (#434), which runs the venv's own
 `.venv/bin/python` — its sandbox leaves uv no writable cache, and the venv is checked
 by `assert-venv-integrity.sh` like every other unit's ([RECOVERY.md](RECOVERY.md)).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
-So unit start never mutates the environment — the daily WSL refresh timer can't
+So unit start never mutates the environment — the nightly pipeline timer can't
 silently apply a dependency change a `git pull` landed in `uv.lock`. (Note:
 `--frozen` *alone* would not prevent this — it still syncs the venv to the lock;
 `--no-sync` is the flag that stops it.) **Dependency changes land only via a
@@ -185,30 +164,17 @@ silently deploys nothing.
 | Testing a worktree/branch | `uv run uvicorn ... --port 8001 --reload` |
 | Debugging the live service | `sudo journalctl -u usa-wa -f` |
 | After editing `deploy/usa-wa.service` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa` |
-| After editing `deploy/usa-wa-wsl-refresh.{service,timer}` | `sudo cp` + `sudo systemctl daemon-reload` only — **retired (#412 PR E)**: `restart` on its timer would start it again |
-| After editing `deploy/usa-wa-pdc-refresh.{service,timer}` | `sudo cp` + `sudo systemctl daemon-reload` only — **retired (#412 PR E)**: `restart` on its timer would start it again |
-| After editing `deploy/usa-wa-sos-refresh.{service,timer}` | `sudo cp` + `sudo systemctl daemon-reload` only — **retired (#412 PR E)**: `restart` on its timer would start it again |
-| After editing `deploy/usa-wa-{pdc,sos}-archive-refresh.service` | `sudo cp` + `sudo systemctl daemon-reload` (no timer and no `[Install]` — each is pulled in by its rebuild unit, so there is nothing to enable or restart) |
+| After editing `deploy/usa-wa-pipeline.{service,timer}` | `sudo cp deploy/usa-wa-pipeline.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-pipeline.timer` |
 | After editing `deploy/usa-wa-integrity-sweep.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-integrity-sweep.timer` |
-| After editing `deploy/usa-wa-senate-corroboration.{service,timer}` | `sudo cp` + `sudo systemctl daemon-reload` only — **retired (#412 PR E)**: `restart` on its timer would start it again |
-| After editing `deploy/usa-wa-house-corroboration.{service,timer}` | `sudo cp` + `sudo systemctl daemon-reload` only — **retired (#412 PR E)**: `restart` on its timer would start it again |
-| After editing `deploy/usa-wa-succession-invariants.{service,timer}` | `sudo cp` + `sudo systemctl daemon-reload` only — **retired (#412 PR E)**: `restart` on its timer would start it again |
-| After editing `deploy/usa-wa-committee-lineage-invariants.{service,timer}` | `sudo cp` + `sudo systemctl daemon-reload` only — **retired (#412 PR E)**: `restart` on its timer would start it again |
 | After editing `deploy/usa-wa-roster-pdf-recheck.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-roster-pdf-recheck.timer` |
 | After editing `deploy/usa-wa-wsl-availability-probe.{service,timer}` | `sudo cp deploy/usa-wa-wsl-availability-probe.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-availability-probe.timer` — the 2029 rollover bumps `--biennium`/`--until` here (#135). Write-free, so a by-hand `systemctl start usa-wa-wsl-availability-probe.service` is safe; after `--until` it asks nothing |
 | After editing `deploy/usa-wa-disk-gc.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-disk-gc.timer` |
 | After editing `deploy/usa-wa-backup.{service,timer}` | `sudo cp deploy/usa-wa-backup.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-backup.timer`. A sandbox line changed? Prove it with one by-hand run before the next 10:17 ([RECOVERY.md](RECOVERY.md) § The sandbox). A new `LoadCredential=` source must exist first, or the run fails `243/CREDENTIALS` — `/etc/usa-wa/backup-checkin.key` since #455, empty until its monitor exists |
+| Once, after #412 PR F lands on `main` | Its nine canonical-tier units (`usa-wa-{wsl,pdc,sos}-refresh.{service,timer}`, `usa-wa-{pdc,sos}-archive-refresh.service`, `usa-wa-{senate,house}-corroboration.{service,timer}`, `usa-wa-succession-invariants.{service,timer}`, `usa-wa-committee-lineage-invariants.{service,timer}`) are gone from `deploy/`, but their installed copies remain, disabled since PR E and naming deleted modules: `sudo rm` each from `/etc/systemd/system/`, then `sudo systemctl daemon-reload` |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
-| Run the WSL refresh now (ad-hoc) | `sudo systemctl start usa-wa-wsl-refresh.service` |
-| Run the PDC refresh now (ad-hoc) | `sudo systemctl start usa-wa-pdc-refresh.service` (runs **both** halves — the `Wants=` pulls the archive unit in) |
-| Run the SOS refresh now (ad-hoc) | `sudo systemctl start usa-wa-sos-refresh.service` (both halves, as above) |
-| Refresh only a source's archive (ad-hoc) | `sudo systemctl start usa-wa-{pdc,sos}-archive-refresh.service` |
+| Run the nightly pipeline now (ad-hoc) | `sudo systemctl start usa-wa-pipeline.service` |
 | Run the raw-store integrity sweep now (ad-hoc) | `sudo systemctl start usa-wa-integrity-sweep.service` |
-| Run the Senate corroboration now (ad-hoc) | `sudo systemctl start usa-wa-senate-corroboration.service` |
-| Run the House corroboration now (ad-hoc) | `sudo systemctl start usa-wa-house-corroboration.service` |
-| Run the succession invariant check now (ad-hoc) | `sudo systemctl start usa-wa-succession-invariants.service` |
-| Run the committee lineage invariant check now (ad-hoc) | `sudo systemctl start usa-wa-committee-lineage-invariants.service` |
 | Re-check the roster PDF edition now (ad-hoc) | `sudo systemctl start usa-wa-roster-pdf-recheck.service` (one 5.7MB GET; archives nothing) |
 | Run the backup now (ad-hoc) | `sudo systemctl start usa-wa-backup.service`, then `sudo journalctl -u usa-wa-backup.service -n 30`. Safe to repeat: each run is a new dump name, and the raw mirror uploads only what the bucket lacks |
 | Reclaim disk / check free space now (ad-hoc) | `sudo systemctl start usa-wa-disk-gc.service`, or `scripts/disk-gc.sh` for a report that removes nothing. Needs no DB and no venv — it is the one unit that still runs with a feature branch checked out |

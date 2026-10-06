@@ -21,8 +21,10 @@ timer runs `uv run --frozen --no-sync` from whatever is checked out — no human
 sequencing error involved). Convention alone enforced nothing. Do **feature work
 in a git worktree** (see the `using-git-worktrees` skill), leaving the prod
 checkout on `main`. `USA_WA_DEPLOY_BRANCH` overrides the expected branch for a
-non-standard host. The notify handler (`usa-wa-notify-failure@.service`) is
-exempt (it's the alerting path); timers carry no guard (they run no code, only
+non-standard host. Two units are exempt: the notify handler
+(`usa-wa-notify-failure@.service`, the alerting path) and the disk GC
+(`usa-wa-disk-gc.service`, which runs no repo code and must keep reporting in the
+worktree-heavy state the guard refuses — its unit says why); timers carry no guard (they run no code, only
 activate their guarded `.service`). The serving unit (`usa-wa`) carries a
 widened `StartLimitIntervalSec=300`/
 `StartLimitBurst=10` so an off-main checkout — which fails the guard on every
@@ -67,9 +69,9 @@ worktree with `uv sync --locked`. Neither older guard covers this direction:
 `assert-main-checkout.sh` (#87) guards the checked-out *branch*.
 
 **The guard.** [`scripts/assert-venv-integrity.sh`](../scripts/assert-venv-integrity.sh) is
-wired as the second `ExecStartPre=` on all thirteen code-running `.service` units,
-directly after the #87 branch guard — same exemption (`usa-wa-notify-failure@`,
-the alerting path) and the same cross-check in `test_unit_ordering.py`, so a new
+wired as the second `ExecStartPre=` on all seven code-running `.service` units,
+directly after the #87 branch guard — same two exemptions (`usa-wa-notify-failure@`,
+the alerting path, and `usa-wa-disk-gc`) and the same cross-check in `test_unit_ordering.py`, so a new
 service either carries both or is an explicit exemption. Branch guard first
 because it answers the prior question: off-main the venv legitimately points
 elsewhere, and a venv finding reported first sends the operator after a symptom.

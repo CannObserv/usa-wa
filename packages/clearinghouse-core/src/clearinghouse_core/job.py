@@ -18,10 +18,10 @@ and the job shrinks to a handler that takes a :class:`JobContext` and returns co
 
 **``degraded`` is the point.** It is a first-class terminal outcome with its own
 non-zero exit code (:data:`EXIT_DEGRADED`), so systemd's ``OnFailure=`` fires on a run
-that completed but accomplished nothing. Today
-``usa_wa_adapter_sos.results.harvest`` detects a total source outage, logs a WARNING,
-and returns 0 — a signal with no consumer. A handler reports it by returning
-``JobResult.degraded(counters)``: no exception, counters intact, alert raised.
+that completed but accomplished nothing. Before it, ``usa_wa_adapter_sos.results.harvest``
+(deleted in #412 PR F) detected a total source outage, logged a WARNING, and returned 0 — a
+signal with no consumer. A handler reports it by returning ``JobResult.degraded(counters)``: no
+exception, counters intact, alert raised.
 
 **Contract for handlers.** ``async def handler(ctx: JobContext) -> ...`` returning any
 of: a :class:`JobResult`, a mapping, a summary dataclass (``RunSummary``,
@@ -40,11 +40,11 @@ nothing at all (the PM-authoritative reconcilers), pass ``commit=False``.
 usage exit) · ``3`` is left to jobs with an established "aborted, took no action"
 convention, via ``JobResult(..., exit_code=3)`` · ``4`` degraded.
 
-**Roles.** ``role="owner"`` (#179b) resolves ``DATABASE_URL_OWNER`` instead of
-``DATABASE_URL`` for the five one-shot migrations that hard-delete provenance rows the
-app role is REVOKEd on (#54). The whole run — the ledger writes included — goes through
-a per-run engine built from that DSN, so an owner job needs no second DSN to record its
-#178 row and can never inherit a pool opened as the wrong role.
+**Roles.** ``role="owner"`` (#179b) resolves ``DATABASE_URL_OWNER`` instead of ``DATABASE_URL``
+— for the five one-shot migrations that hard-deleted provenance rows the app role was REVOKEd on
+(#54), deleted in #412 PR F; no job declares it now. The whole run — the ledger writes included
+— goes through a per-run engine built from that DSN, so an owner job needs no second DSN to
+record its #178 row and can never inherit a pool opened as the wrong role.
 """
 
 import argparse
@@ -311,10 +311,10 @@ def build_parser(
 
     ``dry_run=False`` **omits** the flag rather than accepting one the job cannot honour
     (CR #196 findings 47 and 55). A ``commit=False`` job whose handler owns an
-    unconditional transaction — the WSL / SOS / PDC refreshes, the PM subscription
-    bootstrap — would otherwise advertise "roll back instead of committing", commit
-    anyway, and print ``dry_run=true`` on the summary line of the run that wrote. An
-    argparse error is the honest answer.
+    unconditional transaction — the WSL / SOS / PDC refreshes and the PM subscription
+    bootstrap were the cases, all since deleted — would otherwise advertise "roll back instead
+    of committing", commit anyway, and print ``dry_run=true`` on the summary line of the run
+    that wrote. An argparse error is the honest answer.
 
     ``dry_run_help`` is the third case: a job whose ``--dry-run`` is real but **narrower**
     than a rollback. ``meetings/harvest.py`` declared its own accurate
@@ -601,8 +601,8 @@ def run_job(
 
     ``role`` selects the DSN. ``"app"`` (the default) is the least-privilege everyday
     role; ``"owner"`` resolves ``DATABASE_URL_OWNER`` and runs the whole job — ledger
-    writes included — on a per-run engine built from it. Only jobs that hard-delete
-    provenance rows the app role is REVOKEd on (#54) declare it.
+    writes included — on a per-run engine built from it. Reserved for a job that must
+    hard-delete rows the app role is REVOKEd on (#54); none does since #412 PR F.
 
     ``ledger`` defaults to ``needs_db``: a job that declared it needs no database does
     not get its config checked, so an unconditional ledger default made every run of a

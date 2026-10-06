@@ -1,5 +1,5 @@
 -- A tenure starts inside the biennium its key names (#272), ported from the
--- `succession-invariants` unit, which reads canonical and retires (#412 PR B).
+-- `succession-invariants` unit, which read canonical and retired (#412 PR B).
 --
 -- A span's key ends in its TENURE-START biennium, so `valid_from` belongs in
 -- it. A span keyed 2003-04 that begins in 2016 records a thirteen-year tenure

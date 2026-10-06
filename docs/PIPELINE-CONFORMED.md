@@ -24,10 +24,10 @@ numeric member ids from 1991; the roster PDF keys on minted
 `<fold>:<first-session-year>` identities before it. `source` names which space
 a row's `member_id` belongs to, and the crosswalk lookup is
 `<source>:<member_id>` for both — a row must never inherit a module default.
-The roster family is `roster_pdf.build.build_pre1991`'s emission half minus
-everything that existed to mutate Postgres (minting Persons, retiring
-unasserted rows, the anchor bootstrap, citation writes); what it keeps is the
-operator overlay scoped to its own members — every pre-1991 span is this
+The roster family is the retired tier's pre-1991 builder minus everything that
+existed to mutate Postgres (minting Persons, retiring unasserted rows, the
+anchor bootstrap, citation writes); what it keeps is the operator overlay
+scoped to its own members — every pre-1991 span is this
 builder's, so the roster's 922 dated mid-term boundaries take effect here or
 nowhere (#226) — and the unattested-span check, which refuses a seat the
 overlay synthesized from an event the edition never listed. The scoping runs
@@ -46,21 +46,20 @@ already closed.
 identity resolve once and partitions by disposition: WSL-joined observations
 deepen the sponsor build (#228), minted ones are the roster family. Resolving
 twice would double the cost and let the halves disagree about who is joined.
-The acceptance oracle (`verify_pre1991` — partition exactness, person-side
-Senate simultaneity — plus the party vocabulary) is imported unchanged and runs
-before anything is built, as the Postgres tier runs it before anything is
-written.
+The acceptance oracle (`roster_pdf.oracle.verify_pre1991` — partition
+exactness, person-side Senate simultaneity — plus the party vocabulary) runs
+before anything is built.
 
 Nothing about the span engine is re-implemented. The pure engine
 (`build_tenure_spans`, `apply_operator_events`), the projections, the #105
 roster hygiene, the #145 biennium-scoped exemption and the #144 artifact
-denylist are all **imported unchanged** and applied in the Postgres tier's own
-order — each encodes a production incident. Two structural differences:
+denylist are all **imported unchanged** and applied in the order the retired
+Postgres tier settled — each encodes a production incident. Two structural
+properties:
 
-- **No DB half.** `close_stale_spans` (#83), the synthetic-anchor bootstrap and
-  the `load_context_spans` read exist to mutate a durable table; a stateless
-  transform recomputes everything, so a span the archive stops asserting is
-  simply absent (retraction-as-absence, the publication contract).
+- **No DB half.** A stateless transform recomputes everything, so a span the
+  archive stops asserting is simply absent (retraction-as-absence, the
+  publication contract) — no stale-span sweep (#83), no anchor bootstrap.
 - **Context spans come from the same run** (#267): committee spans build first,
   then House, and both serve as the sponsor build's context — no cross-builder
   blindness and no DB read. With `chamber-house` landed the seam is complete:
@@ -72,9 +71,8 @@ the other families do not need: WSL owns *who sits* (the sponsor roster — LD +
 party), SOS owns *which position* (the ballot's Position 1/2). The #105 (a)
 mover exclusion, the #123 even-seating ∪ odd-special-**winners** map, the #118
 back-chain and the #103 within-LD elimination are imported unchanged from
-`usa_wa_facts_seats.house`. `restrict_to_biennium` dissolves with the rest of
-the DB half — a stateless rebuild is unconditionally the unrestricted, deep
-one, so the #100 depth-mismatch question cannot arise here at all.
+`usa_wa_facts_seats`. A stateless rebuild is unconditionally the unrestricted,
+deep one, so the #100 depth-mismatch question cannot arise here at all.
 
 **A biennium after the current one builds no span** (#135).
 `build_families` first drops WSL sponsor and committee-member rows from any
@@ -102,16 +100,14 @@ imported unchanged from the adapter's normalizer and the WA vocabulary.
 **#313 adds a role's own `entity_id`** without disturbing that. The key is still
 structural and still what PM matches on; the ULID is a stable handle for the API
 to address, minted through the registry's third kind
-([`PIPELINE.md` § Identity registry](PIPELINE.md#identity-registry-308))
-and carried across from `canonical.roles` so a seeded role keeps the id it was
+([`PIPELINE.md` § Identity registry](PIPELINE.md#identity-registry-308)),
+seeded once from the retired tier's role ULIDs so each role kept the id it was
 already published under. Neither crosswalk may drop a role: a seat exists
 whether or not the registry has reached it, and the nightly runs `dbt build →
 registrar → publish`, so a brand-new seat is unregistered in the build that
 first sees it and bound by the next. `registry_coverage` gates
 `unregistered_roles` and `unregistered_orgs` *after* the registrar, so that
-one-run latency reads as zero and only a gap it left open alarms; `role_entity_mismatches`
-separates it from a *seeded* role whose ULID moved (post-seed roles: same
-section, #402). A
+one-run latency reads as zero and only a gap it left open alarms. A
 brand-new org has the same latency without a counter: `organizations` is one
 row per registered entity, so the committee is absent from the build that
 first sees it and published by the next (Joint committee 36500: first seen
@@ -139,19 +135,14 @@ tolerate — but the dbt `assignments_name_a_role` test does **not** detect it
 (CR 77). `roles` is generated by iterating `assignments` through the same
 `role_for_span`, so `assignments.role_key ⊆ roles.role_key` holds by
 construction and that query is unfalsifiable; it pins containment, which is
-worth pinning, and nothing more. The fork that can actually happen is ours
-drifting from the Postgres tier that minted these keys (and published them, until #314),
-and the oracle for it is `canonical.roles` — 312 rows against our 312, exact in
-both directions, measured 2026-09-03. `parity_spans` diffs them on its own
-ratchet (`--role-baseline`, default 0), because dbt has no session to reach
-that table.
-
-The diff covers the **attributes too**, not just the key (CR 84): `role_type`,
-`name` and `qualifier` are each derived here independently of the tier, and the
-one production instance of this fork changed no key at all — #110 churned 305
-party roles on local `member` against PM's `party_member`. All three measure 0
-mismatches across the 312 roles, so `role_attribute_mismatches` is gated at zero
-rather than ratcheted.
+worth pinning, and nothing more. The fork that can actually happen is a key or
+attribute drifting from what consumers already matched on — and the one
+production instance changed no key at all: #110 churned 305 party roles on
+local `member` against PM's `party_member`. Until #412 that was diffed against
+the retired tier's roles (312/312, keys and attributes, 0 mismatches). Nothing
+recomputes them independently now: the key functions are imported unchanged
+from `role_keys` and `usa_wa_common.seats`, so a fork needs an edit there, and
+`roles.role_type`'s `accepted_values` test refuses a new classification.
 
 Each family's input carries a **refusal**, on one rule: an input whose absence
 silently deletes facts must refuse, not return empty (CR 57). The roster tier
@@ -171,13 +162,13 @@ content-hashed dataset cannot inherit Postgres's unspecified order.
 **The #228 deepening is a standing input, not an enrichment.** An empty roster
 under a live sponsor corpus is *refused*, because the failure is invisible
 downstream: the key set shifts to shallow 1991-start spans while the row count
-barely moves, so the publish shrink gate sees nothing and the parity probe only
-runs afterward. Both routes to an empty deepening are refused — an empty roster
+barely moves, so the publish shrink gate sees nothing and every probe runs only
+afterward. Both routes to an empty deepening are refused — an empty roster
 tier, and a roster tier present but parsing to zero records (an upstream
 rename) — and the refusal lives on **`roster_resolution`**, not only on
 `build_all_spans` (CR 76). That distinction is the whole point: `build_all_spans`
 raises only when `extra_observations is None`, and neither production caller
-passes `None` — the `assignments` model and `parity_spans` both hand it
+passes `None` — the `assignments` model and `registry_coverage` both hand it
 `roster_resolution(...).joined`, so the resolve runs once for two families. The
 guard therefore sat on a door production never opens. It now sits on the resolve,
 which is the door they use. Pass `extra_observations` — `[]` included — to state
@@ -193,24 +184,14 @@ crosswalk join and reports it under the harness, where records serialize as JSON
 
 **Reported is not enough — counters are gated at zero.** The nightly's
 `OnFailure=` alerting fires on the *exit code*, so a counter that only reaches
-journald tells nobody while the job passes. Two probes carry them:
-
-- **`registry_coverage`**, which needs no canonical oracle and outlives it:
-  `unregistered_spans` (a registrar gap silently shrinking the published table),
-  `unregistered_orgs` (the same gap in the role dimension — a role whose org is
-  unregistered still publishes, by design, so nothing else notices it going
-  headless) and `unregistered_roles`. `seat_overlaps_unclipped` (#360) rides
-  along, reported. Split out of `parity_spans` in #412 PR B; each counter names
-  itself in `integrity_failures`.
-- **`parity_spans`**, out of the nightly since #412 PR E stopped the oracle refreshing (by hand only until PR F):
-  `malformed_roster_rows` (partial roster corruption quietly degrading the #228
-  deepening — also gated in-build now, by `stg_roster_members`' `not_null`
-  tests), `unparsable_canonical_keys`, `role_attribute_mismatches` (the #110
-  shape — same key, different classification) and `role_entity_mismatches`.
-  Each carries no known-stale story — unlike the two divergence ratchets — and
-  any of them nonzero exits 1 and names itself in `integrity_failures`. The two
-  ratchets name themselves in `ratchet_failures` for the same reason (CR 89):
-  they share the exit code, so the alert has to say which one moved.
+journald tells nobody while the job passes. **`registry_coverage`** carries
+them: `unregistered_spans` (a registrar gap silently shrinking the published
+table), `unregistered_orgs` (the same gap in the role dimension — a role whose
+org is unregistered still publishes, by design, so nothing else notices it
+going headless) and `unregistered_roles`, each naming itself in
+`integrity_failures` when nonzero. `seat_overlaps_unclipped` (#360) rides
+along, reported. Partial roster corruption quietly degrading the #228
+deepening is gated in-build instead, by `stg_roster_members`' `not_null` tests.
 
 **Post-registrar, never in-build.** The three `unregistered_*` counters cannot
 be dbt tests: a new legislator, seat or committee is unregistered in the first
@@ -218,13 +199,10 @@ build that sees it, by design, and a failed build never reaches the registrar
 that would register it — so every night after would fail the same way.
 
 `unregistered_orgs` reaches the probe rather than the model for the reason
-above, and the role keys are derived there from the **spans**, not from the
+above, and the role keys are derived there from **every span**, not from the
 crosswalk-joined rows: a slot exists whether or not the person filling it is
-registered, so reading the joined rows would make the role parity a statement
-about the registry instead of about the derivation (CR 86). A registrar gap
-would then report as a phantom role fork — sending the operator after the wrong
-defect — and would *hide* a genuine fork whose only spans happen to be
-unregistered.
+registered, so reading the joined rows would let a person gap hide the roles
+only that person's spans name (CR 86).
 
 The probe's crosswalk read is **not** the read the model made: the nightly runs
 `dbt build → registrar → publish → probes`, so the registrar may have bound
@@ -235,52 +213,19 @@ stands *now* — the state tomorrow's build publishes from, which is the gap
 worth alarming on. A gap the registrar has since closed is transient and
 correctly reads as zero.
 
-**The canonical oracle is stale** (and frozen since #412 PR E disabled its refreshes; the section below is history). `python -m usa_wa_pipeline.parity_spans`
-diffs both families against `canonical.assignments` — keyed on
-`(source, source_id)` — and gates on a **ratchet**, not equality: measured
-2026-09-03 the stored rows diverge by 82 (79 missing / 2 extra / 1 dated
-differently). `chamber-house` contributes **none** of that: 329 built, 329
-canonical, exact. For the WSL family (45 of those) running the Postgres-tier
-adapter's *own* pipeline fresh that day reproduced the identical divergence,
-because the stored rows predate the current identity resolve (#277/#281); port
-and adapter agreed with each other exactly, 4,851 = 4,851, zero differences.
-
-The roster family's 37 are **the same story from the other side**: 15
-identities the snapshot minted as roster persons and today's resolve joins to
-WSL members. Cliff Bailey is the worked example — canonical holds both a
-shallow `15:*:1991-92` pair and a minted `cliffbailey:1985:*` pair, where this
-build asserts the one merged `15:*:1985-86` tenure the deepening produces.
-Nothing is lost; the tenure moved families, which is what the #97 collapse is
-for.
-Any growth past the baseline is a regression; a Postgres-tier rebuild would
-take the baseline to zero, and lowering it then is the point.
-
-**#289 raised it to 785, and that is a real cost worth naming.** Party
-membership no longer breaks when a seat does, so 374 party tails the oracle
-still holds are no longer asserted and 321 survivors end later than it records —
-695, exactly the rise, and decomposed by kind on 2026-09-11 the NON-party
-divergence is identical before and after (missing: committee 4, senate 1;
-dated: senate 34, committee 8). That identity is the evidence the rule touched
-party alone. The oracle is stale by construction — the stored rows were built
-under the old rule and the daily refresh re-drives only the current biennium —
-and a rebuild is deliberately not the answer today, because it would push 695
-span changes through the legacy PM sidecar mid-cutover (that sidecar is gone as of #314) while power-map takes
-the corrected spans from the published dataset anyway. At 785 this ratchet no
-longer meaningfully guards party spans; the other kinds stay tightly held, and
-the number dies with #314.
-
 ## Conformed: the citations chain (#313)
 
 `models/conformed/citations.py` answers *how do we know this?* for every
 published entity, as a **stateless join** rather than the append-only Postgres
-`Citation` ledger it replaces — so a citation the archive no longer supports
+`Citation` ledger it replaced — so a citation the archive no longer supports
 stops being emitted, exactly as a span the archive no longer asserts stops being
 published. It is the **internal** tier: published bytes, immutable versions, the
 same `/datasets` tree, but no subscriber contract and no schema-stability
 promise, because its columns follow `/provenance`, not consumers.
 
-One row per `(entity_type, entity_id, source, resource_id)`, joining
-`stg_raw_fetches` for the digest, fetch time and URL. `entity_id` is a registry
+One row per `(entity_type, entity_id, source, resource_id)`; the digest, fetch
+time and URL are one join away in `stg_raw_fetches`, not duplicated onto every
+row. `entity_id` is a registry
 ULID for `person`/`organization`/`role`, and the **4-part span `source_id`** for
 `assignment` — the serving tier keys assignments structurally, so a span's
 published identity is its key.
@@ -288,8 +233,8 @@ published identity is its key.
 Per kind: a person is cited by every staging row carrying one of its natural
 keys (merge tombstones followed — a citation into a retired entity is a dangling
 one); an organization by the committee-roster, membership and meeting wires
-naming it; an assignment **once per biennium it covers**, which is
-`span_emit._ensure_citations`'s own rule moved from emit time to build time; a
+naming it; an assignment **once per biennium it covers**, the rule the Postgres
+emitter applied, moved from emit time to build time; a
 role by the union of its assignments' citations, since `role_for_span` is a pure
 function of the seat and there is no staging row to cite.
 

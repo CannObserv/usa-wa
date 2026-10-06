@@ -193,33 +193,10 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession]:
 
 
 @pytest.fixture
-async def drop_anchor_unique_indexes(db_session) -> None:
-    """Drop the #86 one-row-per-PM-anchor partial unique indexes for one test.
-
-    The one-shot span-collapse migrations (``migrate_sponsor_spans`` /
-    ``migrate_pdc_spans`` / ``migrate_committee_spans``) exist to retire the
-    *pre-#86* duplicate-anchor rows the #84 crash loop was armed by — a state the
-    partial unique indexes now forbid, so those tests cannot even build the fixture
-    under them. Reproduce the pre-index world by dropping the indexes; the per-test
-    transaction rolls the drops back on teardown, so other tests keep the constraint.
-    """
-    for index in (
-        "uq_persons_pm_person_id",
-        "uq_organizations_pm_organization_id",
-        "uq_roles_pm_role_id",
-        "uq_assignments_pm_assignment_id",
-    ):
-        await db_session.execute(text(f"DROP INDEX IF EXISTS canonical.{index}"))
-
-
-@pytest.fixture
 async def usa_wa(db_session) -> Jurisdiction:
-    """Seed (or fetch) the ``usa-wa`` Jurisdiction cache row for canonical tests.
-
-    Canonical tables FK their ``jurisdiction_id`` to
-    ``clearinghouse_core.jurisdictions.id``. Tests that build canonical rows
-    use ``jurisdiction_id=usa_wa.id`` instead of the prior ``"usa-wa"`` text
-    literal. Per-test savepoint rollback keeps inserts isolated.
+    """Seed (or fetch) the ``usa-wa`` Jurisdiction row — the FK target every
+    :class:`~clearinghouse_core.sources.Source` names (``sources.jurisdiction_id``).
+    Per-test savepoint rollback keeps inserts isolated.
 
     Idempotent: looks up by slug first because the test DB may carry rows
     from a prior ``alembic upgrade head`` run outside the test_engine

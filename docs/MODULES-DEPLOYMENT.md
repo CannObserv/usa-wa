@@ -17,7 +17,7 @@ replatform decision in
 and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.md).
 
 ```
-  usa-wa-api/                         — Layer 4: WA deployment (FastAPI + MCP + REST)
+  usa-wa-api/                         — Layer 4: WA deployment (FastAPI: published datasets + read-only REST)
     src/usa_wa_api/api/               — the HTTP surface
       main.py         — App factory, lifespan, router registration · the `/health` liveness and `/ready` readiness probes: `/ready` maps every failed `SELECT 1` to 503, never 500 (#433), and answers within `READY_TIMEOUT_S` by running the check in a task it abandons past the bound (#442) — `AsyncSession` closes in a shielded task, so a timeout inside the check cannot bound a wedged connection
       deps.py         — FastAPI dependencies (DB session). The `X-Operator-Token` gate retired at #313 with the one route it guarded
@@ -26,7 +26,7 @@ and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.m
     src/usa_wa_api/api/v1/            — **read-only product surface (#184)**: 13 GET routes
       schemas.py      — the published models; `ULIDStr` rejects the UUID-hex form PM 404s on
       pagination.py   — keyset `Page[T]`, max 200, no total count
-      ops.py          — #178 ledger, #180 coverage, provenance — the consumer those tables shipped without; an empty answer is a 200, since it *is* the finding
+      ops.py          — #178 ledger, #180 sources + coverage, and provenance (off the `serving` schema's published citations since #313) — the consumer those tables shipped without; an empty answer is a 200, since it *is* the finding
       products.py     — persons/orgs/roles/assignments off the `serving` schema since #313 — assignments being the span route, ONTOLOGY.md § 2, addressed by their 4-part span key rather than a ULID
                         Contracts + inventory: **[API.md](API.md)**, pinned live by `tests/test_v1_contract.py`
     src/usa_wa_api/serving/           — the #313 serving tier. A SIBLING of `api/`, not a child
@@ -39,7 +39,6 @@ and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.m
       run.py          — the nightly job (`usa-wa-backup.service`): preflight, then the two halves independently; either failing exits 1; then the check-in, on every path out but a dry run
       checkin.py      — the dead-man check-in to co-status (#455): `ok` with the summary, `alert` with the error; key from the unit's `checkin-key` credential, never the environment; never raises, never changes the exit
       restore.py      — by hand, as root: list / fetch + prove / load into an empty database, then check the schema version, registry counts and the ULIDs of the crosswalks published at or before the dump (a crashed publish passed over); `--raw-into`
-    src/usa_wa_api/cli/               — operator CLIs, thin wrappers over the API's service functions. Indexed by name in [COMMANDS.md](COMMANDS.md)
     tests/            — API tests; conftest adds the AsyncClient over the root db_session
 alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
 conftest.py           — DB-free test base: prod-DSN guard (CR #191), `db` auto-marker (#185)

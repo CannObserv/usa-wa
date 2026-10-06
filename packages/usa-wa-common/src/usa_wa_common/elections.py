@@ -36,8 +36,8 @@ def seating_biennium_for_election_year(election_year: int) -> str:
     mid-biennium special seating the biennium *starting that year* (``2025`` → ``"2025-26"``,
     #121 — Nov 2025 seated Hunt/Krishnadasan/Zahn). Because of the odd branch this is no longer
     the strict inverse of :func:`election_year_for_biennium` (which stays even/seating-only).
-    Used by the #79 backfill to era-match each cohort to the roster it seated, fixing the #75
-    current-snapshot limitation."""
+    Written for the #79 backfill (deleted in #412 PR F) to era-match each cohort to the roster
+    it seated, fixing the #75 current-snapshot limitation."""
     start = election_year + 1 if election_year % 2 == 0 else election_year
     return f"{start}-{(start + 1) % 100:02d}"
 
@@ -51,9 +51,9 @@ def election_years_for_biennium(biennium: str) -> list[int]:
     ``start+1`` is deliberately excluded — it seats the *next* biennium.
 
     The seating year leads, so a consumer archiving in list order writes the even cohort first.
-    This is the shared era helper both odd-year sweeps derive from (the SOS results
-    harvest/refresh, #106; the PDC refresh/discover, #121), so "every general election year" is
-    a property of the layer rather than a per-source patch."""
+    This is the shared era helper both odd-year sweeps derive from (the SOS raw harvest, #106;
+    the PDC raw harvest, #121), so "every general election year" is a property of the layer
+    rather than a per-source patch."""
     start_year, _ = parse_biennium(biennium)
     return [start_year - 1, start_year]
 

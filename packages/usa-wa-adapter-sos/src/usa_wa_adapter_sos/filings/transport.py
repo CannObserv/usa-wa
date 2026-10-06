@@ -8,7 +8,7 @@ despite the name — serves **CSV** (``text/csv``), one row per candidate, carry
 detail #99 will use (``Email`` / ``MailingAddress`` / ``Phone`` / ``FilingDate`` / ``IsWithdrawn``).
 
 Like the PDC SODA transport, this mirrors the :class:`WireFetch` contract — the pristine CSV
-body is archived + hashed (#54); the derived parse is a convenience so Phase B doesn't re-decode.
+body is archived + hashed (#54); the derived parse is a convenience so a caller doesn't re-decode.
 
 A central courtesy min-interval gate (:data:`_SOS_LIMITER`, the #77 pattern) spaces calls to the
 single votewa host regardless of caller; ``USA_WA_SOS_MIN_REQUEST_INTERVAL`` tunes it (default
@@ -60,7 +60,7 @@ class WireFetch:
 def parse_whofiled(wire: bytes) -> list[dict[str, Any]]:
     """Decode an **archived** votewa filing-export CSV body offline back into row dicts.
 
-    The #56 cache path: re-derive the parse from stored ``RawPayload`` bytes without a re-pull.
+    The #56 cache path: re-derive the parse from archived bytes without a re-pull.
     Decodes UTF-8 (BOM-tolerant) and reads the header row as dict keys.
     """
     text = wire.decode("utf-8-sig")

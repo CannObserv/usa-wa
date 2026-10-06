@@ -34,7 +34,7 @@ LINT_IMPORTS = Path(sys.executable).parent / "lint-imports"
 PYPROJECT = REPO / "pyproject.toml"
 PRECOMMIT = REPO / ".pre-commit-config.yaml"
 
-TIER_CONTRACT = "The pipeline, the API and the raw harvests never import the retiring Postgres tier"
+TIER_CONTRACT = "The pipeline, the API and the raw harvests never import the retired Postgres tier"
 
 #: Every contract #189 wrote. Named individually so deleting one fails here, which is the
 #: cheapest way a future change could make a violation "go away".
@@ -42,7 +42,7 @@ EXPECTED_CONTRACTS = {
     "Layers: core < domain < common < adapter < facts < deployment",
     "No adapter imports a peer adapter",
     "Deployment packages never touch an adapter transport",
-    "Facts depend on cohort interfaces, never on a transport",
+    "Facts and the pipeline never depend on a transport",
     "usa-wa-common is source-free",
     # #412 PR D: what survives the Postgres tier must not reach its write path.
     TIER_CONTRACT,
@@ -66,17 +66,15 @@ def test_the_facts_transport_contract_carries_no_exceptions():
 
     `house/refresh.py` and `pdc/refresh.py` each ran a source's Phase-A harvest (live client)
     *and* rebuilt the fact from the resulting archive; only the second half is a fact. The
-    archive half moved to the adapters (`…results.archive_refresh`, `…pdc.archive_refresh`), so
-    the contract now holds unaided. An exception is the cheapest way to re-weld a fact to a
-    single source — the failure the 2026-07 votewa outage taught — and the previous pair carried
-    a *false* provenance claim ("tracked as the follow-on named in MODULES-FACTS-SEATS.md",
-    which said no such thing) for two releases. Adding one back must be a deliberate act that
-    fails here, not a line in a table nobody re-reads.
+    archive half moved to the adapters (`…results.archive_refresh`, `…pdc.archive_refresh`,
+    both deleted in #412 PR F), so the contract now holds unaided. An exception is the cheapest
+    way to re-weld a fact to a single source — the failure the 2026-07 votewa outage taught —
+    and the previous pair carried a *false* provenance claim ("tracked as the follow-on named
+    in MODULES-FACTS-SEATS.md", which said no such thing) for two releases. Adding one back
+    must be a deliberate act that fails here, not a line in a table nobody re-reads.
     """
     contract = next(
-        c
-        for c in _contracts()
-        if c["name"] == "Facts depend on cohort interfaces, never on a transport"
+        c for c in _contracts() if c["name"] == "Facts and the pipeline never depend on a transport"
     )
     assert not contract.get("ignore_imports"), (
         "the facts→transport contract has exceptions again: "
@@ -85,13 +83,33 @@ def test_the_facts_transport_contract_carries_no_exceptions():
 
 
 def test_the_tier_contract_follows_indirect_imports():
-    """#412 PR F deletes the write path, so a chain through any module counts as much as a
+    """#412 PR F deleted the write path, so a chain through any module counts as much as a
     direct import: the pipeline reached ``span_emit`` only through ``roster_pdf.build``.
     ``allow_indirect_imports`` would let exactly that chain back in, and so would an
     exception, which is the cheapest way to make a violation "go away"."""
     contract = next(c for c in _contracts() if c["name"] == TIER_CONTRACT)
     assert not contract.get("allow_indirect_imports", False)
     assert not contract.get("ignore_imports")
+
+
+#: The canonical tier's model modules, deleted in #412 PR F. PR D could not forbid them:
+#: the parity probes and ``registry_seed`` imported them until PR F removed both.
+CANONICAL_MODELS = {
+    "clearinghouse_core.provenance",
+    "clearinghouse_domain_legislative.identity",
+    "clearinghouse_domain_legislative.bills",
+    "clearinghouse_domain_legislative.sessions",
+    "clearinghouse_domain_legislative.votes",
+    "clearinghouse_domain_legislative.statutes",
+    "clearinghouse_domain_legislative.pdc",
+}
+
+
+def test_the_tier_contract_tombstones_the_canonical_models():
+    """A missing forbidden module is vacuously kept, so the entries cost nothing now and
+    refuse the import the day any of those names comes back."""
+    contract = next(c for c in _contracts() if c["name"] == TIER_CONTRACT)
+    assert CANONICAL_MODELS <= set(contract["forbidden_modules"])
 
 
 def test_every_workspace_package_is_a_root_package():
@@ -158,20 +176,21 @@ def test_contracts_are_currently_kept():
         (
             "packages/usa-wa-facts-seats/src/usa_wa_facts_seats/_contract_probe.py",
             "from usa_wa_adapter_pdc.transport import PDCClient  # noqa: F401",
-            "Facts depend on cohort interfaces, never on a transport",
+            "Facts and the pipeline never depend on a transport",
         ),
         # The pipeline reaching a Postgres writer directly (#412 PR D) — the shape
-        # conformed.spans had with roster_pdf.build.
+        # conformed.spans had with roster_pdf.build. PR F deleted that builder; the operator
+        # store is the writer the list still names.
         (
             "packages/usa-wa-pipeline/src/usa_wa_pipeline/_contract_probe.py",
-            "from usa_wa_adapter_legislature.roster_pdf import build  # noqa: F401",
+            "from usa_wa_adapter_legislature.operators import store  # noqa: F401",
             TIER_CONTRACT,
         ),
-        # ... and through a module that is not itself forbidden: the member normalizer is
-        # not on the list, but it imports the Postgres adapter base, so the chain counts.
+        # ... and through a module that is not itself forbidden: the operator CLI is not on
+        # the list, but it imports the store, so the chain counts.
         (
             "packages/usa-wa-pipeline/src/usa_wa_pipeline/_contract_probe_indirect.py",
-            "from usa_wa_adapter_legislature.normalize import members  # noqa: F401",
+            "from usa_wa_adapter_legislature.operators import cli  # noqa: F401",
             TIER_CONTRACT,
         ),
         # Vocabulary reaching down into a source — how the first shared kernel formed.

@@ -2,10 +2,10 @@
 
 The single declaration behind every WSL-derived floor in the workspace. Before this,
 ``DEFAULT_HISTORY_FLOOR = "1991-92"`` lived in :mod:`sponsors.probe_identity`,
-``DEFAULT_MEMBERSHIP_FLOOR = "1999-00"`` in :mod:`membership.harvest`, and
+``DEFAULT_MEMBERSHIP_FLOOR = "1999-00"`` in ``membership.harvest``, and
 ``SWEEP_FLOOR_YEAR = 1991`` — the *same* fact as the first, in year form — was declared
-independently in :mod:`operators.invariants` **and** in
-:mod:`usa_wa_facts_seats.house_corroboration`. Each was a coverage audit's conclusion
+independently in ``operators.invariants`` **and** in
+``usa_wa_facts_seats.house_corroboration``. Each was a coverage audit's conclusion
 recorded as a comment, so nothing could answer "which years rest on this archive, and when
 was that last checked?"
 

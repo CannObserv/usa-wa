@@ -1,7 +1,7 @@
 """The citations artifact (#313): every published entity → the wires that attest it.
 
-The replacement for the Postgres ``Citation`` chain that ``/provenance`` reads
-today. Same question — *how do we know this?* — answered as a **stateless join**
+The replacement for the Postgres ``Citation`` chain that ``/provenance`` read
+until #412 PR F. Same question — *how do we know this?* — answered as a **stateless join**
 rather than an append-only ledger, which is the whole #302 posture: a citation
 the archive no longer supports simply stops being emitted, exactly as a span the
 archive no longer asserts simply stops being published (retraction-as-absence).
@@ -22,7 +22,7 @@ citation rows.
   wires that name the committee.
 - **assignment** — **one citation per biennium the span covers**, at the wire
   that attests that biennium. This is the incumbent rule unchanged: it is what
-  ``span_emit._ensure_citations`` does at emit time, moved to build time. The
+  ``span_emit._ensure_citations`` did at emit time, moved to build time. The
   assignment is addressed by its 4-part span ``source_id``, which is its
   published identity — the serving tier keys assignments structurally, not by a
   ULID.

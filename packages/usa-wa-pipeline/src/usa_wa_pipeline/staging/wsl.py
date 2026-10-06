@@ -2,7 +2,7 @@
 committee members, meeting refs.
 
 Each builder walks the raw store's ``latest.json`` (the newest ok wire per
-resource — the file analog of the cohort providers' "latest roster per
+resource — the file analog of the deleted cohort providers' "latest roster per
 (biennium, committee)" rule), re-parses through the adapter's offline parse
 seam (:mod:`usa_wa_adapter_legislature.parsing`, injectable for tests), and
 emits plain dicts. Unknown upstream fields are read with ``.get`` — never key

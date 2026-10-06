@@ -13,7 +13,6 @@ from clearinghouse_core.job import load_json_batch
 from clearinghouse_core.rawstore import RAW_ROOT_ENV, RawStore
 from clearinghouse_core.registry import KIND_ORG, RegistryEntity, RegistryKey
 from clearinghouse_core.testing import patch_job_runtime
-from clearinghouse_domain_legislative.identity import Organization
 from clearinghouse_domain_legislative.operator_events import OPERATOR_SOURCE_SLUG
 from usa_wa_adapter_legislature.committees import succession_cli as cli
 from usa_wa_adapter_legislature.committees.succession_cli import (
@@ -22,14 +21,13 @@ from usa_wa_adapter_legislature.committees.succession_cli import (
     load_specs,
     validate_and_record,
 )
-from usa_wa_adapter_legislature.committees.succession_store import get_or_create_operator_source
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations
-from usa_wa_common.jurisdiction import resolve_jurisdiction
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 
 
-async def _source(session):
-    return await get_or_create_operator_source(session, await resolve_jurisdiction(session))
+@pytest.fixture
+def raw(tmp_path):
+    return PendingAttestations.for_operator(tmp_path)
 
 
 async def _register_org(session, source_id):
@@ -50,7 +48,7 @@ async def _register_org(session, source_id):
 
 async def _committee(session, source_id):
     """A committee as the registry knows it — the identity authority since #412 froze
-    canonical (#445). No canonical row: a committee born after the freeze has none."""
+    canonical (#445), and the only one since PR F dropped it."""
     await _register_org(session, source_id)
 
 
@@ -73,86 +71,77 @@ def _link(
     )
 
 
-async def test_records_a_valid_link(db_session, usa_wa):
+async def test_records_a_valid_link(db_session, raw):
     await _committee(db_session, "14294")
     await _committee(db_session, "28244")
-    source = await _source(db_session)
-    event = await validate_and_record(db_session, source, _link())
+    event = await validate_and_record(db_session, _link(), raw=raw)
     assert event.slug == "succeeded_by"
     assert event.subject_source_id == "14294"
     assert event.linked_source_id == "28244"
 
 
-async def test_unknown_slug_rejected(db_session, usa_wa):
-    source = await _source(db_session)
+async def test_unknown_slug_rejected(db_session, raw):
     with pytest.raises(SuccessionError, match="unknown slug"):
-        await validate_and_record(db_session, source, _link(slug="dissolved"))
+        await validate_and_record(db_session, _link(slug="dissolved"), raw=raw)
 
 
-async def test_identical_ends_rejected(db_session, usa_wa):
-    source = await _source(db_session)
+async def test_identical_ends_rejected(db_session, raw):
     with pytest.raises(SuccessionError, match="must differ"):
-        await validate_and_record(db_session, source, _link(subject="14294", linked="14294"))
+        await validate_and_record(db_session, _link(subject="14294", linked="14294"), raw=raw)
 
 
-async def test_unresolvable_subject_rejected(db_session, usa_wa):
+async def test_unresolvable_subject_rejected(db_session, raw):
     await _committee(db_session, "28244")  # linked exists; subject does not
-    source = await _source(db_session)
     with pytest.raises(SuccessionError, match="--subject"):
-        await validate_and_record(db_session, source, _link(subject="00000"))
+        await validate_and_record(db_session, _link(subject="00000"), raw=raw)
 
 
-async def test_unresolvable_linked_rejected(db_session, usa_wa):
+async def test_unresolvable_linked_rejected(db_session, raw):
     await _committee(db_session, "14294")  # subject exists; linked does not
-    source = await _source(db_session)
     with pytest.raises(SuccessionError, match="--linked"):
-        await validate_and_record(db_session, source, _link(linked="00000"))
+        await validate_and_record(db_session, _link(linked="00000"), raw=raw)
 
 
 @pytest.mark.parametrize("structural_id", sorted(STRUCTURAL_ORGS))
-async def test_structural_org_rejected(db_session, usa_wa, structural_id):
+async def test_structural_org_rejected(db_session, raw, structural_id):
     """A registered structural org (legislature, chamber, party) is not a link end."""
     await _committee(db_session, "14294")
     await _register_org(db_session, structural_id)
-    source = await _source(db_session)
     with pytest.raises(SuccessionError, match="--linked"):
-        await validate_and_record(db_session, source, _link(linked=structural_id))
+        await validate_and_record(db_session, _link(linked=structural_id), raw=raw)
 
 
-async def test_other_body_with_a_negative_wsl_id_links(db_session, usa_wa):
+async def test_other_body_with_a_negative_wsl_id_links(db_session, raw):
     """WSL numbers some Other bodies negatively (JLARC is ``-5``) — still a committee id."""
     await _committee(db_session, "-5")
     await _committee(db_session, "21488")
-    source = await _source(db_session)
     event = await validate_and_record(  # the I-900 subcommittee split from JLARC
-        db_session, source, _link(subject="21488", linked="-5", slug="split_from", year=None)
+        db_session, _link(subject="21488", linked="-5", slug="split_from", year=None), raw=raw
     )
     assert event.linked_source_id == "-5"
 
 
-async def test_registered_non_integer_key_rejected(db_session, usa_wa):
+async def test_registered_non_integer_key_rejected(db_session, raw):
     """CR 2: a registered key that is no WSL committee Id — e.g. a structural org since
     dropped from ``STRUCTURAL_ORGS``, whose key the registry keeps forever — is refused."""
     await _committee(db_session, "14294")
     await _register_org(db_session, "party-whig")
-    source = await _source(db_session)
     with pytest.raises(SuccessionError, match="--linked"):
-        await validate_and_record(db_session, source, _link(linked="party-whig"))
+        await validate_and_record(db_session, _link(linked="party-whig"), raw=raw)
 
 
-async def test_joint_committee_born_after_the_canonical_freeze_links(db_session, usa_wa):
-    """#445: the Civic Health re-key — a Joint body (canonical ``org_type='other'``)
-    registered only by the registrar, after #412 froze canonical — is a valid end."""
+async def test_a_registrar_only_joint_committee_links(db_session, raw):
+    """#445: the Civic Health re-key — a Joint body the registrar registered after #412
+    froze canonical (and so never had a canonical row) — is a valid end."""
     await _committee(db_session, "35341")
     await _committee(db_session, "36500")
-    source = await _source(db_session)
     event = await validate_and_record(
-        db_session, source, _link(subject="35341", linked="36500", year=2026)
+        db_session, _link(subject="35341", linked="36500", year=2026), raw=raw
     )
     assert (event.subject_source_id, event.linked_source_id) == ("35341", "36500")
 
 
-async def test_a_key_on_a_merged_entity_still_links(db_session, usa_wa):
+async def test_a_key_on_a_merged_entity_still_links(db_session, raw):
     """CR 3: a tombstoned entity's key still names a live body (its merge survivor), so
     it links — registered means live; the resolver must not demand ``merged_into IS NULL``."""
     await _committee(db_session, "14294")
@@ -166,81 +155,61 @@ async def test_a_key_on_a_merged_entity_still_links(db_session, usa_wa):
     )
     (await db_session.get(RegistryEntity, key.entity_id)).merged_into = survivor
     await db_session.flush()
-    source = await _source(db_session)
-    event = await validate_and_record(db_session, source, _link())
+    event = await validate_and_record(db_session, _link(), raw=raw)
     assert event.linked_source_id == "28244"
 
 
-async def test_canonical_only_committee_rejected(db_session, usa_wa):
-    """A canonical committee row the registry never bound is not an identity (#445)."""
-    await _committee(db_session, "14294")
-    db_session.add(
-        Organization(source="usa_wa_legislature", source_id="28244", name="C", org_type="committee")
-    )
-    await db_session.flush()
-    source = await _source(db_session)
-    with pytest.raises(SuccessionError, match="--linked"):
-        await validate_and_record(db_session, source, _link())
-
-
-async def test_supersede_relink(db_session, usa_wa):
+async def test_supersede_relink(db_session, raw):
     await _committee(db_session, "14294")
     await _committee(db_session, "28244")
     await _committee(db_session, "99999")
-    source = await _source(db_session)
-    prior = await validate_and_record(db_session, source, _link(linked="99999"))
+    prior = await validate_and_record(db_session, _link(linked="99999"), raw=raw)
     corrected = await validate_and_record(
-        db_session, source, _link(linked="28244", supersede_id=str(prior.id))
+        db_session, _link(linked="28244", supersede_id=str(prior.id)), raw=raw
     )
     assert corrected.id != prior.id
     assert prior.superseded_by_id == corrected.id
 
 
-async def test_supersede_clear_year(db_session, usa_wa):
+async def test_supersede_clear_year(db_session, raw):
     """``--clear-year`` on a supersede removes the boundary year (vs omitting it = inherit)."""
     await _committee(db_session, "14294")
     await _committee(db_session, "28244")
-    source = await _source(db_session)
-    prior = await validate_and_record(db_session, source, _link(year=2021))
+    prior = await validate_and_record(db_session, _link(year=2021), raw=raw)
     corrected = await validate_and_record(
-        db_session, source, _link(year=None, clear_year=True, supersede_id=str(prior.id))
+        db_session, _link(year=None, clear_year=True, supersede_id=str(prior.id)), raw=raw
     )
     assert corrected.id != prior.id
     assert corrected.effective_year is None
     assert prior.superseded_by_id == corrected.id
 
 
-async def test_supersede_inherits_year_when_omitted(db_session, usa_wa):
+async def test_supersede_inherits_year_when_omitted(db_session, raw):
     """Omitting the year on a supersede inherits the prior link's year (not clear)."""
     await _committee(db_session, "14294")
     await _committee(db_session, "28244")
     await _committee(db_session, "99999")
-    source = await _source(db_session)
-    prior = await validate_and_record(db_session, source, _link(linked="99999", year=2021))
+    prior = await validate_and_record(db_session, _link(linked="99999", year=2021), raw=raw)
     corrected = await validate_and_record(
-        db_session, source, _link(linked="28244", year=None, supersede_id=str(prior.id))
+        db_session, _link(linked="28244", year=None, supersede_id=str(prior.id)), raw=raw
     )
     assert corrected.effective_year == 2021  # inherited, not cleared
 
 
-async def test_clear_year_requires_supersede(db_session, usa_wa):
+async def test_clear_year_requires_supersede(db_session, raw):
     await _committee(db_session, "14294")
     await _committee(db_session, "28244")
-    source = await _source(db_session)
     with pytest.raises(SuccessionError, match="clear-year"):
-        await validate_and_record(db_session, source, _link(clear_year=True))
+        await validate_and_record(db_session, _link(clear_year=True), raw=raw)
 
 
-async def test_supersede_slug_mismatch_rejected(db_session, usa_wa):
+async def test_supersede_slug_mismatch_rejected(db_session, raw):
     await _committee(db_session, "14294")
     await _committee(db_session, "28244")
-    source = await _source(db_session)
-    prior = await validate_and_record(db_session, source, _link(slug="succeeded_by"))
+    prior = await validate_and_record(db_session, _link(slug="succeeded_by"), raw=raw)
     with pytest.raises(SuccessionError, match="slug"):
         await validate_and_record(
-            db_session,
-            source,
-            _link(slug="split_from", supersede_id=str(prior.id)),
+            db_session, _link(slug="split_from", supersede_id=str(prior.id)), raw=raw
         )
 
 
@@ -427,4 +396,4 @@ def test_main_a_failed_archive_is_degraded_not_failed(monkeypatch, tmp_path, cap
         assert cli.main(["--subject", "14294"]) == 4
 
     assert recording.committed == 1
-    assert "uv run python -m clearinghouse_core.raw_export" in capsys.readouterr().err
+    assert "record the event again as it now stands" in capsys.readouterr().err

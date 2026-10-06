@@ -31,10 +31,11 @@ that design as code, recalibrated by the #252 parse corrections:
   duplicate Person for someone who already has a WSL identity.
 
 **The adjudication tables are versioned data, deliberately in code.** The spec's
-re-derivability argument — a rebuild from ``RawPayload`` reproduces the same ids — holds
+re-derivability argument — a rebuild from the archive reproduces the same ids — holds
 only because the decisions that are *not* in the archive are checked in beside it.
 
-Nothing here touches a database. The write side belongs to the Phase B builder.
+Nothing here touches a database. The write side belonged to the Phase B builder
+(``roster_pdf.build``, deleted in #412 PR F); the pipeline's conformed spans read it now.
 """
 
 from __future__ import annotations
@@ -75,7 +76,7 @@ IDENTITY_MINTED = "minted"
 IDENTITY_WSL = "wsl"
 
 # Refusal reasons — report-don't-drop, as everywhere in this source. A reason also becomes a
-# *ledger and log key* downstream (``refusals_<reason>`` in the Phase B build's counters,
+# *ledger and log key* downstream (``refusals_<reason>`` in the deleted Phase B build's counters,
 # passed as logging ``extra``), so keep them snake_case and short; the prefix is what keeps a
 # new reason from colliding with a reserved LogRecord attribute (CR #97 — ``created`` is the
 # precedent that made this a rule).
@@ -232,13 +233,13 @@ def identity_seatings(report: IdentityReport) -> list[Seating]:
     ``surname``/``given_name`` mirror WSL's ``LastName``/``FirstName`` so the resolver's #240
     given-name-initial guard reads the same shape from either index.
 
-    One seating per record **year**, deliberately not expanded to both years of the biennium
-    the way :func:`~usa_wa_adapter_legislature.roster_pdf.backfill.load_seatings` expands a
-    WSL roster. That expansion exists because WSL data is per-biennium and a boundary falls
-    in one of its two years; this index is per-record, and a proposal's ``session_year`` is
-    always its own record's year, so every record already covers its own proposal. Expanding
-    would add seatings no lookup asks for while widening the same-surname collision surface
-    that produces ``ambiguous_member``.
+    One seating per record **year**, deliberately not expanded to both years of the biennium the
+    way the WSL seatings (``usa_wa_pipeline.conformed.spans.seatings_from_sponsors``, a port of
+    ``roster_pdf.backfill.load_seatings``) expand a WSL roster. That expansion exists because
+    WSL data is per-biennium and a boundary falls in one of its two years; this index is
+    per-record, and a proposal's ``session_year`` is always its own record's year, so every
+    record already covers its own proposal. Expanding would add seatings no lookup asks for
+    while widening the same-surname collision surface that produces ``ambiguous_member``.
     """
     seatings: list[Seating] = []
     for identity in report.identities:

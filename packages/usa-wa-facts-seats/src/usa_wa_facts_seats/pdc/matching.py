@@ -1,4 +1,4 @@
-"""Pure PDC↔WSL roster matching (#79) — shared by the daily normalizer and the span projector.
+"""Pure PDC↔WSL roster matching (#79) — shared by the House roster build and projectors.
 
 Extracted from the retired per-biennium house-positions normalizer so the archive-first span
 projector (#79) can reuse the *same* #69/#75 matching logic without a circular import. No DB

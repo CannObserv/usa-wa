@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, IntegrityError
 
-from clearinghouse_core.provenance import Source
 from clearinghouse_core.source_coverage import (
     STATUS_CHECK_NAME,
     STATUSES,
@@ -21,6 +20,7 @@ from clearinghouse_core.source_coverage import (
     seed_source_coverage,
     status_check_sql,
 )
+from clearinghouse_core.sources import Source
 
 _AUDITED = date(2026, 8, 6)
 
@@ -143,6 +143,11 @@ def test_model_check_constraint_matches_the_migrations_copy():
     for status in STATUSES:
         assert f"'{status}'" in migration, f"{status!r} missing from the migration's CHECK"
     assert STATUS_CHECK_NAME in migration
+
+
+def test_a_claim_row_carries_no_evidence_citation():
+    """#412 PR F (Q5): the column FK'd the dropped ``citations`` table and was never set."""
+    assert "evidence_citation_id" not in SourceCoverage.__table__.c
 
 
 def test_claim_for_refuses_an_ambiguous_match():

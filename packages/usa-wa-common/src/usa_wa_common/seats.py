@@ -83,6 +83,6 @@ def house_span_discriminator(ld_number: int, qualifier: str) -> str:
 
 def parse_house_span_discriminator(discriminator: str) -> tuple[int, str]:
     """Recover ``(ld_number, qualifier)`` from a House span discriminator (inverse of
-    :func:`house_span_discriminator`) — the span-emit role resolver keys the seat Role on it."""
+    :func:`house_span_discriminator`) — the conformed ``roles`` model keys the seat Role on it."""
     _ld, ld_number, _position, position_digit = discriminator.split("-")
     return int(ld_number), f"Position {position_digit}"

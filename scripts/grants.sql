@@ -4,7 +4,7 @@
 --   <owner>  — owns every table/sequence; the only role with DDL/DROP rights.
 --              Used solely by `alembic upgrade head` (the migrate systemd unit).
 --   <app>    — DML only (SELECT/INSERT/UPDATE/DELETE). Used by the live API,
---              the pipeline chain, the WSL refresh cron, and the on-box CLIs.
+--              the pipeline chain and the on-box CLIs.
 --              Cannot CREATE/ALTER/DROP, so it cannot accidentally migrate.
 --
 -- Re-runnable: every statement is idempotent. The migrate unit applies this
@@ -88,58 +88,28 @@ GRANT USAGE, CREATE ON SCHEMA serving TO :"app";
 --    REMOVE A SCHEMA HERE when a migration drops one, in the same change: the
 --    migrate unit runs this file after every `alembic upgrade head`, and GRANT
 --    on a schema that no longer exists is an ERROR, not a no-op — it would wedge
---    the unit on the deploy that dropped it. `sync` left with #314 step C.
-GRANT USAGE ON SCHEMA canonical, clearinghouse_core, registry TO :"owner";
-GRANT USAGE ON SCHEMA canonical, clearinghouse_core, registry TO :"app";
+--    the unit on the deploy that dropped it. `sync` left with #314 step C, and
+--    `canonical` with #412 PR F; scripts/tests/test_grants_append_only.py pins it.
+GRANT USAGE ON SCHEMA clearinghouse_core, registry TO :"owner";
+GRANT USAGE ON SCHEMA clearinghouse_core, registry TO :"app";
 
 -- 4. DML grants on all current tables + sequences for the app role.
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA canonical TO :"app";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA clearinghouse_core TO :"app";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA registry TO :"app";
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA canonical TO :"app";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA clearinghouse_core TO :"app";
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA registry TO :"app";
 
 -- 5. Default privileges: tables/sequences a FUTURE migration creates (as <owner>)
 --    auto-grant DML to <app>, so no role lag between migrate and serve.
-ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_core, registry
+ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA clearinghouse_core, registry
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO :"app";
-ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA canonical, clearinghouse_core, registry
+ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA clearinghouse_core, registry
   GRANT USAGE, SELECT ON SEQUENCES TO :"app";
 
--- 6. Write-once provenance (#54). The provenance spine is append-only by
---    contract; make it append-only by *grant* so the live app role physically
---    cannot rewrite stored history. After step 4 granted full DML to <app>:
---
---    a) Immutability — REVOKE UPDATE on all three tables. INSERT (+ SELECT)
---       remain, so adapters still append fetch events / payloads / citations,
---       but no serving role can rewrite an existing row's bytes. The integrity
---       sweep (re-hash vs content_hash) is the at-rest detector; this is the
---       at-rest preventer.
---    b) Permanence — REVOKE DELETE on fetch_events + citations only: those are
---       the durable provenance ledger, never deleted by the app. raw_payloads
---       deliberately KEEPS DELETE — it is the GC-able cache (see RawPayload
---       docstring + Source.retention_policy, #54), and the eventual retention
---       GC runs as the app role; archival payloads are protected by
---       retention_policy in the GC's WHERE clause, not by this grant.
---       CAVEAT (#78/#82): sponsors:<biennium> and committee-members-hist:<…>
---       payloads are NOT freely GC-eligible while tenure is archive-derived —
---       the span builders re-parse them offline each run, so dropping one
---       truncates or closes the membership/party span it attested. Any retention
---       GC must exclude those resource prefixes (or re-run the harvest after).
---
---    Only <owner> (migrations) can UPDATE/DELETE the ledger. Default privileges
---    (step 5) still grant full DML on FUTURE clearinghouse_core tables, so a new
---    append-only table must be added here — scripts/tests/test_grants_append_only.py
---    fails if a clearinghouse_core table isn't classified, forcing the decision.
---    Both REVOKEs are idempotent (a no-op on an already-revoked privilege), so
---    they re-apply cleanly after every migration like the rest of this file.
-REVOKE UPDATE ON
-  clearinghouse_core.fetch_events,
-  clearinghouse_core.raw_payloads,
-  clearinghouse_core.citations
-  FROM :"app";
-REVOKE DELETE ON
-  clearinghouse_core.fetch_events,
-  clearinghouse_core.citations
-  FROM :"app";
+-- 6. Write-once tables (#54). The provenance spine — fetch_events, raw_payloads,
+--    citations — was append-only by grant: REVOKE UPDATE (and DELETE on the ledger
+--    halves) from <app> after step 4 granted full DML. #412 PR F dropped those tables;
+--    the raw store's objects are write-once by construction instead. No
+--    clearinghouse_core table is append-only now, but step 5 still grants full DML on
+--    every FUTURE one, so a new append-only table must get its REVOKE here —
+--    scripts/tests/test_grants_append_only.py fails until each table is classified.

@@ -37,7 +37,8 @@ From the same night, the published `stg_sos_results` carries the 2026 election's
   PDC starts marking `Won in general`, so `house-winners:2026` / `senate-winners:2026` grow
   from empty to 98 / ~25 rows. Nothing derives from them yet: they seat a biennium with no
   roster (pinned by `test_match_pdc_wsl`, `test_conformed_house`).
-- **Re-run the rehearsal after #412 closes** (PR F changes the nightly chain) and after
+- **Re-run the rehearsal after #412 closes** (PR F drops the canonical and provenance
+  tables from the database the nightly runs against; the chain itself is unchanged) and after
   certification, so it runs on the real 2026 ballot:
   ```bash
   scripts/rollover-rehearsal.sh empty      # what upstream serves that day

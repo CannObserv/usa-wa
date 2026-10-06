@@ -21,15 +21,14 @@ effects. Three kinds, split by scope so a chamber move never touches the party s
   (instead of the biennium floor). Appointment, swearing-in. [Hunt: Senate from 2025-06-03]
 
 A chamber move is thus modeled exactly as ``vacated`` (old seat) + ``seated`` (new seat)
-on the same member, each applied by the builder that owns that seat kind. It is backed by
-a first-class ``usa_wa_operator`` provenance ``Source``: each
-CLI write also appends a ``FetchEvent`` + ``RawPayload`` (the serialized event, hashed
-— so the integrity sweep covers operator facts), and the spans the overlay touches
-carry a ``Citation`` to the attestation. Corrections **append** a new row and stamp
-the prior one's ``superseded_by_id`` — provenance is never mutated (#54).
+on the same member, each applied by the builder that owns that seat kind. It is archived
+under the ``usa_wa_operator`` source: each CLI write also stores the serialized event in
+the raw store under its sha256 — so the integrity sweep covers operator facts.
+Corrections **append** a new row and stamp the prior one's ``superseded_by_id`` —
+provenance is never mutated (#54).
 
-The overlay reads only non-superseded rows on **every** build (the daily refresh
-re-drives the builders), so the wire can never win back a corrected span and a
+The overlay reads only non-superseded rows on **every** build (the nightly pipeline
+re-drives the conformed span builders), so the wire can never win back a corrected span and a
 correction is just a new row.
 """
 
@@ -43,10 +42,10 @@ from clearinghouse_core.db.ulid import ULID
 from clearinghouse_core.models import Base, TimestampMixin
 from clearinghouse_domain_legislative.span_kinds import SEAT_KINDS  # noqa: F401 (re-export)
 
-# SCHEMA + _new_ulid are defined locally per the domain-model convention (see bills.py /
-# sessions.py), rather than reaching into identity.py's module-private helpers.
-# ``registry``, not ``canonical`` (#412 Q1): operator events are curated human input, the
-# same kind of state as ``registry.adjudications``, and they outlive the canonical tier.
+# SCHEMA + _new_ulid are defined locally per the domain-model convention, so the module
+# owns its table placement. ``registry``, not ``canonical`` (#412 Q1): operator events are
+# curated human input, the same kind of state as ``registry.adjudications``, and they
+# outlived the canonical tier.
 SCHEMA = "registry"
 
 
@@ -54,7 +53,7 @@ def _new_ulid() -> _ULID:
     return _ULID()
 
 
-#: The provenance ``Source.source_slug`` every operator attestation is written under.
+#: The source slug every operator attestation is written under (its raw-store directory).
 OPERATOR_SOURCE_SLUG = "usa_wa_operator"
 
 #: Event kinds. ``departed`` (person-scoped) closes every open span for the member;
@@ -74,9 +73,9 @@ SEAT_SCOPED_KINDS = (KIND_VACATED, KIND_SEATED)
 #: fact rather than a better reading of the same one. Defined here beside the kinds
 #: it partitions so the store (which enforces the rule) and the resolver (which
 #: reaches forward only for a closing) read one definition rather than a copy. The
-#: backfill's ``_contradicting_scopes`` is deliberately NOT a consumer: it names the
-#: one pair — a ``vacated`` against a live ``departed`` — and needs those specific
-#: kinds, not the set (CR 146).
+#: roster backfill's ``_contradicting_scopes`` (deleted in #412 PR F) was deliberately
+#: NOT a consumer: it named the one pair — a ``vacated`` against a live ``departed`` —
+#: and needed those specific kinds, not the set (CR 146).
 ENDING_KINDS = frozenset({KIND_DEPARTED, KIND_VACATED})
 
 # ``SEAT_KINDS`` — the valid ``seat_kind`` values a seat-scoped event may name — is the

@@ -64,11 +64,10 @@ non-GET operation anywhere. That is what let Power Map revoke usa-wa's write sco
 API that provably cannot write rather than one that promises not to.
 `test_v1_contract.py` asserts both — the prefixed set and the whole route table.
 
-Re-driving dead-lettered outbox work is now on-box only:
-`python -m usa_wa_api.cli.redrive`, with the same scoping
-and dry-run semantics. Shell access was always a stronger trust boundary than the single shared
-`X-Operator-Token` header the route carried, and that header — and
-`USA_WA_OPERATOR_TOKEN` — are gone with it.
+Re-driving dead-lettered outbox work moved on-box with the route, then retired outright when
+#314 deleted the outbox and its `usa_wa_api.cli.redrive` CLI: usa-wa pushes nothing to Power
+Map, so there is nothing to re-drive. The single shared `X-Operator-Token` header the route
+carried — and `USA_WA_OPERATOR_TOKEN` — went with the route.
 
 ### There is no `/spans`
 
@@ -191,13 +190,17 @@ collapses into one empty response:
 | Feed exists, nobody has audited it | **200**, `coverage_recorded: false`, `items: []` |
 | Feed exists, audited, and known not to serve a range | **200**, `coverage_recorded: true`, an `absent` span in `items` and in `known_gaps` |
 
-The middle row is the common case today: the #180 migration is additive and rows seed from
-`get_or_create_source`, so the table is empty in production until the next harvest run. Returning
-404 or a bare `[]` there would restore exactly the silence #180 exists to remove.
+The middle row is a feed whose adapter declares no claims yet: rows reconcile nightly from each
+adapter's declared claims (`usa_wa_pipeline.coverage_seed`, #412 PR E). Returning 404 or a bare
+`[]` there would restore exactly the silence #180 exists to remove.
 
 `status` is reported verbatim per span — `verified` | `assumed` | `absent` — and the `absent`
 subset is repeated as `known_gaps`. The duplication is deliberate: `absent` is the load-bearing
 value (a gap the system *knows about*), and a consumer that renders only `items` still shows it.
+
+**Removed in #412 PR F:** a span's `evidence_citation_id`. It pointed into the Postgres
+`citations` table that PR F dropped, and no coverage row ever carried a value, so every
+response had sent `null`. A client reading it should drop the field.
 
 ### `/health/jobs` when nothing has run
 

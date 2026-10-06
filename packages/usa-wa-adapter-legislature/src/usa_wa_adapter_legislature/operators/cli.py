@@ -13,11 +13,12 @@
     python -m usa_wa_adapter_legislature.operators.cli --supersede <id> ... # correction
     python -m usa_wa_adapter_legislature.operators.cli --list               # inspect
 
-App-role DML (writes ``operator_events`` + provenance under ``usa_wa_operator``); shell access
-is the trust boundary, as with the redrive CLI. Validates that ``member_id`` resolves to a
-:class:`Person` before writing (a typo would otherwise be a silent no-op overlay). ``--dry-run``
-rolls back. Each event is applied as an authoritative overlay by the span builders on their next
-run (the daily refresh re-drives them); provenance is append-only, corrections via ``--supersede``.
+App-role DML (writes ``registry.operator_events``; the attestation lands in the raw store under
+``usa_wa_operator`` once the transaction commits); shell access is the trust boundary. Validates
+that ``member_id`` is a registered WSL member, and a committee seat's id a registered committee,
+before writing (a typo would otherwise be a silent no-op overlay). ``--dry-run`` rolls back. The
+nightly pipeline applies each event as an authoritative overlay on its next build; provenance is
+append-only, corrections via ``--supersede``.
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ from clearinghouse_core.job import (
     run_job,
 )
 from clearinghouse_core.logging import get_logger
+from clearinghouse_core.registry import KIND_PERSON, RegistryKey
 from clearinghouse_domain_legislative.operator_events import (
     DEPARTED_REASONS,
     ENDING_KINDS,
@@ -52,15 +54,15 @@ from clearinghouse_domain_legislative.operator_events import (
     VACATED_REASONS,
     OperatorEvent,
 )
-from clearinghouse_domain_legislative.span_emit import resolve_person
+from clearinghouse_domain_legislative.span_kinds import KIND_COMMITTEE
+from usa_wa_adapter_legislature.committees.succession_store import is_registered_committee
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
 from usa_wa_adapter_legislature.operators.store import (
     current_events,
-    get_or_create_operator_source,
     record_operator_event,
     supersede_event,
 )
-from usa_wa_common.jurisdiction import resolve_jurisdiction
 
 logger = get_logger(__name__)
 
@@ -118,20 +120,41 @@ def _validate(spec: EventSpec) -> None:
         )
 
 
+async def _is_registered_member(session: AsyncSession, member_id: str) -> bool:
+    """Whether the registry knows ``member_id`` as a WSL member — the identity authority
+    since #412 PR F dropped the canonical persons table. The nightly registrar registers
+    a new member the night their sponsor record is first harvested."""
+    key = await session.scalar(
+        select(RegistryKey.id).where(
+            RegistryKey.kind == KIND_PERSON,
+            RegistryKey.natural_key == f"{WSL_SOURCE_SLUG}:{member_id}",
+        )
+    )
+    return key is not None
+
+
 async def validate_and_record(
-    session: AsyncSession, source, spec: EventSpec, *, raw: PendingAttestations | None = None
+    session: AsyncSession, spec: EventSpec, *, raw: PendingAttestations
 ) -> OperatorEvent:
-    """Validate ``spec`` (shape + member existence) and persist it; return the row.
+    """Validate ``spec`` (shape, member, committee seat) and persist it; return the row.
 
     A ``supersede_id`` records a correction of that prior event — a new date, or a
     reclassification within endings (``departed`` <-> ``vacated``, #363). Raises
     :class:`OperatorEventError` on any validation failure (no partial write)."""
     _validate(spec)
-    person = await resolve_person(session, spec.member_id)
-    if person is None:
+    if not await _is_registered_member(session, spec.member_id):
         raise OperatorEventError(
-            f"member_id {spec.member_id!r} resolves to no usa_wa_legislature Person "
-            "(typo, or run the sponsor harvest first)"
+            f"member_id {spec.member_id!r} resolves to no registered {WSL_SOURCE_SLUG} person "
+            "(typo, or a member the nightly has not registered yet)"
+        )
+    if spec.seat_kind == KIND_COMMITTEE and not await is_registered_committee(
+        session, spec.seat_discriminator
+    ):
+        # The committee-succession CLI's check (#445), for the same reason as the member's:
+        # an unregistered committee id is an overlay no committee span ever meets.
+        raise OperatorEventError(
+            f"seat_discriminator {spec.seat_discriminator!r} is no registered "
+            f"{WSL_SOURCE_SLUG} committee org (typo, a structural org, or not yet registered)"
         )
     if spec.supersede_id is not None:
         prior = (
@@ -174,8 +197,8 @@ async def validate_and_record(
             )
         return await supersede_event(
             session,
-            source,
             prior,
+            raw=raw,
             kind=spec.kind,
             seat_kind=spec.seat_kind,
             seat_discriminator=spec.seat_discriminator,
@@ -183,11 +206,10 @@ async def validate_and_record(
             effective_date=spec.effective_date,
             evidence_url=spec.evidence_url,
             entered_by=_entered_by(),
-            raw=raw,
         )
     return await record_operator_event(
         session,
-        source,
+        raw=raw,
         member_id=spec.member_id,
         kind=spec.kind,
         reason=spec.reason,
@@ -196,7 +218,6 @@ async def validate_and_record(
         seat_kind=spec.seat_kind,
         seat_discriminator=spec.seat_discriminator,
         entered_by=_entered_by(),
-        raw=raw,
     )
 
 
@@ -268,15 +289,12 @@ async def _run(session: AsyncSession, args: argparse.Namespace, raw: PendingAtte
         print(f"{len(events)} current operator event(s)")
         return 0
 
-    jurisdiction = await resolve_jurisdiction(session)
-    source = await get_or_create_operator_source(session, jurisdiction)
-
     if args.file:
         specs = await load_json_batch(args.file, load_specs)
     else:
         specs = [_spec_from_args(args)]
 
-    recorded = [await validate_and_record(session, source, spec, raw=raw) for spec in specs]
+    recorded = [await validate_and_record(session, spec, raw=raw) for spec in specs]
     for event in recorded:
         print(_format_event(event))
     print(f"recorded {len(recorded)} operator event(s)")
@@ -285,7 +303,7 @@ async def _run(session: AsyncSession, args: argparse.Namespace, raw: PendingAtte
 
 def _add_args(parser: argparse.ArgumentParser) -> None:
     """Contribute the recorder's own flags to the harness's shared parser."""
-    parser.add_argument("--member-id", help="the WSL member Id (Person.source_id)")
+    parser.add_argument("--member-id", help="the WSL member Id")
     parser.add_argument("--kind", choices=sorted(KINDS), help="departed | vacated | seated")
     parser.add_argument(
         "--reason", help="died|resigned|expelled | moved|resigned|defeated | appointed|sworn_in"

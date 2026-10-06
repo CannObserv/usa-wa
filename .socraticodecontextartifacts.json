@@ -8,7 +8,7 @@
     {
       "name": "architecture-pattern",
       "path": "./docs/ARCHITECTURE.md",
-      "description": "The reusable Layer-3 sourcing pattern \u2014 sourcing vs. application, multi-source target packages, the harvest.py (Phase A) / build.py (Phase B) split, and the two binding rules: audit a source's coverage before building on it, and never key a parser on an exact upstream string. Read before adding an adapter, a data source, or a span/seat builder."
+      "description": "The reusable Layer-3 sourcing pattern \u2014 sourcing vs. application, multi-source target packages, Phase A (an adapter's raw_harvest into the raw store) vs. Phase B (the pipeline's dbt models over the adapter's pure parsers), a worked example traced end to end, and the binding rules: audit a source's coverage before building on it, never key a parser on an exact upstream string, one writer per published dataset. Read before adding an adapter, a data source, or a span/seat builder."
     },
     {
       "name": "ontology",
@@ -33,22 +33,22 @@
     {
       "name": "modules-framework",
       "path": "./docs/MODULES-FRAMEWORK.md",
-      "description": "Layers 1-2 module reference \u2014 the jurisdiction-agnostic framework primitives in clearinghouse-core and the legislative domain model in clearinghouse-domain-legislative, including the term calendar, the span engine, and the CohortProvider Protocols."
+      "description": "Layers 1-2 module reference \u2014 the jurisdiction-agnostic framework primitives in clearinghouse-core (raw store, job harness, identity registry, sources and their coverage claims, jurisdictions) and the legislative domain in clearinghouse-domain-legislative (term calendar, span engine, operator overlay and its attestation models)."
     },
     {
       "name": "modules-common",
       "path": "./docs/MODULES-COMMON.md",
-      "description": "Layer 2b usa-wa-common module reference \u2014 Washington vocabulary (term calendar, seats, name handling, parties, ballot) and the cohort seam. Source-free: may not import an adapter."
+      "description": "Layer 2b usa-wa-common module reference \u2014 Washington vocabulary (term calendar, seats, name handling, parties, ballot shapes, the jurisdiction vocabulary and its seeder). Source-free: may not import an adapter."
     },
     {
       "name": "modules-legislature",
       "path": "./docs/MODULES-LEGISLATURE.md",
-      "description": "WSL (Washington State Legislature) adapter module reference \u2014 SOAP transport, normalizers, the daily refresh path, cohort providers, and write-free probes. The ingest half of the usa-wa-adapter-legislature package."
+      "description": "WSL (Washington State Legislature) adapter module reference \u2014 SOAP transport, the raw harvest, resource ids, pure parsers and projectors the pipeline stages through, provisioning/coverage claims, and write-free probes."
     },
     {
       "name": "modules-legislature-roster",
       "path": "./docs/MODULES-LEGISLATURE-ROSTER.md",
-      "description": "The roster-PDF source (1889-2025 official member roster) \u2014 transport, parser, audit oracle, and the succession \u2192 resolve \u2192 backfill pipeline that adds ~102 years of member coverage with exact succession dates."
+      "description": "The roster-PDF source (1889-2025 official member roster) \u2014 transport, edition stamp check, raw harvest, parser, audit oracle, and the succession/resolve helpers."
     },
     {
       "name": "modules-legislature-roster-build",
@@ -58,12 +58,12 @@
     {
       "name": "modules-legislature-spans",
       "path": "./docs/MODULES-LEGISLATURE-SPANS.md",
-      "description": "The tenure-span subject area across two layers \u2014 the Layer-2 engine (biennium arithmetic, merged-span builder, span\u2192Assignment emitter, operator succession overlay) and the Layer-3 WSL drivers (operator-event store, roster hygiene, Phase-B span builders, span-collapse migrations)."
+      "description": "The tenure-span subject area across two layers \u2014 the Layer-2 engine (biennium arithmetic, merged-span builder, operator succession overlay) and the Layer-3 WSL side (operator-event and committee-succession stores and CLIs, roster hygiene, the span projectors the pipeline's conformed models use)."
     },
     {
       "name": "modules-pdc",
       "path": "./docs/MODULES-PDC.md",
-      "description": "PDC (Public Disclosure Commission) SODA adapter module reference \u2014 identifier-only sourcing."
+      "description": "PDC (Public Disclosure Commission) SODA adapter module reference \u2014 transport, resource ids, the raw harvest of winner cohorts, provisioning/coverage, and the positions parser."
     },
     {
       "name": "modules-sos",
@@ -73,7 +73,7 @@
     {
       "name": "modules-facts-seats",
       "path": "./docs/MODULES-FACTS-SEATS.md",
-      "description": "Layer 3b usa-wa-facts-seats module reference \u2014 the composition layer that builds cohorts across adapters: House Position, Senate corroboration, and PDC spans."
+      "description": "Layer 3b usa-wa-facts-seats module reference \u2014 the pure seat-fact logic the pipeline composes across sources: House Position matching, back-chaining and projection, PDC observations."
     },
     {
       "name": "modules-deployment",
@@ -83,27 +83,22 @@
     {
       "name": "commands",
       "path": "./docs/COMMANDS.md",
-      "description": "Command index plus setup, tests, migrations, and the daily refresh \u2014 the entry point to the grouped operational and backfill command references."
+      "description": "Command index plus setup, tests and migrations \u2014 the entry point to the grouped operational command references."
     },
     {
       "name": "commands-succession",
       "path": "./docs/COMMANDS-SUCCESSION.md",
-      "description": "Operator succession commands \u2014 odd-year corroboration and committee lineage."
+      "description": "Operator attestation commands \u2014 succession events and committee lineage links, recorded to the registry and archived to the raw store; the nightly pipeline applies them."
     },
     {
       "name": "commands-backfill",
       "path": "./docs/COMMANDS-BACKFILL.md",
-      "description": "Backfill commands \u2014 historical harvests, span builders, one-shot migrations, and write-free probes. Pair with USA_WA_BIENNIUM to target a non-current biennium. The roster PDF is in COMMANDS-ROSTER.md."
+      "description": "The write-free WSL probes (committee/meeting extent, member-Id stability). The roster PDF is in COMMANDS-ROSTER.md."
     },
     {
       "name": "commands-roster",
       "path": "./docs/COMMANDS-ROSTER.md",
-      "description": "Roster PDF commands \u2014 the Phase A harvest and its monthly dry-run edition re-check (#225/#237) with the alert runbook, the #226 succession backfill, and the #228 pre-1991 build (roster Persons, party spans, Senate seat spans) and its sidecar-paused deploy sequence."
-    },
-    {
-      "name": "commands-seats",
-      "path": "./docs/COMMANDS-SEATS.md",
-      "description": "Seat-fact backfill commands \u2014 PDC identifier links (#79) and WSL+SOS House Position (#101) \u2014 plus which half of the daily PDC/SOS archive/rebuild cycle each flag governs (#201)."
+      "description": "Roster PDF commands \u2014 the raw harvest of an edition and its monthly dry-run edition re-check (#225/#237/#421) with the alert runbook."
     },
     {
       "name": "socraticode-doc",
@@ -158,12 +153,12 @@
     {
       "name": "pipeline-reference",
       "path": "./docs/PIPELINE.md",
-      "description": "The #302 dataset-publication pipeline \u2014 dbt-duckdb project layout, commands, the raw file store (objects/manifests/latest.json), the staging models and their parity probes, the identity registry and registrar, and the historical seat-occupancy gates over conformed assignments (#359/#360/#363). The conformed tier lives in PIPELINE-CONFORMED.md; the publication contract in PIPELINE-PUBLICATION.md."
+      "description": "The #302 dataset-publication pipeline \u2014 dbt-duckdb project layout, commands, the raw file store (objects/manifests/latest.json), the staging models, the identity registry and registrar, and the gates over conformed assignments (seat occupancy #359/#360/#363 and the checks ported from the retired canonical tier, #412). The conformed tier lives in PIPELINE-CONFORMED.md; the publication contract in PIPELINE-PUBLICATION.md."
     },
     {
       "name": "pipeline-conformed",
       "path": "./docs/PIPELINE-CONFORMED.md",
-      "description": "The #302 pipeline's conformed tier \u2014 the tenure-span engine (two families, one table, the #228 roster deepening and its refusals), the structurally keyed roles dimension and its role_type/name/qualifier parity, and the citations chain that replaces the Postgres Citation ledger (per-kind rules, the coverage probe, its zero gates and the uncited-persons ratchet)."
+      "description": "The #302 pipeline's conformed tier \u2014 the tenure-span engine (two families, one table, the #228 roster deepening and its refusals), the structurally keyed roles dimension, and the citations chain (per-kind rules, the coverage probe, its zero gates and the uncited-persons ratchet)."
     },
     {
       "name": "pipeline-conformed-entities",

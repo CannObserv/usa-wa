@@ -51,8 +51,9 @@ def _job_slug(tree: ast.Module) -> str | None:
 
 
 def test_the_sweep_found_something_to_guard() -> None:
-    """A guard over an empty glob passes for the wrong reason. #179 counted ~47."""
-    assert len(_jobs()) >= 40, "the entry-point scan found almost nothing"
+    """A guard over an empty glob passes for the wrong reason. #179 counted ~47; #412 PR F
+    left 21, deleting the canonical tier's refreshes, builders and backfills."""
+    assert len(_jobs()) >= 20, "the entry-point scan found almost nothing"
 
 
 @pytest.mark.parametrize("path", _jobs(), ids=_relative)

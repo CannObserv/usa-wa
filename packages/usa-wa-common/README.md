@@ -25,4 +25,8 @@ import-linter contract in the root `pyproject.toml`.
 | `seats.py` | WA legislative seat keying: LD parsing, `Position 1/2` canonicalization, seat-Role `source_id`s, House span discriminators |
 | `names.py` | name folding and the token-set surname match both the PDC and SOS matchers use |
 | `parties.py` | party canonicalization — the WSL `Party` encodings and the SOS ballot `(Prefers X Party)` form |
-| `ballot.py` | the source-agnostic ballot interfaces (`HousePosition`, `SenateWinner`, `position_for`) and the `HousePositionCohortProvider` Protocol a fact package depends on instead of a concrete SOS source |
+| `ballot.py` | the source-agnostic ballot shapes (`HousePosition`, `SenateWinner`, `position_for`); the `HousePositionCohortProvider` Protocol went with its last provider (#412) |
+| `orgs.py` | `STRUCTURAL_ORGS`: the synthesized legislature, chamber and party organizations, each with its `active` status (#309, #428) |
+| `jurisdiction.py` | `resolve_jurisdiction` + `JURISDICTION_SLUG`: the pre-seeded `usa-wa` Jurisdiction row every `Source` hangs off |
+| `jurisdictions.py` | the declared WA jurisdiction registry (country, state, LDs, counties, CDs) — the writer of `clearinghouse_core.jurisdictions` since #310 |
+| `seed_jurisdictions.py` | `python -m usa_wa_common.seed_jurisdictions`: the slug-keyed upsert of that registry into the table |

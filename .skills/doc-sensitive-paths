@@ -55,5 +55,6 @@ scripts/
 # rather than kept as a dead entry: `test_every_entry_matches_a_tracked_file`
 # refuses a list that cannot hit anything, which is what keeps the gate from
 # printing the same green for "no sensitive paths touched" and "the list rotted".
+# `cli/` went the same way in #412 PR F: the API's empty CLI package was deleted, and
+# the operator CLIs that remain are modules (`operators/cli.py`), not a tree.
 api/v1/
-cli/

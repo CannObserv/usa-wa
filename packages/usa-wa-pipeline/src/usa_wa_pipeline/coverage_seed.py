@@ -5,7 +5,7 @@
 ``/sources/{slug}/coverage`` serves the claims each adapter declares in its ``coverage``
 module (#180, coverage-as-data). They reach the table through the adapter's
 ``provisioning``, whose ``get_or_create_*source`` reconciles them on every call. The daily
-canonical refreshes made that call until #412 PR E disabled them. The table outlives
+canonical refreshes made that call until #412 PR E disabled them. The table outlived
 the canonical tier, so the nightly makes the call instead: a re-audited claim merged to
 main reaches the API by the next morning.
 

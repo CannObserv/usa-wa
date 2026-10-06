@@ -2,10 +2,10 @@
 
 Four properties that are cheap to check and expensive to lose:
 
-1. **Read-only means read-only.** The API runs as the *app* role and the provenance
-   tables carry ``REVOKE UPDATE`` (#54), so a route that mutates fails at the
-   database, in production. Asserting the method set is the earliest place to catch
-   a ``POST`` added to a router whose whole premise is that it has none.
+1. **Read-only means read-only.** The API runs as the *app* role; the provenance
+   tables whose ``REVOKE UPDATE`` (#54) made a mutating route fail at the database
+   left with #412 PR F. Asserting the method set is the earliest place — now the only
+   one — to catch a ``POST`` added to a router whose whole premise is that it has none.
 2. **Every route declares a response model.** An undeclared return type publishes an
    empty schema, which makes the OpenAPI document — the actual contract — useless.
 3. **The OpenAPI document generates.** A response model that Pydantic can build but

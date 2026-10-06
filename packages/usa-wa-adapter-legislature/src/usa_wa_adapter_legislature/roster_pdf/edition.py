@@ -1,9 +1,9 @@
 """The roster edition the code knows, and the check that fetched bytes are that edition (#421).
 
-Pure, so both archive tiers share one definition: the raw-store harvest
-(:mod:`usa_wa_adapter_legislature.roster_pdf.raw_harvest`, which survives #412 PR F) and the
-Postgres adapter PR F deletes. The raw harvest may not import that adapter (#412 PR D's
-contract), so the check lives here rather than in ``fetch_one``.
+Pure, so both archive tiers shared one definition: the raw-store harvest
+(:mod:`usa_wa_adapter_legislature.roster_pdf.raw_harvest`) and the Postgres adapter #412 PR F
+deleted. The raw harvest may not import that adapter (#412 PR D's contract), so the check
+lives here rather than in ``fetch_one``.
 """
 
 from __future__ import annotations

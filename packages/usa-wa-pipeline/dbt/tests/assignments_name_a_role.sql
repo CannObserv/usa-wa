@@ -5,8 +5,9 @@
 -- construction and this query cannot fail as long as that stays true — its job
 -- is to notice if it stops being true (a filtered or re-derived roles model).
 -- The fork worth detecting is ours drifting from the tier that minted these
--- keys (and published them, until #314), and that needs an oracle dbt has no
--- session to reach: `parity_spans` diffs against `canonical.roles`.
+-- keys (and published them, until #314), and that needed an oracle dbt has no
+-- session to reach: `parity_spans` diffed against `canonical.roles` until both
+-- retired (#412).
 select a.role_key, count(*) as n
 from {{ ref('assignments') }} a
 left join {{ ref('roles') }} r on r.role_key = a.role_key

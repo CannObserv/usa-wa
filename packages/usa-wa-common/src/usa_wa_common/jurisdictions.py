@@ -1,8 +1,8 @@
 """Washington jurisdiction vocabulary (#310): the locally-owned registry.
 
-The seat model's district axis (Role.jurisdiction_id) FKs the
-clearinghouse_core.jurisdictions table, whose rows the PM sidecar used to
-mirror. Under #302 usa-wa never reads PM, so ownership transfers HERE: these
+The canonical seat model's district axis (Role.jurisdiction_id, dropped in
+#412 PR F) FKed the clearinghouse_core.jurisdictions table, whose rows the PM
+sidecar used to mirror. Under #302 usa-wa never reads PM, so ownership transfers HERE: these
 facts are the registry, seed_jurisdictions asserts them into the table, and
 the sidecar's jurisdiction sync becomes redundant (retired at #314).
 

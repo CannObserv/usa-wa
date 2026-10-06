@@ -87,15 +87,11 @@ unit_cov_fail_under = "72"
 [tool.coverage.run]
 source = ["packages"]
 omit = [
-    # Declared-not-implemented tier (#182). These modules are pure table declarations
-    # with no producer: every line executes on import, so they scored 100% and padded
-    # the gate with code that never runs in anger. Their classes stay marked
-    # IMPLEMENTATION_STATUS = "declared"; test_declared_tier.py keeps this list and the
-    # markers in agreement, so wiring a module to a source forces its removal here.
-    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/bills.py",
-    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/pdc.py",
-    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/statutes.py",
-    "packages/clearinghouse-domain-legislative/src/clearinghouse_domain_legislative/votes.py",
+    # Declared-not-implemented tier (#182): a module of pure table declarations with no
+    # producer scores 100% on import and pads the gate with code that never runs, so it
+    # is omitted here while its classes carry IMPLEMENTATION_STATUS markers.
+    # test_declared_tier.py keeps this list and the markers in agreement. Empty since
+    # #412 PR F deleted the last four (bills, pdc, statutes, votes) with the canonical tier.
 ]
 
 [tool.coverage.report]
@@ -192,7 +188,7 @@ layers = [
 # `clearinghouse_core` cannot hide behind it. The sync package was the second entry
 # until #314.
 ignore_imports = [
-    "clearinghouse_core.testing -> clearinghouse_domain_legislative.identity",
+    "clearinghouse_core.testing -> clearinghouse_domain_legislative",
 ]
 
 [[tool.importlinter.contracts]]
@@ -210,7 +206,7 @@ modules = [
 [[tool.importlinter.contracts]]
 # A Layer-4 deployment package doing Layer-3 sourcing: the PM sync sidecar was making
 # live SOAP calls to the Washington State Legislature from four reconcilers and a
-# producer. A sync path depends on the *archive* (a cohort provider), never on a wire.
+# producer. A sync path depends on the *archive*, never on a wire.
 #
 # #314 deleted the offender, and the rule outlives it deliberately. The contract was
 # never about that package — it is about what a deployment may reach for, and the API
@@ -218,10 +214,11 @@ modules = [
 # Layer-4 arrival to rediscover AR-14 the hard way.
 name = "Deployment packages never touch an adapter transport"
 type = "forbidden"
-# Direct imports only. A cohort provider *owns* a transport internally — that is the
-# seam — so following the chain would forbid depending on a provider at all, which is
-# the opposite of the rule. What must not happen is a deployment module naming the
-# transport itself and driving the wire.
+# Direct imports only. An adapter module *owns* its transport internally (a raw harvest
+# drives it; until #412 PR F, a cohort provider did) — that is the seam — so following
+# the chain would forbid depending on an adapter at all, which is the opposite of the
+# rule. What must not happen is a deployment module naming the transport itself and
+# driving the wire.
 allow_indirect_imports = true
 source_modules = ["usa_wa_api"]
 forbidden_modules = [
@@ -232,12 +229,13 @@ forbidden_modules = [
 ]
 
 [[tool.importlinter.contracts]]
-# Same rule one layer down: a fact composes cohort *interfaces*. Reaching for a
-# transport re-welds the fact to a single source, which is the failure the 2026-07
-# votewa outage taught (ARCHITECTURE.md § sourcing vs application).
-name = "Facts depend on cohort interfaces, never on a transport"
+# Same rule one layer down: a fact composes archived, parsed records — through cohort
+# interfaces until #412 PR F retired them, through the pipeline's staging since.
+# Reaching for a transport re-welds the fact to a single source, which is the failure
+# the 2026-07 votewa outage taught (ARCHITECTURE.md § sourcing vs application).
+name = "Facts and the pipeline never depend on a transport"
 type = "forbidden"
-allow_indirect_imports = true  # as above: a provider legitimately owns its transport
+allow_indirect_imports = true  # as above: an adapter legitimately owns its transport
 # usa_wa_pipeline sits under the same rule (#303): its staging models re-parse
 # the *archive* (raw/ files) through adapter parse functions; driving a wire
 # from a dbt model would put a harvest inside a transform.
@@ -250,8 +248,9 @@ forbidden_modules = [
 ]
 # NO EXCEPTIONS (#201). #189 granted two — the daily drivers each ran a source's Phase-A
 # harvest and then rebuilt the fact from the resulting archive — and #201 split them:
-# each adapter owns "refresh my archive" (`…results.archive_refresh`,
-# `…pdc.archive_refresh`, their own units), the fact owns "rebuild from the archive".
+# each adapter owned "refresh my archive" (`…results.archive_refresh`,
+# `…pdc.archive_refresh`, their own units — deleted in #412 PR F), the fact "rebuild from
+# the archive".
 # Kept exception-free by `scripts/tests/test_import_contracts.py`.
 
 [[tool.importlinter.contracts]]
@@ -271,14 +270,18 @@ forbidden_modules = [
 
 [[tool.importlinter.contracts]]
 # #412 PR D. The Postgres canonical tier — its write path (the adapter runner, the span
-# emitter, the operator stores, the Phase-A harvests, every refresh/build/backfill driver
-# and one-shot migration) and the cohort providers that read its `raw_payloads` archive —
-# is deleted in PR F. The raw harvests fill the store, the pipeline builds
-# every published dataset from it and the API serves them, so none may reach that code
-# by any chain, or PR F cannot delete it without breaking the nightly. What they need
-# from those modules (resource ids, role keys, pure span functions) lives in pure
-# modules the writers import too. Indirect imports count: that is the whole point.
-name = "The pipeline, the API and the raw harvests never import the retiring Postgres tier"
+# emitter, the Phase-A harvests, every refresh/build/backfill driver and one-shot
+# migration), the cohort providers that read its `raw_payloads` archive, and its models —
+# was deleted in PR F. The raw harvests fill the store, the pipeline builds every
+# published dataset from it and the API serves them, so none could reach that code by any
+# chain, or PR F could not have deleted it without breaking the nightly. What they needed
+# from those modules (resource ids, role keys, pure span functions) lives in pure modules.
+# Indirect imports count: that is the whole point.
+#
+# Since PR F most entries are tombstones: a missing module is vacuously kept, and the day
+# one of those names comes back the import is refused. The two operator stores are the
+# live entries — attestation writers the pipeline reads through SQL, never imports.
+name = "The pipeline, the API and the raw harvests never import the retired Postgres tier"
 type = "forbidden"
 source_modules = [
     "usa_wa_pipeline",
@@ -287,7 +290,7 @@ source_modules = [
     "usa_wa_adapter_legislature.raw_harvest",
     "usa_wa_adapter_pdc.raw_harvest",
     "usa_wa_adapter_sos.raw_harvest",
-    # The roster's on-demand raw harvest (#421), its only Phase A once PR F deletes
+    # The roster's on-demand raw harvest (#421), its only Phase A since PR F deleted
     # `roster_pdf.harvest`: the pipeline stages the roster from what it writes.
     "usa_wa_adapter_legislature.roster_pdf.raw_harvest",
 ]
@@ -317,10 +320,19 @@ forbidden_modules = [
     "usa_wa_adapter_legislature.committees.migrate_fetch_baseline",
     "usa_wa_facts_seats.house.migrate",
     "usa_wa_facts_seats.pdc.migrate_pdc_spans",
-    # The archive side: every cohort provider reads Postgres `raw_payloads`, which PR F
-    # drops. The pure Protocols in `clearinghouse_domain_legislative.cohorts` stay allowed.
+    # The archive side: every cohort provider read Postgres `raw_payloads`, which PR F
+    # dropped.
     "usa_wa_adapter_legislature.cohorts",
     "usa_wa_adapter_legislature.**.cohort",
     "usa_wa_adapter_pdc.cohort",
     "usa_wa_adapter_sos.**.cohort",
+    # The tier's models (PR F): PR D could not list them while the parity probes and
+    # `registry_seed` imported them.
+    "clearinghouse_core.provenance",
+    "clearinghouse_domain_legislative.identity",
+    "clearinghouse_domain_legislative.bills",
+    "clearinghouse_domain_legislative.sessions",
+    "clearinghouse_domain_legislative.votes",
+    "clearinghouse_domain_legislative.statutes",
+    "clearinghouse_domain_legislative.pdc",
 ]

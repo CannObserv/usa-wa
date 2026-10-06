@@ -23,6 +23,11 @@ than deleted because the distinction above is the part worth keeping: the next
 table to lose its producer needs a word that is not ``declared``, and rederiving
 that argument is more expensive than leaving the vocabulary standing.
 
+**Both tiers are empty as of #412 PR F**, which deleted the canonical models and dropped
+their tables: the declared bill, vote, statute, session and lobbying clusters (#28, #67,
+#194) with them, and the four tables it had marked retired on the way. The machinery stays
+for the same reason the retired word did.
+
 The markers themselves:
 
 - module level, for a module whose every mapped class is declared::
@@ -67,8 +72,7 @@ import pytest
 from sqlalchemy.orm import DeclarativeBase
 
 import clearinghouse_core.jurisdictions  # noqa: F401  (registers core models)
-import clearinghouse_core.provenance  # noqa: F401
-import clearinghouse_core.sweep_state  # noqa: F401
+import clearinghouse_core.sources  # noqa: F401
 import clearinghouse_domain_legislative  # noqa: F401  (registers every domain model)
 from clearinghouse_core.models import Base
 
@@ -82,15 +86,14 @@ RETIRED = "retired"
 #: `test_every_declared_marker_names_an_open_tracking_issue` says so by name.
 MARKER_STATUSES = frozenset({DECLARED, RETIRED})
 
-#: Tracking issues a declared marker may name. Every entry was verified open on
-#: 2026-08-07; closing one without wiring its tables should be a deliberate act,
-#: so removing it here is what forces the marker to be revisited.
-OPEN_TRACKING_ISSUES = {
-    28: "P1c: WSL bill cluster (bills, actions, sponsorships, versions) + discover(since)",
-    67: "WSL committee activity + legislation-detail cluster",
-    194: "Declared tier: 12 tables with no producer and no implementation issue",
-    314: "PM sync cutover: retire the sidecar, its schema and the pm_* anchors",
-}
+#: Tracking issues a declared marker may name. Closing one without wiring its tables
+#: should be a deliberate act, so removing it here is what forces the marker to be
+#: revisited.
+#:
+#: Empty since #412 PR F, which dropped every marked table: the #194 declared tier,
+#: #28's bill cluster and #67's committee-activity models went with the canonical
+#: schema, and #314's anchors with their tables. A new marker adds its issue here.
+OPEN_TRACKING_ISSUES: dict[int, str] = {}
 
 #: Packages excluded from the producer scan.
 #:

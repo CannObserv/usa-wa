@@ -12,10 +12,7 @@ from usa_wa_adapter_legislature.coverage import (
     SPONSOR_ROSTER_COVERAGE,
     WSL_COVERAGE,
 )
-from usa_wa_adapter_legislature.membership.harvest import DEFAULT_MEMBERSHIP_FLOOR
-from usa_wa_adapter_legislature.operators.invariants import SWEEP_FLOOR_YEAR
 from usa_wa_adapter_legislature.provisioning import get_or_create_source
-from usa_wa_adapter_legislature.sponsors.probe_identity import DEFAULT_HISTORY_FLOOR
 
 
 def test_one_wsl_source_publishes_two_dimensions_with_different_floors():
@@ -34,15 +31,6 @@ def test_the_membership_floor_is_declared_assumed_not_verified():
     status alongside the range."""
     assert SPONSOR_ROSTER_COVERAGE.status == CoverageStatus.verified
     assert COMMITTEE_MEMBERSHIP_COVERAGE.status == CoverageStatus.assumed
-
-
-def test_the_cli_floors_are_the_claims():
-    """The floors were three independent declarations across two packages. They are now one
-    claim, projected: a biennium label for the biennium-keyed sweeps, its leading year for the
-    year-keyed ones. Derived in pure Python so ``--help`` still works with no database."""
-    assert DEFAULT_HISTORY_FLOOR == SPONSOR_ROSTER_COVERAGE.range_start
-    assert DEFAULT_MEMBERSHIP_FLOOR == COMMITTEE_MEMBERSHIP_COVERAGE.range_start
-    assert SWEEP_FLOOR_YEAR == SPONSOR_ROSTER_COVERAGE.floor_year == 1991
 
 
 async def test_provisioning_seeds_the_claims(db_session, usa_wa):

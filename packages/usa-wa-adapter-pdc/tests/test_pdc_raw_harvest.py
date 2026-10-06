@@ -8,10 +8,12 @@ import pytest
 
 from clearinghouse_core.job import JobFailure
 from clearinghouse_core.rawstore import RawRun, RawStore
-from usa_wa_adapter_pdc.harvest import biennium_resource_ids
 from usa_wa_adapter_pdc.raw_harvest import SOURCE_SLUG, harvest_raw, job_outcome
 from usa_wa_adapter_pdc.transport import PDCClient
-from usa_wa_common.elections import election_years_for_biennium
+from usa_wa_common.elections import (
+    election_years_for_biennium,
+    senate_election_years_for_biennium,
+)
 
 BIENNIUM = "2025-26"
 
@@ -21,6 +23,14 @@ TODAY = date(2026, 9, 30)
 
 #: The cohorts the Nov 2026 general decides — they seat 2027-28.
 COHORTS_2026 = {"house-winners:2026", "senate-winners:2026"}
+
+
+def biennium_resource_ids(biennium: str) -> list[str]:
+    """Every winner cohort that decides ``biennium``'s membership (#121): both House
+    generals and the three Senate cohorts. Restated here, from the shared calendar, as the
+    oracle the harvest is checked against."""
+    house = [f"house-winners:{y}" for y in election_years_for_biennium(biennium)]
+    return house + [f"senate-winners:{y}" for y in senate_election_years_for_biennium(biennium)]
 
 
 @dataclass
@@ -128,13 +138,6 @@ async def test_refetch_is_deduped_not_restored(tmp_path) -> None:
     assert summary["unchanged"] == len(biennium_resource_ids(BIENNIUM))
     store = RawStore(tmp_path, SOURCE_SLUG)
     assert len(store.manifest_paths()) == 2
-
-
-@pytest.mark.parametrize("prefix", ["house-winners:", "senate-winners:"])
-def test_resource_ids_reuse_archive_prefixes(prefix: str) -> None:
-    """The raw store keys match the Postgres archive's resource ids, so #306's
-    staging models address one vocabulary across both stores."""
-    assert any(r.startswith(prefix) for r in biennium_resource_ids(BIENNIUM))
 
 
 async def test_manifest_url_is_replayable_soda_request(tmp_path) -> None:

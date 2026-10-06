@@ -1,6 +1,6 @@
 -- Every odd-year ballot winner's seat is held at the end of that year. Ported
 -- from the `house-corroboration` and `senate-corroboration` units, which read
--- canonical and retire (#412 PR B).
+-- canonical and retired (#412 PR B).
 --
 -- The odd November is the mid-biennium special: it seats a member with no
 -- automatic wire signal, so the tenure exists only if an operator recorded the

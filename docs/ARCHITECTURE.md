@@ -1,23 +1,26 @@
 # Architecture — sourcing vs. application, and multi-source target packages
 
 This is the reusable shape the clearinghouse follows for ingesting external data. It exists so a
-new data source drops in without disturbing the canonical facts built on top of it, and so one
+new data source drops in without disturbing the published facts built on top of it, and so one
 external *target* that publishes several data feeds stays one coherent package. Read it before
 adding an adapter, a data source, or a span/seat builder.
 
-The concrete design record is [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](specs/2026-05-25-usa-wa-mvp-design.md);
-this document is the pattern that record instantiates.
+The concrete design records are [`docs/specs/2026-05-25-usa-wa-mvp-design.md`](specs/2026-05-25-usa-wa-mvp-design.md)
+(the layers) and [`docs/specs/2026-09-02-dataset-publication-replatform-design.md`](specs/2026-09-02-dataset-publication-replatform-design.md)
+(the #302 pipeline); this document is the pattern they instantiate. Pipeline commands, models and
+gates: [`PIPELINE.md`](PIPELINE.md).
 
-## The four layers (recap)
+## The layers (recap)
 
 | Layer | Package(s) | Owns |
 |---|---|---|
-| 1 — framework | `clearinghouse-core` | jurisdiction-agnostic primitives: `BaseAdapter`, `AdapterRunner`, provenance (`Source`/`FetchEvent`/`RawPayload`/`Citation`), integrity sweep |
-| 2 — domain | `clearinghouse-domain-legislative` | the legislative model: `Person`/`Organization`/`Role`/`Assignment`; the **biennium term calendar** (`terms`), the **span engine** (`tenure_spans`/`span_emit`/`operator_overlay`) and the **`CohortProvider` Protocols** (`cohorts`) |
-| 2b — vocabulary | `usa-wa-common` | what is true about *Washington's* legislature rather than about any publisher of data on it: the election calendar, seat/position keying, name folding, party canonicalization, the ballot interfaces. **Source-free** |
-| 3 — adapters | `usa-wa-adapter-*` | **per jurisdiction+target**: turn a target's wire into canonical rows. **Sourcing only** |
-| 3b — facts | `usa-wa-facts-*` | **applications**: compose cohort providers across adapters into a canonical fact |
-| 4 — deployment | `usa-wa-api` | serve (the PM sync sidecar was the second until #314) |
+| 1 — framework | `clearinghouse-core` | jurisdiction-agnostic primitives: the #304 raw store (`rawstore`, `raw_integrity`), the job harness, the identity registry machinery, `Source` + `SourceCoverage` |
+| 2 — domain | `clearinghouse-domain-legislative` | the **biennium term calendar** (`terms`), the **span engine** (`tenure_spans`, `operator_overlay`, `seat_clipping`, `span_kinds`) and the operator attestation models |
+| 2b — vocabulary | `usa-wa-common` | what is true about *Washington's* legislature rather than about any publisher of data on it: the election calendar, seat/position keying, name folding, party canonicalization, the ballot row types. **Source-free** |
+| 3 — adapters | `usa-wa-adapter-*` | **per jurisdiction+target**: fetch a target's wire into the raw store, and parse it back offline. **Sourcing only** |
+| 3b — facts | `usa-wa-facts-*` | **applications**: pure seat-fact logic that composes evidence across targets |
+| 3c — pipeline | `usa-wa-pipeline` | the #302 dbt-duckdb staging / matching / conformed models, the registrar and the publisher |
+| 4 — deployment | `usa-wa-api` | serve the published datasets |
 
 **The layering is a contract, not a description** (#189, AR-14). It is checked by
 `import-linter` (`uv run lint-imports`, in the pre-commit gate beside ruff; contracts in the
@@ -27,37 +30,32 @@ root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py
 - `usa_wa_api`, `usa_wa_facts_*`, `usa_wa_pipeline ↛ usa_wa_adapter_*.transport`
 - `usa_wa_common ↛` any adapter, fact or deployment package
 - the layer order above, with no back-edges
-- `usa_wa_pipeline`, `usa_wa_api` and the four `raw_harvest` modules (the three nightly ones
-  and the on-demand `roster_pdf.raw_harvest`, #421) ↛ the retiring
-  Postgres tier — the runner, the adapter bases, `span_emit`, the operator stores, every
-  Phase-A `harvest`, `refresh`, `build`, `backfill` and one-shot migration, and the `cohort`
-  providers that read `raw_payloads` — **by any chain** (#412 PR D). They survive
-  the canonical tier's retirement and that code does not. What they shared with it (resource
-  ids, role keys, the roster oracle, the House position map) lives in pure modules the writers
-  import too
+- *The pipeline, the API and the raw harvests never import the retired Postgres tier* — by
+  any chain. Since #412 PR F most of its entries are tombstones that refuse a deleted module's
+  name if it ever returns; the live ones are the two operator stores, which the pipeline reads
+  through SQL and never imports
 
 Layers **2b** and **3b** were added by #189. Before them there was no home for composition, so
 it happened inside whichever target-keyed adapter package first needed it: `usa-wa-adapter-sos`
-imported 21 symbols from two peer adapters, `usa-wa-adapter-legislature` became a shared kernel
-by accident (the calendar, the span engine and name matching all lived inside a SOAP adapter),
-and the PM sync sidecar made live SOAP calls to the Legislature from five modules. The rule
-that prevents the recurrence is the one worth remembering: **when a second target needs
-something, that is the signal it belongs in 2b or 3b — not that the first target's package
-should export it.**
+imported 21 symbols from two peer adapters, and `usa-wa-adapter-legislature` became a shared
+kernel by accident (the calendar, the span engine and name matching all lived inside a SOAP
+adapter). The rule that prevents the recurrence is the one worth remembering: **when a second
+target needs something, that is the signal it belongs in 2b or 3b — not that the first target's
+package should export it.**
 
-This document refines **Layer 3**: how one adapter package is organized internally.
-Layer 3b's shape is in [MODULES-FACTS-SEATS.md](MODULES-FACTS-SEATS.md), Layer 2b's in
-[MODULES-COMMON.md](MODULES-COMMON.md).
+This document refines **Layer 3**: how one adapter package is organized internally, and how the
+pipeline consumes it. Layer 3b's shape is in [MODULES-FACTS-SEATS.md](MODULES-FACTS-SEATS.md),
+Layer 2b's in [MODULES-COMMON.md](MODULES-COMMON.md).
 
 ## Principle: sourcing is separate from application
 
 Two distinct jobs hide inside "ingest a data source," and conflating them is the mistake this
 pattern prevents:
 
-- **Sourcing** — *faithfully archive what a target publishes.* Fetch the wire, hash + store it
-  (`RawPayload`, #54), and re-parse it offline (#56). A source is judged only on fidelity and
+- **Sourcing** — *faithfully archive what a target publishes.* Fetch the wire, store it under its
+  sha256 in the raw store (#304), and re-parse it offline. A source is judged only on fidelity and
   coverage, never on what a downstream fact needs. It is inherently *append-only history*.
-- **Application** — *derive a canonical fact from one or more archives.* "Who holds House seat
+- **Application** — *derive a published fact from one or more archives.* "Who holds House seat
   LD-5 Position 1 across 2013–2025" is an application question answered by merging observations
   from whatever archives carry the evidence.
 
@@ -67,125 +65,117 @@ touching** the facts; and a fact can draw on a **new** source (or several) witho
 source (votewa filings) broke wholesale when that source went dark for 2020+. The fix was a second
 source, not a rewrite of the fact.
 
+## Two phases, two packages
+
+The split is physical: each job runs as a different process, owned by a different package.
+
+- **Phase A — `raw_harvest`, in the adapter.** One module per target package, covering every
+  source in it, plus one for the roster PDF (`usa_wa_adapter_legislature.raw_harvest`, `…pdc.raw_harvest`, `…sos.raw_harvest`, and the
+  on-demand `…legislature.roster_pdf.raw_harvest`). Each fetches its wires through the source's
+  transport and records them into `raw/<source-slug>/` — the nightly three through
+  `clearinghouse_core.rawstore.record_fetch`, the roster through its own stamp-checked loop: content-addressed objects, one manifest per run, `latest.json` naming the
+  newest ok fetch per resource id. No database.
+- **Phase B — the pipeline's dbt build.** Staging models re-parse the raw store through the
+  adapter's **pure** parsers and resource ids; matching proposes cross-source links; the registrar
+  binds identity; conformed models build the products (spans through the Layer-2 engine); the
+  publisher writes versioned datasets, which the API loads into Postgres `serving`.
+
+`scripts/pipeline-nightly.sh` runs both in order: the three nightly harvests, `dbt build`,
+`build_warnings`, registrar, publish, serving load, `coverage_seed`, probes. A harvest failure is contained there —
+the raw store keeps the last good wires — while a build failure aborts before anything publishes.
+
+**One input has no wire.** Operator attestations (mid-biennium successions, committee lineage)
+are human decisions: `operators.cli` and `committees.succession_cli` write them to
+`registry.operator_events` / `registry.committee_succession_events` and their serialized body to
+the raw store under `usa_wa_operator`. The pipeline reads the tables through
+`usa_wa_pipeline.operator_read`, the same way it reads the registry crosswalk — a curated input,
+so the transform stays stateless while the judgment stays durable.
+
 ## One package per *target*, many sources inside
 
 An adapter package is keyed on **jurisdiction + target**, not on a single feed. `usa-wa-adapter-sos`
 is "everything the WA Secretary of State publishes," and it bundles every SOS data source. Each
-**source** is a self-contained archive; the **application** modules are source-agnostic.
+**source** is a self-contained archive; the **application** code that reads it lives elsewhere.
 
 ```
 usa_wa_adapter_<target>/
   <source_a>/           # SOURCE — a self-contained archive of one feed
-    transport.py        #   client: fetch the wire (+ offline re-parser), courtesy rate-limit (#77)
-    adapter.py          #   BaseAdapter: discover / fetch_one / (archive-only or normalize)
-    normalize.py        #   pure wire -> typed rows
-    cohort.py           #   archive-first provider: {key: [rows]} re-parsed from RawPayload (#56/#82)
-    harvest.py          #   Phase A CLI: sweep the range, archive each wire, resilient (see note)
-    archive_refresh.py  #   Phase A daily: re-archive THIS biennium's cohorts, forced (#201).
-                        #   Sourcing is the source's job; the fact only rebuilds from it
+    transport.py        #   client: fetch the wire + its offline parse function, courtesy rate-limit (#77)
+    resources.py        #   pure: the archive key — resource-id prefix + builder
+    normalize.py        #   pure: parsed wire rows -> typed rows (tolerant; see below)
   <source_b>/           # another feed from the same target — its own everything
     ...
-  provisioning.py       # get-or-create every Source row this package owns
-  <application>/        # e.g. house/ — canonical facts, SOURCE-AGNOSTIC
-    projector.py        #   pure: cohort rows -> Observations
-    build.py            #   Phase B: read a cohort provider -> merged spans -> emit
-    emit.py migrate.py refresh.py
+  raw_harvest.py        # Phase A: every source's wires into the raw store
+  parsing.py            # pure facade over each transport's offline parser — what staging imports
+  coverage.py           # the audited coverage claims, as data (#180)
+  provisioning.py       # get-or-create every Source row this package owns, reconciling its claims
+
+usa_wa_pipeline/
+  staging/<target>.py   # pure row builders: newest wire per resource -> parse -> rows
+  conformed/*.py        # pure application logic: spans, entities, roles, citations
+dbt/models/{staging,conformed}/*.py   # thin binders over the two above
 ```
 
-### When a target publishes only one source (#183)
+**Single-source packages stay flat (#183).** `usa_wa_adapter_pdc` owns one `Source`, so there is
+no `<source_a>/` vs `<source_b>/` to divide: the package top level *is* the source. Adding a `pdc/`
+directory would restate the package name one level down and discriminate nothing — do not.
+`usa_wa_adapter_legislature` sits between: its SOAP feed is one `Source` with several **archives**
+(`sponsors:`, `committees-roster:`, `committee-members-hist:`, `committee-meetings:`), and *that* is
+what its subpackages divide on, beside `roster_pdf/` (the roster PDF, a second `Source` with its own
+transport, resources and raw harvest) and `operators/` (the wire-free `usa_wa_operator` source). The
+rule generalizes: split on the axis that actually varies, and if none does, stay flat.
 
-`usa_wa_adapter_pdc` and `usa_wa_adapter_legislature` each own exactly **one** `Source` row, so
-there is no `<source_a>/` vs `<source_b>/` to divide: **the package top level *is* the source**, and
-`transport.py` / `adapter.py` / `normalize/` / `cohort.py` / `harvest.py` sit at it. Adding a `pdc/`
-or `wsl/` directory under `usa_wa_adapter_pdc` / `usa_wa_adapter_legislature` would restate the
-package name one level down and discriminate nothing — do not.
-
-What a single-source package *can* still have is several **archives** under that one `Source`: one
-feed, several resource-id schemes. WSL is the case — four SOAP services, four archive keys
-(`sponsors:`, `committees-roster:`, `committee-members-hist:`, `committee-meetings:`) — and *that*
-is what its subpackages divide on (plus `operators/`, the wire-free `usa_wa_operator` attestation
-Source). One archive per directory, the module names below inside each. The rule generalizes: split
-on the axis that actually varies, and if none does, stay flat.
-
-The vocabulary is load-bearing beyond directory layout. `harvest.py` means **Phase A** (archive the
-wire) and `build.py` means **Phase B** (spans from that archive) — before #183 the WSL package
-spelled those two `harvest.py` and `harvest_sponsor_spans.py`, one plural apart, and the
-same for committee membership. A module whose name does not say which phase, layer or role it holds
-is the discoverability tax finding 13 measured; prefer the names in the tree above to a new coinage.
-
-**Function names no longer stutter (#183, swept at #179b).** The entry point in
-`sponsors/harvest.py` is `harvest()`, not `harvest_sponsors()`; `committees/harvest.py`,
-`membership/harvest.py`, `meetings/harvest.py` and `usa_wa_adapter_pdc/harvest.py` are the
-same. The rule is *drop the noun the module path already carries*: `sponsors/build.py` has
-`build_spans()`, `sponsors/migrate_spans.py` has `migrate_spans()`,
-`committees/ingest_seed.py` has `ingest_seed()`, and `committees/probe_extent.py` has
-`probe_floor()` beside `probe_extent()`.
-
-#183 deferred this because renaming a function forces assertion edits, and a move whose
-tests had to change is a move that changed behaviour (CR #196 finding 46). #179b was
-already rewriting the same entry points onto the job harness, so the edits landed once.
-
-Two names deliberately keep a qualifier, and the test is **call-site ambiguity, not the
-module path**:
-
-- `membership/build.py` keeps `build_committee_member_spans()` — it is not in #183's list,
-  and `refresh.py` imports it beside the sponsor builder.
-- Because of that neighbour, `refresh.py` reaches the sponsor builder **module-qualified**
-  (`sponsor_build.build_spans(...)`) rather than importing a bare `build_spans` that would
-  sit one line from `build_committee_member_spans` telling the reader nothing about which
-  family it belongs to. Qualify at the call site; do not put the noun back in the name.
-
-`probe_extent()` also keeps its module's noun: the module exports two probes, only one can
-be the bare `probe()`, and `probe_extent()`/`probe_floor()` says more than `probe()`/
-`probe_floor()` would.
+The vocabulary is load-bearing beyond directory layout: a module whose name does not say which
+phase, layer or role it holds is the discoverability tax #183 measured. Prefer the names in the
+tree above to a new coinage, and drop the noun the module path already carries.
 
 ### What makes a source "self-contained"
 
 Each source owns an independent provenance chain, so it can be harvested, re-audited, integrity-
 swept, and reasoned about in isolation:
 
-- **Its own `Source` row / `source_slug`** — one per feed (`usa_wa_sos` filings vs
-  `usa_wa_sos_results` results), never shared. A `RawPayload` traces unambiguously to one feed.
-- **Its own archive key** — the `FetchEvent.resource_id` scheme (`sos-whofiled:<YYYYMM>` vs
-  `sos-legresults:<YYYYMMDD>`). Keys never collide across sources.
-- **Its own transport + adapter + normalize** — the wire contract lives with the source that
-  speaks it. A parser quirk in one feed can't leak into another.
-- **Archive-first re-parse** — the `cohort` provider re-derives rows *offline* from `RawPayload`
-  (a live fetch is a fallback for an un-archived key only). Joining `RawPayload` is load-bearing:
-  a forced daily re-pull re-records a payload-less `FetchEvent`, so "latest" means *latest
-  payload-bearing* event (#82).
-- **Resilient harvest** — a Phase A sweep skips-and-logs a bad year in its own SAVEPOINT and
-  commits the years it reached; one bad year must not roll back the sweep, and a *whole-source*
-  outage — **every** year skipped, not merely "nothing fetched" — raises a distinct signal rather
-  than reading as "nothing to do", and exits non-zero (`EXIT_DEGRADED`) so `OnFailure=` fires.
-  The count that matters is skipped-vs-total: an archive-only harvest returns False on a cache
-  hit, so "nothing fetched" is the *normal* re-run, and keying the alarm on it fires loudest
-  exactly when nothing is wrong.
-  This holds for a **closed** range too (#169): abort-and-resume looks free only inside the cache
-  TTL — past it, a re-run re-pulls every already-fetched year against a low-QPS government host,
-  which is exactly the traffic the courtesy limiter exists to avoid. What *does* vary with the
-  range is the tally: a source with per-year discovery distinguishes an expected absence from a
-  failure (`results`: `cohorts_absent` vs `cohorts_skipped`), a source without it needs one tally
-  (`filings`).
+- **Its own `Source` slug** — one per feed (`usa_wa_sos` filings vs `usa_wa_sos_results`
+  results), never shared, and so its own slice of the raw store. An object traces unambiguously
+  to one feed.
+- **Its own archive key** — the resource-id scheme in a pure `resources.py`
+  (`sos-whofiled:<YYYYMMDD>` vs `sos-legresults:<YYYYMMDD>`), imported by both the raw harvest and
+  the staging model. Keys never collide across sources, and a rename breaks the import rather than
+  silently emptying a staging model.
+- **Its own transport + parser + normalize** — the wire contract lives with the source that
+  speaks it, and a parser quirk in one feed can't leak into another. The pipeline reaches the
+  parser through `parsing.py`, never the transport (the import contract).
+- **Archive-first re-parse** — staging reads the newest ok wire per resource
+  (`staging.common.latest_wires`) and never fetches. Every staging row carries its
+  `(source, resource_id)`, so `entity → staging row → resource → sha256` closes in the published
+  `citations` and `stg_raw_fetches` datasets without a lookup nobody maintains.
+- **Resilient harvest** — `record_fetch` contains a failed resource as an `err` manifest entry and
+  the run manifest closes regardless; one bad resource must not cost the run. A **whole-source**
+  outage — the source landed nothing, or every attempted fetch failed — degrades the job
+  (`EXIT_DEGRADED`, exit 4) so `OnFailure=` fires. The count that matters is landed-vs-attempted:
+  a byte-identical re-fetch still counts as fetched (`unchanged`), so a quiet day is not an alarm,
+  and a TTL-masked outage still is. A *known* outage is accepted in code, with a reason and an
+  issue, and the acceptance degrades the run the night the source recovers
+  (`usa_wa_adapter_sos.raw_harvest.ACCEPTED_OUTAGES`, #333).
 
 ### What makes the application "source-agnostic"
 
-The `build.py`/`refresh.py` layer depends on a **cohort interface** (`{election_year: {LD:
-[position]}}`, a per-key citation-target accessor), not on a concrete source. Since #189 that
-interface is a real `Protocol`, not a convention: `usa_wa_common.ballot.HousePositionCohortProvider`
-for this fact, the generic `clearinghouse_domain_legislative.cohorts.*` for the rest, with
-conformance pinned by `scripts/tests/test_cohort_seam.py`. It had to be made real because the
-claim below was **not true** when #189 checked it: `SosResultsCohortProvider` exposed
-`house_positions` while `SosFilingCohortProvider` exposed `house_filings`, over an identical row
-type — so the two archives this section presents as interchangeable were not substitutable under
-any name, and nothing tested that they agreed. Swapping which
-archive feeds a fact is a one-line provider change; adding a *second* archive to corroborate it is
-additive. The projector (`projector.py`) is pure — no DB, no source knowledge — so it is trivially
-testable and reused across sources that yield the same row shape.
+The application depends on **staging rows, not on a wire**. A conformed model reads staging
+tables whose columns are declared (`*_SCHEMA`, #361), and hands them to pure functions — the
+Layer-3b House logic, the Layer-2 span engine — that know nothing about where the rows came from.
+Swapping which archive feeds a fact is a change to the binder's inputs; adding a *second* archive
+to corroborate it is additive. Because the logic is pure — no DB, no source knowledge — it is
+pytest-covered in isolation and reused by the probes that recompute the same join
+(`registry_coverage`). The Postgres tier expressed this seam as cohort-provider Protocols (#189);
+they retired with it in #412.
+
+One rule binds every application input: **an input whose absence silently deletes facts must
+refuse, not return empty** (CR 57). `chamber-house` is ~4% of `assignments`, inside the publish
+gate's 10% shrink floor, so `build_house_spans` raises on an empty SOS archive under a live sponsor
+corpus rather than publishing no House seats.
 
 ## Worked example — WA SOS House Position
 
-The House Position seat (`state_representative`, `Position 1/2`) is an **application** with two SOS
+The House Position seat (`chamber-house`, `Position 1/2`) is an **application** with two SOS
 **sources** behind it:
 
 | | `filings/` (source `usa_wa_sos`) | `results/` (source `usa_wa_sos_results`) |
@@ -193,14 +183,35 @@ The House Position seat (`state_representative`, `Position 1/2`) is an **applica
 | feed | votewa `ExportToExcel` candidate filings | `results.vote.wa.gov` legislative election results |
 | coverage | 2008–2018 (retired to Power BI for 2020+) | 2008–present (incl. current cycle) |
 | unique value | candidacy metadata (filing date, withdrawal, contact — #99) | ballot Position **+** vote counts, current-cycle |
-| archive key | `sos-whofiled:<YYYYMM>` | `sos-legresults:<YYYYMMDD>` |
+| archive key | `sos-whofiled:<YYYYMMDD>` | `sos-legresults:<YYYYMMDD>` |
+| today | staged and published (`stg_sos_filings`); feeds no span; an accepted outage (#333) | feeds the seat |
 
-`house/build.py` reads a **cohort provider** for the `{LD: [position]}` lookup and merges it with
-the WSL sponsor roster (who sits) into `usa_wa_legislature`-sourced seat spans (symmetric with the
-Senate seat, #75). Which SOS archive supplies the position is the provider's concern, not the
-builder's — filings retain their standalone value, results serve the live seat, and a future feed
-joins the same way. This is *yes-and*, never *either-or*: each source is kept for what only it
-covers.
+Traced end to end, through the results source:
+
+1. **Phase A.** `usa_wa_adapter_sos.raw_harvest` fetches, for each election year seating the
+   biennium (plus the next seating election once held, #135), the results export through
+   `SOSResultsClient`, and records it under `legresults_resource_id(year)` in
+   `raw/usa_wa_sos_results/`.
+2. **Staging.** `stg_sos_results` binds `usa_wa_pipeline.staging.sos.result_rows`: the newest wire
+   per `sos-legresults:` resource, parsed by `usa_wa_adapter_sos.parsing.parse_legislative_results`,
+   one row per `(election_date, race, candidate)` with the verbatim CSV columns and
+   `(source, resource_id)`. Staging holds no policy.
+3. **Conformed.** `assignments` runs `conformed.spans.build_families`, whose House family is
+   `conformed.house.build_house_spans`. WSL owns *who sits* (`stg_wsl_sponsors`: LD + party), SOS
+   owns *which position*: `results.normalize.build_house_positions` / `build_house_winners` read
+   the ballot, `usa_wa_facts_seats.house.positions.merge_positions` applies the #123 map,
+   `facts_seats.pdc.matching` the #105 mover exclusion, `facts_seats.house.backchain` the #118
+   carry-back and #103 elimination, and the domain's `operator_overlay` + `build_tenure_spans`
+   produce one `chamber-house` span per tenure. The crosswalk join turns each into an
+   `assignments` row under role key `seat:house:ld-N:position-P`.
+4. **Gates and publish.** `seat_winners` re-reads the same ballot so
+   `assignments_odd_year_winners_seated` can check every odd-year winner is seated. The registrar
+   binds any new identity, `publish` writes `assignments`, `roles` and `citations`, and the
+   serving load hands them to the API.
+
+Which SOS archive supplies the position is the binder's concern, not the House logic's — filings
+retain their standalone value, results serve the live seat, and a future feed joins the same way.
+This is *yes-and*, never *either-or*: each source is kept for what only it covers.
 
 ## Audit before you build
 
@@ -210,22 +221,24 @@ period, filename/URL stability, schema drift, and label/value inconsistencies.
 
 **The audit's output is data, not a comment (#180).** Each adapter package declares its sources'
 coverage in `coverage.py` as `CoverageClaim`s — `(dimension, range_start, range_end, status,
-audited_at, notes)` — and `provisioning.py` seeds them into `clearinghouse_core.source_coverage`
-alongside the `Source` row. The claims are the single source of truth: a harvest's floor/ceiling is
-derived from one in pure Python (so a CLI default costs no query), and the table is the same object
-projected for querying. `status` is `verified` (probed on `audited_at`) | `assumed` (believed, never
-checked — say so) | **`absent`** (the feed does *not* serve this range, and that is a fact rather
-than the silence a missing row is indistinguishable from — the votewa 2020+ retirement is the
-worked example). `dimension` keys the axis, not the source, because one feed can serve several with
-different bounds (WSL: `sponsor_roster` from 1991-92, `committee_membership` only from 1999-00).
+audited_at, notes)` — and `provisioning.py` reconciles them into `clearinghouse_core.source_coverage`
+alongside the `Source` row; the nightly's `coverage_seed` makes that call, so a re-audited claim
+reaches `/api/v1/sources/{slug}/coverage` by the next morning. The claims are the single source of
+truth: a probe's default floor reads one (`sponsors.probe_identity`), and the staging
+coverage-floor tests (`dbt/tests/*_coverage_floor.sql`) fail a build whose archive no longer
+reaches the claimed floor. `status` is `verified` (probed on `audited_at`) | `assumed` (believed,
+never checked — say so) | **`absent`** (the feed does *not* serve this range, and that is a fact
+rather than the silence a missing row is indistinguishable from — the votewa 2020+ retirement is
+the worked example). `dimension` keys the axis, not the source, because one feed can serve several
+with different bounds (WSL: `sponsor_roster` from 1991-92, `committee_membership` only from
+1999-00).
 
-The votewa episode
-produced two rules now baked into this pattern — the resilient harvest above, and: **never key a
-parser on an exact upstream string.** WA SOS labels the same office three ways
+The votewa episode produced two rules now baked into this pattern — the resilient harvest above,
+and: **never key a parser on an exact upstream string.** WA SOS labels the same office three ways
 (`State Representative Pos. 1`, `Representative, Position 1`, a bare `State Representative 2`),
 sometimes differing between the two seats of one district in one file; a tolerant parser (match the
-office, take the trailing position digit) is mandatory, and an exact-match parser silently drops
-real seats.
+office, take the trailing position digit — `results.normalize.parse_house_race`) is mandatory, and
+an exact-match parser silently drops real seats.
 
 ## Publishing bytes: one writer, landed atomically (#357)
 
@@ -249,22 +262,28 @@ a crash leaves unlisted orphans rather than a listed partial. The crosswalk
 export was written without it and streamed rows directly, so a rejected row left
 a truncated CSV beside the *previous* run's manifest — again a hash mismatch
 indistinguishable from tampering. An artifact and its integrity metadata must
-never be observable in disagreement, including mid-write.
+never be observable in disagreement, including mid-write. The raw store follows
+the same rule: objects, then the run manifest, each by tmp+replace.
 
 ## Checklist — adding a source to an existing target package
 
-1. New `<source>/` subpackage: `transport` (+ offline re-parser, courtesy limiter), `adapter`
-   (`BaseAdapter`; archive-only unless the fact is single-cohort-derivable), `normalize` (pure),
-   `cohort` (archive-first), `harvest` (per-year SAVEPOINT + skip-and-log + a total-outage signal,
-   whether or not the range is closed; see *Resilient harvest* above).
-2. A new `Source`/`source_slug` in `provisioning.py`; a non-colliding archive-key scheme.
-3. **Audit the feed across its range first, and record the result as coverage rows** — a
-   `CoverageClaim` per dimension in the package's `coverage.py`, seeded by `provisioning.py`.
-   *Coverage rows must exist before an application builds on the feed.* An unprobed bound is
-   `assumed`, not `verified`; a known gap is an `absent` claim, not an omission. Encode every
-   gap/variant as a test too, and derive the harvest's floor/ceiling from the claim rather than
-   restating it as a constant.
-4. Point (or add) the application's cohort provider — do **not** widen an application module to
-   know about the source.
-5. Wire the Phase A harvest + any daily refresh into `deploy/`; document the CLI in
-   [`docs/COMMANDS.md`](COMMANDS.md) and the module in [`AGENTS.md`](../AGENTS.md).
+1. New `<source>/` subpackage: `transport` (+ its offline parse function, courtesy limiter),
+   `resources` (pure resource-id prefix + builder), `normalize` (pure, tolerant); re-export the
+   parse function from the package's `parsing.py`.
+2. A new `Source` slug in `provisioning.py`, with a non-colliding archive-key scheme; add the
+   provisioner to `usa_wa_pipeline.coverage_seed.PROVISIONERS`.
+3. **Audit the feed across its range first, and record the result as coverage claims** — a
+   `CoverageClaim` per dimension in the package's `coverage.py`. *Claims must exist before an
+   application builds on the feed.* An unprobed bound is `assumed`, not `verified`; a known gap is
+   an `absent` claim, not an omission. Encode every gap/variant as a test too.
+4. Phase A: harvest it from the package's `raw_harvest` through `record_fetch` (per-resource
+   containment, degraded on a whole-source outage), add the module to the nightly's harvest loop
+   in `scripts/pipeline-nightly.sh` (or run it on demand, as the roster does), and add it to the
+   retired-tier contract's `source_modules`.
+5. Phase B: a pure row builder in `usa_wa_pipeline.staging` with a declared `*_SCHEMA` ending in
+   `PROVENANCE_SCHEMA`, a thin `stg_<source>` binder, its `schema.yml` entry and key test; then
+   hand its rows to the application — do **not** widen application logic to know about the
+   source. Publish the staging table only by deciding to: a `PublishedDataset` entry in
+   `publish.PUBLISHED_DATASETS`.
+6. Document the CLI in [`docs/COMMANDS.md`](COMMANDS.md) and the modules in the package's
+   `docs/MODULES-*.md`.
