@@ -83,9 +83,9 @@ _MONTH_NUMBER = {
 class ParsedDate:
     """A date and how precisely the source stated it.
 
-    ``precision`` is ``day``/``month``/``year``/``none``; only ``day`` is ever
-    emitted as an effective date, and widening that would silently start seating
-    people on the 1st of a month the clerk never wrote.
+    ``precision`` is ``day``/``month``/``year``/``none``; only ``day`` carries a
+    ``value`` (the boundary ``projector`` reads), and widening that would silently
+    start seating people on the 1st of a month the clerk never wrote.
 
     ``window`` is the smallest range the source actually bounds the event to —
     ``(the 13th, the 13th)`` for a day, the whole of October for "Oct. 1971",
