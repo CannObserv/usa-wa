@@ -102,7 +102,7 @@ class CommitteeSuccessionEvent(Base, TimestampMixin):
     #: The linked org (PM ``linked_entity``) — WSL committee ``Id``.
     linked_source_id: Mapped[str] = mapped_column(String(128), nullable=False)
     slug: Mapped[str] = mapped_column(String(32), nullable=False)
-    #: Optional boundary year (``succeeded_by`` is year-optional in PM).
+    #: Optional boundary year — undated links publish with a NULL year.
     effective_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     evidence_url: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

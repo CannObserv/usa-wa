@@ -66,8 +66,8 @@ def test_an_unparseable_discriminator_is_refused() -> None:
 
 def test_a_role_carries_its_own_registry_ulid() -> None:
     """#313: roles get a ULID so the API has a stable handle when the derived
-    `role_key` moves, and because PM already holds 312 role anchors. The key
-    stays first-class beside it — nothing PM matches on is mediated away."""
+    `role_key` moves. The key stays first-class beside it — nothing a
+    subscriber matches on is mediated away."""
     rows, counters = role_rows(
         [{"span_kind": "chamber-senate", "span_discriminator": "22"}],
         {"usa_wa_legislature:usa_wa_senate": "01SENATE"},

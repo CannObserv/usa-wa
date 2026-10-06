@@ -34,7 +34,7 @@ def _new_ulid() -> _ULID:
 
 
 class JurisdictionType(Base, CreatedAtMixin):
-    """Type lookup for :class:`Jurisdiction` (mirrors PM's ``jurisdiction_types``).
+    """Type lookup for :class:`Jurisdiction` (first extracted from PM's ``jurisdiction_types``).
 
     Seeded by migration with the 16 PM-side values: ``country``, ``state``,
     ``county``, ``city``, ``legislative_district``, ``legislative_district_upper``,
