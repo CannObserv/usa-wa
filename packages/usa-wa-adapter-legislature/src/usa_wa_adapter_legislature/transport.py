@@ -31,8 +31,8 @@ WSL_BASE_URL = "https://wslwebservices.leg.wa.gov"
 #: Courtesy floor between **any two** WSL SOAP operation calls, across all `WSLClient`
 #: instances/services (WSL is a single upstream host). A global min-interval gate so no
 #: caller — the nightly raw harvest's fan-out, the write-free probes — can burst
-#: against a vital upstream. Env-tunable; a harvest's `--pause-seconds` overrides it via
-#: :func:`configure_wsl_rate_limit`. Default 0.5s (≤2 req/s); set 0 to disable.
+#: against a vital upstream. Env-tunable; :func:`configure_wsl_rate_limit` overrides it
+#: in-process. Default 0.5s (≤2 req/s); set 0 to disable.
 DEFAULT_WSL_MIN_REQUEST_INTERVAL = 0.5
 
 
@@ -46,8 +46,12 @@ _WSL_LIMITER = RateLimiter(_env_min_interval())
 
 
 def configure_wsl_rate_limit(min_interval: float) -> None:
-    """Override the global WSL request min-interval (seconds). Harvest CLIs call this to
-    map their `--pause-seconds` onto the central limiter rather than pacing themselves."""
+    """Override the global WSL request min-interval (seconds).
+
+    No production caller since #412 PR F deleted the harvests whose `--pause-seconds` it
+    mapped; kept (#471) as the seam the test suite's autouse fixture zeroes the limiter
+    through, and as the in-process twin of `USA_WA_WSL_MIN_REQUEST_INTERVAL` that the live
+    `roster_pdf.transport.configure_leg_rate_limit` still is for its host."""
     _WSL_LIMITER.set_interval(min_interval)
 
 

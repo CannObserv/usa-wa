@@ -74,8 +74,10 @@ _RESULTS_LIMITER = AsyncRateLimiter(
 
 
 def configure_results_rate_limit(min_interval: float) -> None:
-    """Set the central ``results.vote.wa.gov`` min-interval (seconds) — maps a harvest's
-    ``--pause-seconds``; the test suite zeroes it via an autouse fixture."""
+    """Set the central ``results.vote.wa.gov`` min-interval (seconds).
+
+    No production caller since #412 PR F deleted the harvest whose ``--pause-seconds`` it
+    mapped; kept (#471) as the seam the test suite's autouse fixture zeroes the gate through."""
     _RESULTS_LIMITER.set_interval(min_interval)
 
 

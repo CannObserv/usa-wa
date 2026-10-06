@@ -9,36 +9,11 @@ from __future__ import annotations
 from datetime import date
 
 from usa_wa_common.elections import (
-    election_year_for_biennium,
     election_years_for_biennium,
     general_election_day,
     lookahead_election_year,
-    seating_biennium_for_election_year,
     senate_election_years_for_biennium,
 )
-
-
-def test_election_year_for_biennium() -> None:
-    assert election_year_for_biennium("2025-26") == 2024
-    assert election_year_for_biennium("2013-14") == 2012
-
-
-def test_seating_biennium_for_election_year_is_inverse() -> None:
-    assert seating_biennium_for_election_year(2024) == "2025-26"
-    assert seating_biennium_for_election_year(2012) == "2013-14"
-    for biennium in ("2025-26", "2013-14", "1999-00"):
-        assert seating_biennium_for_election_year(election_year_for_biennium(biennium)) == biennium
-
-
-def test_seating_biennium_for_odd_year_special_is_mid_biennium() -> None:
-    """#121: an odd-year November special seats the biennium *starting* that year, mid-term
-    (Nov 2025 seated Hunt/Krishnadasan/Zahn into 2025-26) — not the next biennium."""
-    assert seating_biennium_for_election_year(2025) == "2025-26"
-    assert seating_biennium_for_election_year(2013) == "2013-14"
-    # every year in a biennium's decisive set seats THAT biennium
-    for biennium in ("2025-26", "2013-14"):
-        for year in election_years_for_biennium(biennium):
-            assert seating_biennium_for_election_year(year) == biennium
 
 
 def test_senate_election_years_for_biennium() -> None:
@@ -54,7 +29,7 @@ def test_election_years_for_biennium_spans_the_seating_and_special_generals() ->
     assert election_years_for_biennium("2025-26") == [2024, 2025]
     assert election_years_for_biennium("2013-14") == [2012, 2013]
     # the seating year always leads, so a consumer archiving in order writes the even cohort first
-    assert election_years_for_biennium("2025-26")[0] == election_year_for_biennium("2025-26")
+    assert election_years_for_biennium("2025-26")[0] % 2 == 0
 
 
 def test_general_election_day_is_the_first_tuesday_after_the_first_monday() -> None:
