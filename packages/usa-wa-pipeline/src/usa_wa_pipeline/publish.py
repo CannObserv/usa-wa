@@ -41,7 +41,9 @@ Materializes each published dataset as an immutable versioned directory —
   (``v20260903T120000Z-a1b2c3``); the catalog lists only the latest.
   Retention/pruning is deliberately absent: these are archival products at
   ~10^4 rows — sound only because skip-if-unchanged hashes a DETERMINISTIC
-  export (``order by all``), so a quiet day mints nothing.
+  export (``order by all``), so a quiet day mints nothing. The shrink gate
+  depends on it too (#472): its baseline is read from these dirs, so pruning
+  below :data:`SHRINK_WINDOW` versions would silently shorten its window.
 """
 
 from __future__ import annotations
