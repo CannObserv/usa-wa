@@ -147,7 +147,7 @@ def test_a_missing_ballot_archive_is_refused() -> None:
     """The same rule as the #228 deepening (CR 57): an input whose absence
     silently deletes a whole family must refuse, not return empty. The publish
     shrink gate cannot see it — chamber-house is ~4% of the table, well inside
-    the 10% floor — so nothing downstream would notice the seats vanish.
+    the 10% threshold — so nothing downstream would notice the seats vanish.
     """
     with pytest.raises(ValueError, match="ballot"):
         build_house_spans(

@@ -143,7 +143,7 @@ def build_house_spans(
     Raises ``ValueError`` when a live sponsor corpus meets an **empty** ballot
     archive. That combination silently deletes the whole family, and nothing
     downstream would notice: chamber-house is ~4% of the assignments table,
-    well inside the publish gate's 10% shrink floor. Same rule as the #228
+    well inside the publish gate's 10% shrink threshold. Same rule as the #228
     deepening (CR 57) — an input whose absence deletes facts must refuse, not
     return empty.
     """
@@ -153,7 +153,7 @@ def build_house_spans(
         raise ValueError(
             f"the House Position seat needs the SOS ballot archive: 0 result rows under a "
             f"corpus of {len(sponsors)} sponsor rows. Publishing now would drop every "
-            "chamber-house span — ~4% of the table, inside the publish shrink floor, so "
+            "chamber-house span — ~4% of the table, inside the publish shrink threshold, so "
             "nothing downstream would catch it."
         )
     rows_by_biennium = sponsor_wire_rows(sponsors)

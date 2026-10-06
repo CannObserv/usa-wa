@@ -147,7 +147,7 @@ from `role_keys` and `usa_wa_common.seats`, so a fork needs an edit there, and
 Each family's input carries a **refusal**, on one rule: an input whose absence
 silently deletes facts must refuse, not return empty (CR 57). The roster tier
 for the #228 deepening, the SOS ballot for the House seat — chamber-house is
-~4% of the table, inside the publish gate's 10% shrink floor, so its
+~4% of the table, inside the publish gate's 10% shrink threshold, so its
 disappearance is exactly the kind nothing downstream would catch. Both have an
 explicit seam (`extra_observations`, `house_spans`) for stating the family
 rather than deriving it.
