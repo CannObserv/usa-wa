@@ -35,7 +35,7 @@ ExecStartPre=/home/exedev/usa-wa/scripts/assert-venv-integrity.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 # Owner DSN (DATABASE_URL_OWNER) is read from /etc/usa-wa/.env; alembic/env.py
-# prefers it over DATABASE_URL. On this single VM the API and timer units load
+# prefers it over DATABASE_URL. On this single VM the API and most timer units load
 # the same file, so they also see DATABASE_URL_OWNER in their environment — they
 # just never read it (only alembic does). To enforce least privilege on a
 # multi-host split, move the owner DSN into a file loaded only by this unit.
