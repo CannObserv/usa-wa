@@ -27,8 +27,8 @@ that design as code, recalibrated by the #252 parse corrections:
   guard, then the year-corroboration tie-breaker (**at least two** distinct session years
   *and* strictly more than any rival — without the floor the rule accepts ``1 > 0``, which
   is exactly the #240 shape), then :data:`JOIN_ADJUDICATIONS`. The guard's failure mode
-  inverts here relative to #226: a false rejection there refuses an event, here it mints a
-  duplicate Person for someone who already has a WSL identity.
+  inverts here relative to #226: a false rejection in its resolver (deleted in #471) refused
+  an event, here it mints a duplicate Person for someone who already has a WSL identity.
 
 **The adjudication tables are versioned data, deliberately in code.** The spec's
 re-derivability argument — a rebuild from the archive reproduces the same ids — holds
