@@ -42,11 +42,11 @@ def test_adapter_span_kinds_are_the_domain_objects():
     from usa_wa_adapter_legislature.sponsors.projector import (
         KIND_SENATE as leg_senate,
     )
-    from usa_wa_facts_seats.house.projector import KIND_HOUSE as house_house
+    from usa_wa_facts_seats.house.projector import KIND_HOUSE as projector_house
 
     # Identity, not just equality: the hyphenated literals are not auto-interned, so
     # ``is`` proves the adapters import the constant instead of re-declaring it.
     assert leg_party is KIND_PARTY
     assert leg_senate is KIND_SENATE
     assert leg_committee is KIND_COMMITTEE
-    assert house_house is KIND_HOUSE
+    assert projector_house is KIND_HOUSE
