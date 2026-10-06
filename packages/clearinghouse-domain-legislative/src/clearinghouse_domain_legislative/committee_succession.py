@@ -8,24 +8,25 @@ upstream link. Operators know these (news/journals) and attest them here. The cu
 links publish as the ``org_lineage`` dataset (usa-wa#447); the event producer that pushed
 them to PM as linked-entity events (power-map#321) retired with the sync (#314).
 
-A :class:`CommitteeSuccessionEvent` is **link-shaped**, matching PM's linked-entity event
-directly: it is recorded on a *subject* org (``subject_source_id``, PM ``org_id``) and
-points at a *linked* org (``linked_source_id``, PM ``linked_entity``), typed by ``slug``:
+A :class:`CommitteeSuccessionEvent` is **link-shaped** — the shape first settled against PM's
+linked-entity event (power-map#321), kept because ``org_lineage`` publishes it as is: it is
+recorded on a *subject* org (``subject_source_id``, PM ``org_id``) and points at a *linked*
+org (``linked_source_id``, PM ``linked_entity``), typed by ``slug``:
 
 - ``succeeded_by`` — subject = predecessor, linked = successor (the rename-re-key
   continuation; the event lives on the predecessor per the power-map#321 direction).
 - ``split_from`` — subject = child, linked = parent (the child came from the parent).
 - ``merged_with`` — subject = one predecessor, linked = the survivor/other.
 
-Each event carries exactly one linked entity (PM's constraint), so a multi-way re-org is
-attested pairwise. ``effective_year`` is the optional boundary year (``succeeded_by`` is
-year-optional in PM).
+Each event carries exactly one linked entity (PM's constraint when it was settled), so a
+multi-way re-org is attested pairwise. ``effective_year`` is the optional boundary year.
 
 Archived under the shared ``usa_wa_operator`` source (as #107): every write stores the
 serialized event in the raw store under its sha256 (integrity-sweep covered, #54).
 Corrections **append** a new row and stamp the prior one's ``superseded_by_id`` —
-provenance is never mutated. A re-link correction (wrong successor) is a supersede whose
-producer effect is create-new + retract-old (power-map#322).
+provenance is never mutated. A re-link correction (wrong successor) is a supersede: the
+prior link leaves ``org_lineage`` (one row per *current* link) and the new one enters —
+the create-new + retract-old shape of power-map#322.
 """
 
 from collections.abc import Iterable
@@ -51,7 +52,8 @@ def _new_ulid() -> _ULID:
 #: Source slug — shared with #107 operator events (the same operator identity).
 OPERATOR_SOURCE_SLUG = "usa_wa_operator"
 
-#: Succession relation slugs — mirror PM's org linked-entity event catalog (power-map#321).
+#: Succession relation slugs — first settled against PM's org linked-entity event catalog
+#: (power-map#321); usa-wa's own vocabulary now, published in ``org_lineage``.
 SLUG_SUCCEEDED_BY = "succeeded_by"
 SLUG_SPLIT_FROM = "split_from"
 SLUG_MERGED_WITH = "merged_with"
@@ -100,7 +102,7 @@ class CommitteeSuccessionEvent(Base, TimestampMixin):
     #: The linked org (PM ``linked_entity``) — WSL committee ``Id``.
     linked_source_id: Mapped[str] = mapped_column(String(128), nullable=False)
     slug: Mapped[str] = mapped_column(String(32), nullable=False)
-    #: Optional boundary year (``succeeded_by`` is year-optional in PM).
+    #: Optional boundary year — undated links publish with a NULL year.
     effective_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     evidence_url: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

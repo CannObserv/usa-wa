@@ -5,8 +5,8 @@ The messy half of every cross-source person match in this deployment: a WSL memb
 and the two SOS normalizers use exactly these two functions, so the folding rules have to be
 one implementation — a divergence here silently mismatches people rather than erroring.
 
-Folding is **local** on purpose: a package below the adapters must not import the Layer-4
-sidecar's ``normalize_name``.
+Folding is **local** on purpose: a package below the adapters could not import the Layer-4
+PM sidecar's ``normalize_name``, which #314 has since deleted.
 
 The match strategy is a token-set test, not surname extraction. Upstream names are
 inconsistently formatted (``"Strom Peterson"``, ``"JACOBSEN CYNTHIA P (Cyndy Jacobsen)"``,
@@ -57,10 +57,11 @@ def strip_non_name_parts(full_name: str) -> str:
     """An upstream name with everything that is not a name removed.
 
     Quoted nicknames, parentheticals and honorific tokens. Shared (usa-wa#256) because two
-    consumers must agree on what counts as a name: the roster identity fold, and the PM
-    person match — where a raw ``Belle (Mrs. Frank) Reeves`` matched nothing, since PM's FTS
-    ANDs every token and no PM name carries ``mrs`` or ``frank``. Divergence there mismatches
-    people silently rather than erroring, which is the failure this module exists to prevent.
+    consumers had to agree on what counts as a name: the roster identity fold, and the PM
+    person match (deleted with the sidecar, #314) — where a raw ``Belle (Mrs. Frank) Reeves``
+    matched nothing, since PM's FTS ANDs every token and no PM name carries ``mrs`` or
+    ``frank``. Divergence there mismatches people silently rather than erroring, which is the
+    failure this module exists to prevent.
     """
     cleaned = _QUOTED.sub(" ", _PARENTHETICAL.sub(" ", full_name))
     kept = [word for word in cleaned.split() if fold_token(word) not in _HONORIFICS]
@@ -209,8 +210,9 @@ def strip_other_party_parts(full_name: str) -> str:
       ``FirstName`` outright: the roster prints ``Robert "Bob" McCaslin,`` and WSL carries
       ``Bob``, so dropping it removes the only token the two sides share.
 
-    :func:`strip_non_name_parts` drops both, which is right for PM's full-name FTS (where a
-    nickname the other side lacks ANDs the query to nothing) and wrong for an identity guard.
+    :func:`strip_non_name_parts` drops both, which was right for PM's full-name FTS (where a
+    nickname the other side lacks ANDs the query to nothing) and is wrong for an identity
+    guard.
     Honorifics go either way — they name nobody — so they are dropped here too.
     """
     kept = [

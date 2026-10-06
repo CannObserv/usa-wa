@@ -55,8 +55,8 @@ OWN_ENGINE_CALLS = frozenset(
     }
 )
 
-# Layer 3/4 — the per-jurisdiction adapters, API and sidecar. The shared harness sits
-# below them; anything it imports is imported by every package's tests.
+# The per-jurisdiction packages — vocabulary, adapters, facts, pipeline, API. The shared
+# harness sits below them; anything it imports is imported by every package's tests.
 JURISDICTION_PACKAGE_PREFIXES = ("usa_wa_",)
 
 

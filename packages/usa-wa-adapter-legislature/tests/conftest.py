@@ -26,9 +26,10 @@ def _no_courtesy_rate_limits() -> None:
 
     Lives here, not at the workspace root (#185). CR #77 hoisted it up on the theory
     that a WSL-cassette test could appear in any package; none did — this is the only
-    package whose tests construct a real ``WSLClient`` (the sidecar's CLI tests patch
-    the seam with fakes). Hoisted, it forced every Layer-1 ``clearinghouse-core`` test
-    to import the Layer-3 SOAP transport, which is what kept the unit tier impossible.
+    package whose tests construct a real ``WSLClient`` (the PM sidecar's CLI tests, deleted
+    at #314, patched the seam with fakes). Hoisted, it forced every Layer-1
+    ``clearinghouse-core`` test to import the Layer-3 SOAP transport, which is what kept the
+    unit tier impossible.
     If another package ever drives a live-shaped ``WSLClient``, give it the same
     autouse fixture rather than moving this one back up.
     """

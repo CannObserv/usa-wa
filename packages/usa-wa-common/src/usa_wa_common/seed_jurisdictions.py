@@ -9,8 +9,8 @@ missing, **asserts** a drifted name/type back to the vocabulary (post-#302
 names are ours, not PM's), and leaves rows outside the vocabulary alone
 (counted as ``unknown_local``, never deleted — the PM-discovered Seattle row
 survives until someone decides otherwise). Idempotent; run after a vocabulary
-edit (e.g. redistricting) and at cutover. The sidecar's jurisdiction sync
-becomes redundant and retires at #314.
+edit (e.g. redistricting). This made the PM sidecar's jurisdiction sync
+redundant; it retired at #314.
 """
 
 from __future__ import annotations

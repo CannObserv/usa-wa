@@ -225,7 +225,8 @@ def _produced_names() -> set[str]:
 
     - **Any** reference from a module that is not a model-definition module. A model
       module mentioning its own siblings is declaration, not production; the producers
-      are the adapters, the sidecar, the API and the framework services.
+      are the adapters, the pipeline, the API, the jurisdiction seed and the framework
+      services.
     - **Instantiation or query use anywhere** under ``packages/*/src``, the class's own
       module included. Reference-from-elsewhere alone misses the colocated-writer
       pattern (see :func:`_used_names`) and reported the live ``JobRun`` as an orphan.

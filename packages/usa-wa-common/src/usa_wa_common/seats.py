@@ -64,7 +64,7 @@ def senate_seat_role_source_id(ld_number: int) -> str:
 
 def house_seat_role_source_id(ld_number: int, qualifier: str) -> str:
     """Deterministic ``source_id`` for a House ``state_representative`` seat Role (one per
-    ``(LD, position)``) — aligns 1:1 with PM's seat match key."""
+    ``(LD, position)``) — the key a subscriber matches a seat on."""
     slug = qualifier.lower().replace(" ", "-")
     return f"seat:house:ld-{ld_number}:{slug}"
 

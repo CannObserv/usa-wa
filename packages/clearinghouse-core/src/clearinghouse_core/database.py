@@ -60,8 +60,8 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 async def fetch_connection_fingerprint(session: AsyncSession) -> tuple[str, str]:
     """Return ``(current_user, current_database)`` for the session's connection.
 
-    Used at startup to make role/DB confusion immediately visible — a sidecar
-    or API booted against the wrong DSN announces it in its first log line.
+    Used at startup to make role/DB confusion immediately visible — an API
+    booted against the wrong DSN announces it in its first log line.
     """
     row = (await session.execute(text("SELECT current_user, current_database()"))).one()
     return str(row[0]), str(row[1])

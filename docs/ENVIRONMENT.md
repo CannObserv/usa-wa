@@ -119,4 +119,4 @@ default `~/rehearsal/<biennium>-<scenario>-<UTC stamp>`),
 (the `systemctl` asked whether `usa-wa-pipeline.service` is running; the wrapper refuses
 while it is).
 
-The PM sidecar's own tunables (`SidecarSettings` — `POWERMAP_BASE_URL`, `POWERMAP_API_KEY`, the drain/replay/reconcile cadences and the request-rate governor) were documented here until usa-wa#314 deleted the sidecar. Nothing reads them; they can be removed from `/etc/usa-wa/.env` — and `POWERMAP_API_KEY` **should** be, since a live credential nothing uses is a credential nobody rotates.
+The PM sidecar's own tunables (`SidecarSettings` — `POWERMAP_BASE_URL`, `POWERMAP_API_KEY`, the drain/replay/reconcile cadences and the request-rate governor) were documented here until usa-wa#314 deleted the sidecar. Nothing reads them, and none is left in `/etc/usa-wa/.env` (checked 2026-10-06, #413).
