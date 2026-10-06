@@ -7,15 +7,15 @@ final ``raw_export`` carried the last payload into the raw store and the file sw
 verified it: ``/var/backups/usa_wa-412-predrop-20261005T172128Z.dump``.
 
 **The canonical schema**, 33 tables: persons, organizations, roles, assignments and
-their identifiers — 3,135 persons, 8,849 assignments, read by nothing since the parity
+their identifiers — 3,135 persons, 8,851 assignments, read by nothing since the parity
 probes retired — and the declared-not-implemented bill, vote, statute, session and
 lobbying clusters (#194), which never held a row. The four ``pm_*`` anchor columns
 (#314) go with their tables. Dropped with ``DROP SCHEMA … CASCADE`` behind a run-time
 check that nothing outside the schema depends on it.
 
-**The provenance spine** in ``clearinghouse_core``: ``fetch_events`` (4,781),
+**The provenance spine** in ``clearinghouse_core``: ``fetch_events`` (4,832),
 ``raw_payloads`` (1,435 bodies, every one verified present in the raw store by hash on
-2026-10-05), ``citations`` (40,623), and the empty ``notes`` and
+2026-10-05), ``citations`` (41,597), and the empty ``notes`` and
 ``document_identifiers``. Plus ``integrity_sweep_state`` (the Postgres sweep's cursor;
 PR C moved the sweep to the raw store) and the PM jurisdiction mirror's half:
 ``jurisdiction_relationships`` (101 rows), its type lookup (11), and
