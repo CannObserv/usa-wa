@@ -1,7 +1,7 @@
 """Unit tests for name folding and the token-set surname match (#189).
 
 Cases moved verbatim from `usa-wa-adapter-pdc/tests/test_positions.py` — the matcher was
-never PDC-specific; both SOS normalizers use it too.
+never PDC-specific.
 """
 
 from __future__ import annotations
@@ -10,10 +10,7 @@ import pytest
 
 from usa_wa_common.names import (
     fold_token,
-    probe_surname,
-    split_name,
     strip_non_name_parts,
-    strip_other_party_parts,
     strip_tenure_notes,
     surname_match_set,
 )
@@ -87,84 +84,6 @@ def test_surname_match_set_excludes_non_matching_surname() -> None:
 )
 def test_strip_non_name_parts(raw, expected) -> None:
     assert strip_non_name_parts(raw) == expected
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        # A parenthetical marital form names the HUSBAND — those tokens are not hers, and an
-        # identity guard that keeps them lets him pass as her (usa-wa#277).
-        ("Frances (Mrs. Thomas A.) Swayze", "Frances Swayze"),
-        ("Belle (Mrs. Frank) Reeves", "Belle Reeves"),
-        # A quoted nickname is this person's OWN other name and SURVIVES here — the one place
-        # this differs from strip_non_name_parts. WSL records Bob McCaslin Jr's FirstName as
-        # "Bob", so dropping it removes the only token the two sides share.
-        ("Robert \u201cBob\u201d McCaslin,", "Robert \u201cBob\u201d McCaslin,"),
-        ('Frank "Buster" Brouillet', 'Frank "Buster" Brouillet'),
-        # Honorifics name nobody, so they go either way.
-        ("Dr. A. C. Wingrove", "A. C. Wingrove"),
-        # Generational suffixes distinguish two real people; they survive, as above.
-        ("Kemper Freeman, Jr.", "Kemper Freeman, Jr."),
-    ],
-)
-def test_strip_other_party_parts(raw, expected) -> None:
-    assert strip_other_party_parts(raw) == expected
-
-
-def test_the_two_strips_differ_only_on_the_quoted_nickname() -> None:
-    """The distinction the roster resolver depends on, pinned as a contrast so a future edit
-    cannot quietly collapse the two functions back together."""
-    row = "Frances (Mrs. Thomas A.) \u201cFran\u201d Swayze"
-    assert strip_non_name_parts(row) == "Frances Swayze"
-    assert strip_other_party_parts(row) == "Frances \u201cFran\u201d Swayze"
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("Jay Inslee", "inslee"),
-        ("Belle (Mrs. Frank) Reeves", "reeves"),  # the parenthetical is not the surname
-        ("Dr. A. C. Wingrove", "wingrove"),  # nor is the honorific
-        # The suffix is part of the person but never the search key: probing ``jr``
-        # searches every PM name carrying that token instead of the surname's cohort.
-        ("Kemper Freeman, Jr.", "freeman"),
-        ("Charles D. Ulmer, Sr", "ulmer"),
-        ("Albert C. Thompson, Jr.", "thompson"),
-        ("Homer T. Bone III", "bone"),
-        # Nothing to probe with — an empty ``q`` would match on PM's ranking alone.
-        ("???", None),
-        ("Jr.", None),
-        ("", None),
-    ],
-)
-def test_probe_surname(raw, expected) -> None:
-    assert probe_surname(raw) == expected
-
-
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("Jay Inslee", (["jay"], "inslee")),
-        ("Belle (Mrs. Frank) Reeves", (["belle"], "reeves")),
-        ("Dr. A. C. Wingrove", (["a", "c"], "wingrove")),
-        # The suffix is neither given name nor surname: it falls out with the surname.
-        ("Kemper Freeman, Jr.", (["kemper"], "freeman")),
-        ("Charles P. Moriarty, Jr", (["charles", "p"], "moriarty")),
-        # A bare surname has no given tokens — the shape PM's stub records take.
-        ("Moriarty", ([], "moriarty")),
-        ("???", None),
-        ("Jr.", None),
-    ],
-)
-def test_split_name(raw, expected) -> None:
-    """One definition of where the surname sits.
-
-    Three call sites were re-deriving `len(tokens) - 1 - tokens[::-1].index(surname)`
-    independently (usa-wa#226 CR): the roster identity seating index and the PM dedup
-    adjudicator. A divergence there mismatches people silently rather than erroring, which is
-    the failure this module exists to prevent.
-    """
-    assert split_name(raw) == expected
 
 
 # --- strip_tenure_notes (usa-wa#378) ------------------------------------------

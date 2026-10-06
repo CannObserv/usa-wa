@@ -7,7 +7,7 @@ composing across targets meant an adapter importing a peer adapter — which is 
 `usa-wa-adapter-legislature` became a shared kernel by accident.
 
 What is left is pure: the House Position seat logic that joins the WSL sponsor roster to the
-SOS ballot, and the PDC↔WSL roster matching it reuses. No DB, no CLI. Its one consumer is the
+SOS ballot, including the WSL House roster and its chamber-mover exclusion. No DB, no CLI. Its one consumer is the
 pipeline's conformed House (`usa_wa_pipeline.conformed.house`), which runs it inside the
 nightly build — [PIPELINE-CONFORMED.md](PIPELINE-CONFORMED.md). The Postgres drivers — the
 House and PDC span builders and refreshes, the two corroboration units, the identifier
@@ -19,7 +19,7 @@ packages/
     src/usa_wa_facts_seats/
       house/          — the House Position seat (#100/#101/#103/#118/#123). WSL owns *who sits*
                         (sponsor roster: LD + party), SOS owns *which position* (ballot
-                        Position 1/2), PDC matching supplies the chamber-mover exclusion.
+                        Position 1/2), `roster.py` supplies the chamber-mover exclusion.
         projector.py  —   pure `build_house_seat_observations`: roster x ballot -> positioned
                           `chamber-house` Observations keyed `ld-{n}-position-{p}`. No resolvable
                           position → nothing (`missing_position`: a post-1965 unknown is a data
@@ -34,19 +34,14 @@ packages/
                           same-LD tenure, reaching 2003-04→2007-08 below the SOS floor; breaks
                           at `REDISTRICTING_ERA_START_BIENNIA`, an LD move or tenure gap, and
                           `MAX_BACKCHAIN_HOPS_DEFAULT` (4)
-      pdc/            — PDC↔WSL roster matching (#79)
-        matching.py       —   `HouseRosterEntry`, `build_house_roster` (WSL `GetSponsors` rows →
-                              `{LD: [entry]}`, with the **#105 (a) mover exclusion**: a House row
-                              whose `Id` also appears in a named Senate row of the same wire is
-                              dropped, so the #103 elimination can seat the appointed replacement)
-                              and `house_mover_ids` (#145 — that mover set, which the conformed
-                              House passes to the overlay as `movers_by_biennium`). Also the
-                              within-LD `match_house_member` / `find_confirming_senator` primitives
-                              `observations.py` uses
-        observations.py   —   `KIND_HOUSE` (re-exported to `house.projector`) and the #79/#138 PDC
-                              winner projectors `build_house_position_observations` /
-                              `build_senate_identity_links`, which have had no caller outside their
-                              tests since #412 PR F deleted the PDC identifier builder
+        roster.py     —   `HouseRosterEntry`, `build_house_roster` (WSL `GetSponsors` rows →
+                          `{LD: [entry]}`, with the **#105 (a) mover exclusion**: a House row
+                          whose `Id` also appears in a named Senate row of the same wire is
+                          dropped, so the #103 elimination can seat the appointed replacement)
+                          and `house_mover_ids` (#145 — that mover set, which the conformed
+                          House passes to the overlay as `movers_by_biennium`). Was
+                          `pdc/matching.py` until #471 deleted the PDC winner matchers and the
+                          `pdc/observations.py` projectors, whose last caller #412 PR F removed
 ```
 
 ## Layering rules
@@ -60,10 +55,11 @@ list stays empty. The pipeline sits under the same transport rule.
 ## Why one package, not three
 
 The issue sketches `usa-wa-facts-house-position`, `-senate-seat` and `-committee-membership`.
-The House Position seat and the PDC matching are **one fact family**: they share the roster
-builder (`pdc/matching.py`), the projector's row types and the seat vocabulary. Splitting them
-would immediately require a shared module between the halves — which is exactly the accident
-this issue exists to fix, reproduced one level down.
+The House Position seat and the PDC matching were **one fact family**: they shared the roster
+builder (now `house/roster.py`), the projector's row types and the seat vocabulary. Splitting them
+would immediately have required a shared module between the halves — which is exactly the
+accident this issue exists to fix, reproduced one level down. Since #471 the PDC half is gone and
+the House Position seat is the package's only fact.
 
 **Committee membership is absent**, deliberately. It composes only WSL sources
 (`usa_wa_adapter_legislature.membership.projector`), so it crosses no adapter boundary and

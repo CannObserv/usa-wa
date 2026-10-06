@@ -200,7 +200,7 @@ Traced end to end, through the results source:
    `conformed.house.build_house_spans`. WSL owns *who sits* (`stg_wsl_sponsors`: LD + party), SOS
    owns *which position*: `results.normalize.build_house_positions` / `build_house_winners` read
    the ballot, `usa_wa_facts_seats.house.positions.merge_positions` applies the #123 map,
-   `facts_seats.pdc.matching` the #105 mover exclusion, `facts_seats.house.backchain` the #118
+   `facts_seats.house.roster` the #105 mover exclusion, `facts_seats.house.backchain` the #118
    carry-back and #103 elimination, and the domain's `operator_overlay` + `build_tenure_spans`
    produce one `chamber-house` span per tenure. The crosswalk join turns each into an
    `assignments` row under role key `seat:house:ld-N:position-P`.

@@ -44,7 +44,10 @@ convention, via ``JobResult(..., exit_code=3)`` · ``4`` degraded.
 — for the five one-shot migrations that hard-deleted provenance rows the app role was REVOKEd on
 (#54), deleted in #412 PR F; no job declares it now. The whole run — the ledger writes included
 — goes through a per-run engine built from that DSN, so an owner job needs no second DSN to
-record its #178 row and can never inherit a pool opened as the wrong role.
+record its #178 row and can never inherit a pool opened as the wrong role. Kept without a caller
+on purpose (#471): it is small and tested, and the per-run engine routing is the part a future
+owner-role job would otherwise have to re-grow — and get wrong, by running its tail on the app
+engine.
 """
 
 import argparse

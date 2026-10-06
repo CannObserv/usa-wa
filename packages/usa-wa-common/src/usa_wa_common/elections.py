@@ -23,25 +23,6 @@ from datetime import date, timedelta
 from clearinghouse_domain_legislative.terms import parse_biennium
 
 
-def election_year_for_biennium(biennium: str) -> int:
-    """The general-election year that seated a biennium's House — its odd start year
-    minus one (WA House is entirely up every even November). ``2025-26`` → ``2024``."""
-    start_year, _ = parse_biennium(biennium)
-    return start_year - 1
-
-
-def seating_biennium_for_election_year(election_year: int) -> str:
-    """The biennium a general election's winners sit in. An **even** year seats the biennium
-    starting the following odd year (``2012`` → ``"2013-14"``); an **odd** year is a
-    mid-biennium special seating the biennium *starting that year* (``2025`` → ``"2025-26"``,
-    #121 — Nov 2025 seated Hunt/Krishnadasan/Zahn). Because of the odd branch this is no longer
-    the strict inverse of :func:`election_year_for_biennium` (which stays even/seating-only).
-    Written for the #79 backfill (deleted in #412 PR F) to era-match each cohort to the roster
-    it seated, fixing the #75 current-snapshot limitation."""
-    start = election_year + 1 if election_year % 2 == 0 else election_year
-    return f"{start}-{(start + 1) % 100:02d}"
-
-
 def election_years_for_biennium(biennium: str) -> list[int]:
     """Every general-election year a biennium's membership can be decided by (#106).
 

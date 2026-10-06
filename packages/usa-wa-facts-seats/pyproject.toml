@@ -1,7 +1,7 @@
 [project]
 name = "usa-wa-facts-seats"
 version = "0.1.0"
-description = "Layer 3b (#189, AR-14): the WA legislative-seat FACTS — House Position (WSL roster x SOS ballot), Senate corroboration, and the PDC winner spans/identifiers. Composes cohort providers across adapters; the composition layer the four-layer model lacked."
+description = "Layer 3b (#189, AR-14): the WA legislative-seat FACTS — House Position (WSL roster x SOS ballot), composed from archived rows across adapters; the composition layer the four-layer model lacked."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

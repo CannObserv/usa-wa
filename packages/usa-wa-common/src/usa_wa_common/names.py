@@ -1,9 +1,10 @@
 """Name folding and the token-set surname match (#189).
 
 The messy half of every cross-source person match in this deployment: a WSL member's clean
-``LastName`` on one side, a free-form ballot or filer name on the other. Both the PDC matcher
-and the two SOS normalizers use exactly these two functions, so the folding rules have to be
-one implementation — a divergence here silently mismatches people rather than erroring.
+``LastName`` on one side, a free-form ballot or filer name on the other. The WSL House roster,
+the SOS results normalizer and the roster identity join all fold through here, so the folding
+rules have to be one implementation — a divergence here silently mismatches people rather than
+erroring.
 
 Folding is **local** on purpose: a package below the adapters could not import the Layer-4
 PM sidecar's ``normalize_name``, which #314 has since deleted.
@@ -134,11 +135,10 @@ def split_by_given_name(
 ) -> tuple[set[str], set[str]]:
     """``(compatible, rejected)`` candidate ids, split on given-name agreement with a row.
 
-    Single-sourced (usa-wa#277) because there are **two** consumers that must not drift: the
-    roster succession resolver's member lookup and the identity join's WSL lookup. Both ask
-    the same question — *can this WSL member be the person this roster row names?* — and both
-    were written as the same rule, mirrored by hand. Rewriting one and not the other diverged
-    them silently, which is the failure this module exists to prevent.
+    Single-sourced (usa-wa#277) when **two** consumers asked the same question — *can this WSL
+    member be the person this roster row names?* — and had drifted: the roster succession
+    resolver's member lookup and the identity join's WSL lookup. The resolver was deleted in
+    #471; the identity join is the one consumer now.
 
     Two tiers (#240 established the first, #277 added the second):
 
@@ -155,7 +155,7 @@ def split_by_given_name(
     initials-only row the initial rule exists to keep.
 
     ``ignore_full`` names tokens that must not count as a whole-token match — the shared
-    surname, in both consumers. Every candidate is surname-matched by construction, so
+    surname. Every candidate is surname-matched by construction, so
     counting it is free for all of them, and a rival whose given name merely *is* that surname
     would be promoted into the tier that then rejects the true subject.
 
@@ -164,10 +164,8 @@ def split_by_given_name(
     compatible — this narrows, it never breaks a tie by fiat; reporting the tie is the
     caller's job.
 
-    Callers pass **already-folded** tokens, and choose their own preparation: the resolver
-    reads the row through :func:`strip_other_party_parts` (a nickname is identity, a marital
-    parenthetical is somebody else), while the identity join additionally strips position
-    suffixes so the guard reads the same string its fold does.
+    Callers pass **already-folded** tokens, prepared their own way: the identity join strips
+    position suffixes so the guard reads the same string its fold does.
     """
     row = {token for token in row_tokens if token}
     full_keys = {token for token in row if len(token) > 1} - set(ignore_full)
@@ -196,33 +194,6 @@ def split_by_given_name(
     return compatible, rejected
 
 
-def strip_other_party_parts(full_name: str) -> str:
-    """An upstream name with only the parts naming **somebody else** removed.
-
-    The narrower sibling of :func:`strip_non_name_parts`, for consumers that ask *"which of
-    these tokens could be this person's own name?"* rather than *"which tokens are a name?"*.
-    The two differ on the quoted nickname, and the difference is load-bearing (usa-wa#277):
-
-    * A **parenthetical** marital form names a *third party*. ``Frances (Mrs. Thomas A.)
-      Swayze`` contributes ``thomas`` and ``a``, which are her husband's — letting him pass a
-      same-tokens identity guard as though he were her.
-    * A **quoted nickname** is this person's own other name, and WSL often records it as the
-      ``FirstName`` outright: the roster prints ``Robert "Bob" McCaslin,`` and WSL carries
-      ``Bob``, so dropping it removes the only token the two sides share.
-
-    :func:`strip_non_name_parts` drops both, which was right for PM's full-name FTS (where a
-    nickname the other side lacks ANDs the query to nothing) and is wrong for an identity
-    guard.
-    Honorifics go either way — they name nobody — so they are dropped here too.
-    """
-    kept = [
-        word
-        for word in _PARENTHETICAL.sub(" ", full_name).split()
-        if fold_token(word) not in _HONORIFICS
-    ]
-    return " ".join(kept)
-
-
 def folded_tokens(full_name: str) -> list[str]:
     """The ordered folded tokens of a free-form upstream name.
 
@@ -232,58 +203,12 @@ def folded_tokens(full_name: str) -> list[str]:
     non-alnum would shred ``"Ortiz-Self"`` into ``ortiz`` + ``self`` and never match the
     WSL surname ``ortizself``.
 
-    Public because the split rule has a second consumer: the roster resolver's given-name
-    guard (#240) needs the *atomic* tokens, not :func:`surname_match_set`'s concatenations.
+    Public because the split rule has a second consumer: the roster identity join's
+    given-name guard (#240) needs the *atomic* tokens, not :func:`surname_match_set`'s
+    concatenations.
     Re-deriving the split there would fork the folding rule, which this module exists to
     prevent — a divergence mismatches people silently rather than erroring."""
     return [folded for raw in re.split(r"[\s(),]+", full_name) if (folded := fold_token(raw))]
-
-
-#: Generational suffixes. Emphatically NOT honorifics — ``Jr`` is what distinguishes two
-#: real people (usa-wa#228's Bill Day / Bill Day Jr), so it stays in the name and in every
-#: identity comparison. It is simply never the *surname*. A bare roman ``v`` is deliberately
-#: absent: it is far more often a middle initial than a fifth of a line.
-_GENERATIONAL = frozenset({"jr", "sr", "ii", "iii", "iv"})
-
-
-def probe_surname(full_name: str) -> str | None:
-    """The folded token to *search* an upstream name by — its surname — or ``None``.
-
-    Trailing generational suffixes are dropped, because the last token of
-    ``Kemper Freeman, Jr.`` is ``jr``: a query that returns every PM name carrying that
-    suffix (6 people, measured live) rather than the six Freemans. 25 of the roster's 2,494
-    pre-1991 Persons end in one. Dropped from the *probe* only — the caller still confirms
-    on the full cleaned name, where the suffix is load-bearing.
-
-    ``None`` when nothing survives folding: the caller must not send an empty query, which
-    would match on the search backend's ranking alone.
-    """
-    tokens = folded_tokens(strip_non_name_parts(full_name))
-    while tokens and tokens[-1] in _GENERATIONAL:
-        tokens.pop()
-    return tokens[-1] if tokens else None
-
-
-def split_name(full_name: str) -> tuple[list[str], str] | None:
-    """``(given_tokens, surname)`` for an upstream name, or ``None`` if it folds to nothing.
-
-    One definition of where the surname sits. Three call sites were re-deriving it — the
-    roster identity seating index and the PM dedup adjudicator (usa-wa#226 CR) — and a
-    divergence in this family of logic mismatches people silently rather than erroring, which
-    is the whole reason this module exists.
-
-    Trailing generational suffixes fall out with the surname: they belong to neither half,
-    and :func:`probe_surname` already refuses to treat one as the surname. A bare surname
-    yields empty given tokens — the shape a stub record takes — which callers must read as
-    "no given-name evidence", never as agreement.
-    """
-    cleaned = strip_non_name_parts(full_name)
-    surname = probe_surname(cleaned)
-    if surname is None:
-        return None
-    tokens = folded_tokens(cleaned)
-    last = len(tokens) - 1 - tokens[::-1].index(surname)
-    return tokens[:last], surname
 
 
 def surname_match_set(full_name: str) -> set[str]:

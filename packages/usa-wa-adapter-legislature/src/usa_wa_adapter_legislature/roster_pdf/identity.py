@@ -27,8 +27,8 @@ that design as code, recalibrated by the #252 parse corrections:
   guard, then the year-corroboration tie-breaker (**at least two** distinct session years
   *and* strictly more than any rival — without the floor the rule accepts ``1 > 0``, which
   is exactly the #240 shape), then :data:`JOIN_ADJUDICATIONS`. The guard's failure mode
-  inverts here relative to #226: a false rejection there refuses an event, here it mints a
-  duplicate Person for someone who already has a WSL identity.
+  inverts here relative to #226: a false rejection in its resolver (deleted in #471) refused
+  an event, here it mints a duplicate Person for someone who already has a WSL identity.
 
 **The adjudication tables are versioned data, deliberately in code.** The spec's
 re-derivability argument — a rebuild from the archive reproduces the same ids — holds
@@ -47,12 +47,10 @@ from dataclasses import dataclass, replace
 
 from usa_wa_adapter_legislature.roster_pdf.audit import TERM_YEARS
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
-from usa_wa_adapter_legislature.roster_pdf.resolve import Seating
 from usa_wa_common.names import (
     fold_token,
     folded_tokens,
     split_by_given_name,
-    split_name,
     strip_non_name_parts,
     surname_match_set,
 )
@@ -171,6 +169,26 @@ def identity_fold(name: str) -> str:
 
 
 @dataclass(frozen=True)
+class Seating:
+    """One WSL member holding one chamber+LD in one calendar year — a row of the join index.
+
+    Built from the archived WSL sponsor roster, which is per *biennium*;
+    ``usa_wa_pipeline.conformed.spans.seatings_from_sponsors`` expands each biennium into its
+    two years so a roster row can be matched by the year it was listed in. Lived in the
+    deleted ``roster_pdf.resolve`` until #471.
+    """
+
+    member_id: str
+    chamber: str
+    district: int
+    year: int
+    surname: str
+    #: The member's WSL ``FirstName``, when the roster carries one. Empty is common enough
+    #: that its absence must never be read as evidence against a match (#240).
+    given_name: str = ""
+
+
+@dataclass(frozen=True)
 class RosterIdentity:
     """One resolved pre-1991 identity: minted under a roster key, or joined to WSL."""
 
@@ -202,67 +220,6 @@ class IdentityReport:
     identities: tuple[RosterIdentity, ...]
     refused: tuple[RefusedIdentity, ...]
 
-    def summary(self) -> dict[str, int]:
-        """Counts by disposition and refusal reason — the shape a CLI prints."""
-        counts: dict[str, int] = {}
-        for identity in self.identities:
-            counts[identity.disposition] = counts.get(identity.disposition, 0) + 1
-        for refusal in self.refused:
-            key = f"refused:{refusal.reason}"
-            counts[key] = counts.get(key, 0) + 1
-        return counts
-
-
-def identity_seatings(report: IdentityReport) -> list[Seating]:
-    """The pre-1991 seating index, derived from the identities themselves (#226).
-
-    The succession resolver matches a dated boundary against seatings built from archived
-    WSL sponsor rosters, which floor at 1991 — so every pre-floor boundary resolves
-    ``no_member`` by construction, whatever Persons exist locally. It never reads Persons.
-
-    Each identity contributes one seating per record it owns, keyed by the member id that
-    identity actually resolved to: :attr:`~RosterIdentity.wsl_member_id` for a crosser whose
-    Person already existed, the minted :attr:`~RosterIdentity.key` otherwise. Taken from the
-    report rather than re-read from canonical rows deliberately — these ids must be
-    byte-identical to the ones the mint wrote, and a re-derivation that drifted would resolve
-    a boundary onto a Person that does not exist.
-
-    Refusals contribute nothing. #228 surfaces an unresolved group rather than guessing it,
-    and a seating for one would seat a boundary on an identity we declined to mint.
-
-    ``surname``/``given_name`` mirror WSL's ``LastName``/``FirstName`` so the resolver's #240
-    given-name-initial guard reads the same shape from either index.
-
-    One seating per record **year**, deliberately not expanded to both years of the biennium the
-    way the WSL seatings (``usa_wa_pipeline.conformed.spans.seatings_from_sponsors``, a port of
-    ``roster_pdf.backfill.load_seatings``) expand a WSL roster. That expansion exists because
-    WSL data is per-biennium and a boundary falls in one of its two years; this index is
-    per-record, and a proposal's ``session_year`` is always its own record's year, so every
-    record already covers its own proposal. Expanding would add seatings no lookup asks for
-    while widening the same-surname collision surface that produces ``ambiguous_member``.
-    """
-    seatings: list[Seating] = []
-    for identity in report.identities:
-        member_id = identity.wsl_member_id or identity.key
-        if member_id is None:  # defensive: an identity is one or the other, never neither
-            continue
-        for record in identity.records:
-            split = split_name(clean_name(record.name))
-            if split is None:  # a name that folds to nothing has no surname to seat on
-                continue
-            given, surname = split
-            seatings.append(
-                Seating(
-                    member_id=member_id,
-                    chamber=record.chamber,
-                    district=record.district,
-                    year=record.year,
-                    surname=surname,
-                    given_name=" ".join(given),
-                )
-            )
-    return seatings
-
 
 def _wide_gap(years: list[int]) -> tuple[int, int] | None:
     """The first consecutive-listing gap wider than :data:`WIDE_GAP_YEARS`, if any."""
@@ -283,12 +240,10 @@ class _Join:
     def resolve(self, post_rows: list[RosterRecord]) -> tuple[str | None, str | None]:
         """``(member_id, refusal_reason)`` — exactly one is non-``None``.
 
-        Shares :func:`~usa_wa_common.names.split_by_given_name` with
-        :meth:`SuccessionResolver._member_ids` (#240, #277): a surname match whose given name
-        agrees with nothing in the roster row is *rejected*, not matched — the single
-        surviving surname match may be a different person. The rule was mirrored by hand
-        until #277 rewrote one copy and not the other; it is one implementation now, because
-        a divergence here mismatches people silently rather than erroring.
+        Applies :func:`~usa_wa_common.names.split_by_given_name` (#240, #277): a surname match
+        whose given name agrees with nothing in the roster row is *rejected*, not matched —
+        the single surviving surname match may be a different person. The rule was single-
+        sourced while the succession resolver (deleted in #471) asked the same question.
         Rejected candidates then get the corroboration tie-breaker: accepted only at
         :data:`CORROBORATION_FLOOR` distinct session years or more AND strictly ahead of
         every rival.
@@ -309,8 +264,7 @@ class _Join:
                 given[seating.member_id] |= set(folded_tokens(seating.given_name))
             # The CLEANED name (#259 CR): an annotation embedded in the printed name would
             # otherwise contribute initials and admit a wrong same-surname candidate. This
-            # guard reads the same string the fold does, which is why it is not the
-            # resolver's `strip_other_party_parts`.
+            # guard reads the same string the fold does.
             row_compatible, row_rejected = split_by_given_name(
                 folded_tokens(clean_name(row.name)),
                 given,

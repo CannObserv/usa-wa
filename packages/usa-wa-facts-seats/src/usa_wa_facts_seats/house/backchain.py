@@ -39,7 +39,7 @@ from clearinghouse_domain_legislative.terms import parse_biennium
 from usa_wa_common.ballot import HousePosition
 from usa_wa_common.seats import parse_house_span_discriminator
 from usa_wa_facts_seats.house.projector import build_house_seat_observations
-from usa_wa_facts_seats.pdc.matching import HouseRosterEntry
+from usa_wa_facts_seats.house.roster import HouseRosterEntry
 
 #: WA biennia that **start** a redistricting map-era (first seated after a new plan: 1992→1993-94,
 #: 2002→2003-04, 2012→2013-14, 2022→2023-24). A Position must not back-chain from one of these into
