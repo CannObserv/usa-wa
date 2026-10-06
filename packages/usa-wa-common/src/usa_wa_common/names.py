@@ -5,8 +5,8 @@ The messy half of every cross-source person match in this deployment: a WSL memb
 and the two SOS normalizers use exactly these two functions, so the folding rules have to be
 one implementation — a divergence here silently mismatches people rather than erroring.
 
-Folding is **local** on purpose: a package below the adapters must not import the Layer-4
-sidecar's ``normalize_name``.
+Folding is **local** on purpose: a package below the adapters could not import the Layer-4
+PM sidecar's ``normalize_name``, which #314 has since deleted.
 
 The match strategy is a token-set test, not surname extraction. Upstream names are
 inconsistently formatted (``"Strom Peterson"``, ``"JACOBSEN CYNTHIA P (Cyndy Jacobsen)"``,

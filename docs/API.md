@@ -164,7 +164,7 @@ migrates to:
 | `id` on every product row | The identity is a *registry entity*, not a canonical row | `entity_id` — the same ULID: the registry seed preserved them, so ids did not move |
 | `source` / `source_id` scalars on persons and orgs | Multi-source by construction; one pair could never say more than one thing | `person_crosswalk` / `org_crosswalk`, embedded on the person detail route as `identifiers` |
 | `PersonIdentifier` rows | Identity is the registry's now, so an external id is a key bound to an entity | `PersonCrosswalkOut` — `natural_key`, `key_namespace`, `key_value`, `registered_by`, `merged_into` |
-| `pm_person_id` / `pm_organization_id` / `pm_role_id` / `pm_assignment_id` | The PM sync retires with the outbox | Power Map's own API; the anchors it holds are unmoved |
+| `pm_person_id` / `pm_organization_id` / `pm_role_id` / `pm_assignment_id` | The PM sync retired with the outbox (#314) | Power Map's own API; the anchors it holds are unmoved |
 | `created_at` / `updated_at` | The dataset **version** is the clock — a row clock said when a row was written, not when the fact was true | `/health/datasets` and `/health/serving` for the version and its age |
 | `archived_at` / `deleted_at` / `include_hidden` | See *Liveness* above | Absence, and `merged_into` |
 | `Assignment.id` (a ULID) | A span has no row identity; a span **is** its key | `assignment_id` — the 4-part span key |

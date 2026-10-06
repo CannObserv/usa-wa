@@ -1,10 +1,10 @@
 [Unit]
 Description=usa-wa — apply Alembic migrations + DB grants under the owner role
 After=network.target postgresql.service
-# Bring schema to head before the API/sidecar (which run as the DML-only app
-# role) start. Ordering only — not a hard dependency; a failed migrate must not
+# Bring schema to head before the API (which runs as the DML-only app role)
+# starts. Ordering only — not a hard dependency; a failed migrate must not
 # wedge the boot of an already-migrated box. The edge is declared bilaterally:
-# both consumers also carry After=usa-wa-migrate.service, so either side is
+# the consumers also carry After=usa-wa-migrate.service, so either side is
 # removable without breaking boot ordering (keeps the #50 one-sided-read drift
 # from recurring in either direction).
 Before=usa-wa.service
@@ -35,7 +35,7 @@ ExecStartPre=/home/exedev/usa-wa/scripts/assert-venv-integrity.sh
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 # Owner DSN (DATABASE_URL_OWNER) is read from /etc/usa-wa/.env; alembic/env.py
-# prefers it over DATABASE_URL. On this single VM the API + sidecar units load
+# prefers it over DATABASE_URL. On this single VM the API and timer units load
 # the same file, so they also see DATABASE_URL_OWNER in their environment — they
 # just never read it (only alembic does). To enforce least privilege on a
 # multi-host split, move the owner DSN into a file loaded only by this unit.

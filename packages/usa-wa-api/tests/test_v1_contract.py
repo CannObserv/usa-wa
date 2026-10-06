@@ -75,8 +75,8 @@ def test_the_unversioned_probes_stay_where_operators_and_systemd_expect_them():
     contracts, not product API. Versioning them would break the deployment.
 
     ``/health/sync`` was here until #313 and is deliberately absent: the outbox
-    it reported on is not what an operator watches any more, and the sidecar logs
-    the same backlog structure on every duty cycle.
+    it reported on is not what an operator watches any more, and it retired with
+    the sidecar at #314.
     """
     paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
     assert {"/health", "/ready"} <= paths

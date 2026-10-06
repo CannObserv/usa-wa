@@ -15,10 +15,10 @@ automatic signal catches it; it needs a curated correction. The denylist is unio
 honours, so no unrestricted rebuild ever re-derives the phantom span (#54-safe — the archive is
 never rewritten; the correction lives in the canonical-derivation layer).
 
-This is **Phase 1** of the #144 fix: it prevents *re-derivation*. Retracting the already-produced
-PM-anchored rows is **Phase 2**, blocked on the producer retraction verb (power-map#391); Phase 1
-is the prerequisite that makes any eventual retraction stick — without it the next backfill
-re-produces the retracted assignment.
+This was **Phase 1** of the #144 fix: it prevents *re-derivation*. **Phase 2** — retracting the
+already-produced PM-anchored rows, blocked on a producer retraction verb (power-map#391) — went
+moot at #314: nothing is produced to PM any more, and a span this denylist excludes is simply
+absent from the next published dataset, so Phase 1 is now the whole fix.
 
 Curated entries:
 

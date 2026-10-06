@@ -79,7 +79,7 @@ class TestMemberResolution:
 
     def test_an_unknown_member_is_unresolved_not_guessed(self) -> None:
         """Pre-1991 is outside the sponsor roster entirely. No Person exists to attach the
-        event to, and inventing one would mint a duplicate identity in Power Map."""
+        event to, and inventing one would mint a duplicate identity in the published `persons`."""
         proposal = _proposal("Deceased June 15, 1929", chamber="senate", year=1927)
         resolved = SuccessionResolver(seatings=[], positions=[]).resolve(proposal)
         assert isinstance(resolved, Unresolved)
