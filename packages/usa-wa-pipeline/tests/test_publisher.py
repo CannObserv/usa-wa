@@ -3,6 +3,7 @@
 import csv
 import io
 import json
+import shutil
 from datetime import UTC, datetime, timedelta
 
 import duckdb
@@ -921,3 +922,17 @@ def test_every_published_dataset_declares_a_floor() -> None:
     one fails here rather than shipping with no absolute-count backstop."""
     undeclared = [d.name for d in PUBLISHED_DATASETS if d.min_rows is None]
     assert not undeclared, f"PUBLISHED_DATASETS entries with no min_rows: {undeclared}"
+
+
+def test_a_catalog_without_its_version_dirs_still_gates_on_the_catalog(built_db, tmp_path) -> None:
+    """With no version dirs to read — a partial restore, a catalog copied without
+    its tree — the history is the catalog entry alone, i.e. the night-over-night
+    gate. An empty history would gate against 0, which is no gate at all."""
+    out = tmp_path / "datasets"
+    _set_persons(built_db, 4)
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    shutil.rmtree(out / "persons")
+    _set_persons(built_db, 1)
+
+    with pytest.raises(PublishRefused, match=r"persons.*4 → 1"):
+        publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
