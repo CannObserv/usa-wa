@@ -2,7 +2,8 @@
 
 The re-partition's core projection. The House Position seat is now **WSL+SOS-primary,
 symmetric with the Senate** (#75): WSL owns *who sits* (the sponsor roster — LD + party), SOS
-owns *which position* (the ballot Position 1/2 from the votewa filing archive). This projector
+owns *which position* (the ballot Position 1/2 from the SOS results feed, ``results.normalize``
+since #101; the votewa filings normalizer it once read was deleted in #471). This projector
 joins them per biennium into
 :class:`~clearinghouse_domain_legislative.tenure_spans.Observation`s the merged-span builder
 consumes — the House analog of :func:`sponsors.projector.build_sponsor_observations` (which emits
@@ -59,16 +60,16 @@ class HouseSeatProjection:
 
 def build_house_seat_observations(
     house_roster: dict[int, list[HouseRosterEntry]],
-    sos_filings: dict[int, list[HousePosition]],
+    sos_positions: dict[int, list[HousePosition]],
     *,
     biennium: str,
     seed_positions: dict[int, dict[str, str]] | None = None,
 ) -> HouseSeatProjection:
-    """Project the sitting House roster + the seating election's SOS filings into positioned
+    """Project the sitting House roster + the seating election's SOS positions into positioned
     :class:`Observation`s for ``biennium``.
 
     For each rostered member, look up the ballot Position for their ``(LD, folded surname,
-    party)`` in the SOS filings (:func:`position_for` — zero/ambiguous → ``None``, never
+    party)`` in the SOS positions (:func:`position_for` — zero/ambiguous → ``None``, never
     guessed). A resolved position yields one observation keyed on the House span discriminator
     (``ld-{n}-position-{p}``, identical to the retired PDC-built key so the migration is a
     re-point, #101). An LD left with exactly one unmatched member takes the remaining position
@@ -96,7 +97,7 @@ def build_house_seat_observations(
         # Pass 1 — ballot matches (the strongest evidence, always wins).
         for entry in entries:
             members += 1
-            qualifier = position_for(sos_filings, ld, entry.folded_last, entry.party_slug)
+            qualifier = position_for(sos_positions, ld, entry.folded_last, entry.party_slug)
             if qualifier is None:
                 unmatched.append(entry)
             else:
