@@ -21,7 +21,9 @@ Feb 11, 1974, printed under 1971). A dated start opens the row's coverage at the
 boundary's biennium; a dated departure closes it there. Rows without dates genuinely
 overlap at this grain — a same-biennium handoff is two people who both served in the
 biennium — so overlaps are **reported**, never silently kept or dropped. Day-precision
-correction stays #226's job; this module emits spans and no events (§5).
+correction is not this module's: it arrives as operator events, entered through
+``operators.cli`` and applied by the overlay (#226's roster backfill, which proposed them, is
+gone — #412 PR F, #471). This module emits spans and no events (§5).
 
 **Party follows the seat coverage (§4)**, split where a change annotation says so. The
 dated-no-token family names no new party; the member's next listing does, and only this
