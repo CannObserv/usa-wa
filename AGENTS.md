@@ -64,11 +64,11 @@ Per-package module reference — what each file is for and why it exists:
 - [`docs/MODULES-FRAMEWORK.md`](docs/MODULES-FRAMEWORK.md) — Layers 1–2: the framework + domain primitives
 - [`docs/MODULES-COMMON.md`](docs/MODULES-COMMON.md) — Layer 2b `usa-wa-common`: WA vocabulary (calendar, seats, names, parties, ballot, jurisdictions)
 - [`docs/MODULES-LEGISLATURE.md`](docs/MODULES-LEGISLATURE.md) — WSL adapter: transport, raw harvest, resource ids, pure parsers, probes
-- [`docs/MODULES-LEGISLATURE-ROSTER.md`](docs/MODULES-LEGISLATURE-ROSTER.md) — the roster-PDF source: raw harvest, parser, audit oracle, succession → resolve
+- [`docs/MODULES-LEGISLATURE-ROSTER.md`](docs/MODULES-LEGISLATURE-ROSTER.md) — the roster-PDF source: raw harvest, parser, audit oracle, annotation clauses
 - [`docs/MODULES-LEGISLATURE-SPANS.md`](docs/MODULES-LEGISLATURE-SPANS.md) — tenure-span engine, operator succession, roster hygiene
 - [`docs/MODULES-PDC.md`](docs/MODULES-PDC.md) — PDC SODA adapter: raw harvest + winner-cohort parser
 - [`docs/MODULES-SOS.md`](docs/MODULES-SOS.md) — SOS filings + results sources
-- [`docs/MODULES-FACTS-SEATS.md`](docs/MODULES-FACTS-SEATS.md) — Layer 3b `usa-wa-facts-seats`: House Position matching and back-chaining, PDC observations
+- [`docs/MODULES-FACTS-SEATS.md`](docs/MODULES-FACTS-SEATS.md) — Layer 3b `usa-wa-facts-seats`: House Position matching and back-chaining
 - [`docs/MODULES-DEPLOYMENT.md`](docs/MODULES-DEPLOYMENT.md) — Layer 4: the API deployment, repo-root directories
 
 ## Infrastructure

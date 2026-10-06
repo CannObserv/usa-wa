@@ -152,8 +152,9 @@ def _opens_after_seating(span: TenureSpan, event: SuccessionEvent) -> bool:
     on its floor: Saldaña, seated 2016-12-12, holds ``senate-37:2017-18`` from 2017-01-01;
     Graham Hunt, seated 2014-01-18, holds ``ld-2-position-1:2015-16`` from 2015-01-01. The date
     lies before the window, so :func:`_matches_seat` cannot see it, and the event was recorded,
-    provenanced and inert — the one place the asymmetry ``POSITION_LOOKBACK_YEARS`` and
-    ``SEATING_ADJACENT_BIENNIA`` already handle on the resolve side went unhandled here.
+    provenanced and inert — the one place the asymmetry the roster succession resolver's
+    ``POSITION_LOOKBACK_YEARS`` and ``SEATING_ADJACENT_BIENNIA`` handled (resolver deleted in
+    #471) went unhandled here.
 
     Two bounds keep it to that shape. **One biennium**: a seating further back has a biennium
     between it and the span in which the member was listed nowhere. **A quantized start**: the
@@ -186,10 +187,10 @@ def _seating_starts_tenure(span: TenureSpan, effective_date: date) -> bool:
     mid-biennium appointee is absent from the sponsor roster of the biennium they were
     appointed into, so their first span opens at the *following* one (Graham Hunt, appointed
     2014-01-17, has only ``ld-2-position-1:2015-16``). Requiring containment would refuse
-    exactly the events worth applying — the same asymmetry ``POSITION_LOOKBACK_YEARS`` encodes
-    on the resolve side. Under :func:`_matches_seat` the window must also hold the date, so a
-    span keyed a biennium late reaches this only once something earlier dated it; the floor-
-    quantized case is :func:`_opens_after_seating`'s (usa-wa#282)."""
+    exactly the events worth applying — the same asymmetry ``POSITION_LOOKBACK_YEARS`` encoded
+    on the (since-deleted, #471) resolve side. Under :func:`_matches_seat` the window must also
+    hold the date, so a span keyed a biennium late reaches this only once something earlier
+    dated it; the floor-quantized case is :func:`_opens_after_seating`'s (usa-wa#282)."""
     return (
         parse_biennium(span.start_biennium)[0]
         >= parse_biennium(biennium_for_date(effective_date))[0]
