@@ -18,7 +18,7 @@ from usa_wa_facts_seats.house.backchain import (
     REDISTRICTING_ERA_START_BIENNIA,
     backchain_house_observations,
 )
-from usa_wa_facts_seats.pdc.matching import build_house_roster
+from usa_wa_facts_seats.house.roster import build_house_roster
 
 # 2001-map era bienniums (no redistricting break between them); 2003-04 is the era floor.
 ERA_2001 = ["2003-04", "2005-06", "2007-08", "2009-10"]

@@ -1,15 +1,14 @@
-"""Pure PDC↔WSL roster matching primitives (#79).
+"""The WSL House roster builder (#79) and its chamber-mover exclusion (#105 (a), #145).
 
-Direct unit coverage of the within-LD match cascade that seats a PDC winner onto a WSL member —
-including the **party tiebreak** for a shared-surname LD and the "leave unresolved, never guess"
-paths. These back the observation projector but are exercised here in isolation so the tricky
-branches (shared surname split by party; ambiguous → ``None``) are pinned directly.
+Direct unit coverage of ``build_house_roster`` — grouping by LD, skipping unparseable and
+non-House rows, dropping a same-wire House→Senate mover and an excluded stale member — and of
+``house_mover_ids``, the mover set the conformed House hands the overlay.
 """
 
 from __future__ import annotations
 
 from usa_wa_common.parties import canonicalize_party
-from usa_wa_facts_seats.pdc.matching import (
+from usa_wa_facts_seats.house.roster import (
     build_house_roster,
     house_mover_ids,
 )

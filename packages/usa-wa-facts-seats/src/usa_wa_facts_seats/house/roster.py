@@ -1,9 +1,9 @@
-"""The WSL House roster for the within-LD Position match (#79) — pure.
+"""The WSL House roster the House Position seat matches the ballot against (#79/#105) — pure.
 
 Extracted from the retired per-biennium house-positions normalizer. No DB access — everything
-here operates on a ``GetSponsors`` pull, built into ``{LD: [HouseRosterEntry]}``. The PDC
-winner matchers that once shared it (``match_house_member``, ``find_confirming_senator`` and
-the Senate roster behind the latter) went with their one caller, ``pdc.observations``, in #471.
+here operates on a ``GetSponsors`` pull, built into ``{LD: [HouseRosterEntry]}``. Lived in
+``usa_wa_facts_seats.pdc.matching`` until #471 deleted the PDC winner matchers that shared it
+(``match_house_member``, ``find_confirming_senator``) with their one caller, ``pdc.observations``.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 @dataclass(frozen=True)
 class HouseRosterEntry:
     """One WSL House member for the within-LD match: the stable member id, the folded
-    surname tested against a winner's name tokens, and the party for a tiebreak."""
+    surname tested against a ballot name's keys, and the party for a tiebreak."""
 
     member_id: str
     folded_last: str

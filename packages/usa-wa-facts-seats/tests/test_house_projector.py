@@ -15,7 +15,7 @@ from usa_wa_common.ballot import HousePosition
 from usa_wa_common.names import surname_match_set
 from usa_wa_common.parties import sos_party_slug
 from usa_wa_facts_seats.house.projector import build_house_seat_observations
-from usa_wa_facts_seats.pdc.matching import build_house_roster
+from usa_wa_facts_seats.house.roster import build_house_roster
 
 BIENNIUM = "2013-14"
 
