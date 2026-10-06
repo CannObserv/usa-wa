@@ -76,7 +76,7 @@ The data state the same night, which is correct and needs no repair:
 |---|---|
 | `assignments` | same row count; **0 active**; every 2025-26 span `valid_to = 2026-12-31` |
 | `organizations` | same row count; every committee and Joint/Other body `active = false` (API.md) |
-| publish | new versions of `assignments`, `organizations`, `stg_raw_fetches`; **no shrink refusal** |
+| publish | new versions of `assignments`, `organizations`, `stg_raw_fetches`; **no shrink or floor refusal** (a floor refusal is a real regression — the floors sit ~5% under the 2026-10-06 counts, #472) |
 | `registry_coverage`, `parity_citations` | ok |
 
 ## When WSL publishes 2027-28
