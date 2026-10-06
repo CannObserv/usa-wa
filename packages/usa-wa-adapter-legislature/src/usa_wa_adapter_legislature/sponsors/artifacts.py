@@ -12,8 +12,9 @@ archive.
 An artifact here is a *fully-formed* WSL row (named, committee-present in the wire), so no
 automatic signal catches it; it needs a curated correction. The denylist is unioned into the
 ``exclude_ids_by_biennium`` set :func:`sponsors.projector.build_sponsor_observations` already
-honours, so no unrestricted rebuild ever re-derives the phantom span (#54-safe — the archive is
-never rewritten; the correction lives in the canonical-derivation layer).
+honours, so no rebuild ever re-derives the phantom span (#54-safe — the archive is never
+rewritten; the correction lives in the derivation, which ``conformed/spans.py`` applies on every
+build).
 
 This was **Phase 1** of the #144 fix: it prevents *re-derivation*. **Phase 2** — retracting the
 already-produced PM-anchored rows, blocked on a producer retraction verb (power-map#391) — went
