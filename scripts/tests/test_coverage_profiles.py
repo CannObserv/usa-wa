@@ -147,9 +147,9 @@ def test_the_whole_tree_floor_is_the_measured_one() -> None:
 
 def test_the_unit_floor_is_the_measured_one() -> None:
     """The unit floor is measured, not chosen (#198), and re-measured at #413's second
-    pass: after #412 deleted the DB-only canonical tier the unit tier could never reach,
-    it covered 87.69% of ``packages/*/src/**`` (6,787 / 7,740 statements; two isolated
-    runs, identical) on 2026-10-06, so the floor sits ~1.7pp below that. A different
+    pass: after #412 deleted the canonical tier, mostly source only db tests reached, it
+    covered 87.69% of ``packages/*/src/**`` (6,787 / 7,740 statements; two isolated runs,
+    identical) on 2026-10-06, so the floor sits ~1.7pp below that. A different
     number here means somebody moved the floor without re-measuring — the pyproject
     comment records the measurement."""
     assert _ini()["unit_cov_fail_under"] == "86"
