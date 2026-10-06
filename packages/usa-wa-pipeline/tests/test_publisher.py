@@ -12,6 +12,7 @@ from usa_wa_pipeline.publish import (
     CSV_DIALECT,
     PUBLISH_GRACE,
     PUBLISHED_DATASETS,
+    SHRINK_WINDOW,
     ContractRelease,
     PublishedDataset,
     PublishRefused,
@@ -797,3 +798,126 @@ def test_one_missed_run_is_stale_at_the_subscribers_next_daily_pull() -> None:
     # and no false alarm inside the next run's own publish window
     assert _utc("2026-09-23T08:30") < deadline
     assert deadline - _utc("2026-09-23T08:00") < timedelta(hours=1)
+
+
+def _set_persons(db, count: int, *, tag: str = "") -> None:
+    """Rebuild ``persons`` at exactly ``count`` rows. ``tag`` varies the bytes at
+    an unchanged count, so a run mints a fresh version without moving its size."""
+    con = duckdb.connect(str(db))
+    con.execute("drop table persons")
+    con.execute(
+        "create table persons as select printf('%04d', i) as entity_id, "
+        f"'{tag}' || i as name_full from range({count}) t(i)"
+    )
+    con.close()
+
+
+def test_a_nightly_decay_under_the_threshold_is_refused(built_db, tmp_path) -> None:
+    """#472: 9% a night never trips a gate that compares to the previous night.
+
+    100 → 91 → 83 is under 10% at every step, and each night's retraction-by-
+    absence would ship. Against the window's high-water mark the third night is a
+    17% shrink, which is the decay the night-over-night gate could not see."""
+    out = tmp_path / "datasets"
+    for count in (100, 91):
+        _set_persons(built_db, count)
+        publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    _set_persons(built_db, 83)  # 8.8% below last night, 17% below the window
+
+    with pytest.raises(PublishRefused, match=r"persons.*100 → 83"):
+        publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+
+def test_the_window_spans_the_last_seven_versions(built_db, tmp_path) -> None:
+    """The baseline is the max of the last :data:`SHRINK_WINDOW` minted versions,
+    not of all history: a 1%-a-version contraction leaves the window once it is
+    seven versions old, and the absolute floor is what watches drift that slow."""
+    assert SHRINK_WINDOW == 7
+    out = tmp_path / "datasets"
+    for count in range(100, 91, -1):  # nine versions: 100 … 92
+        _set_persons(built_db, count)
+        publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    _set_persons(built_db, 89)  # 11% below 100, which has left; 9.2% below 98
+
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    assert summary["minted"] == 1
+
+
+def test_an_accepted_override_rebaselines_the_window(built_db, tmp_path) -> None:
+    """``--max-shrink 1.0`` accepts a verified contraction for one run, and the
+    nights after it run with the default. Were the pre-contraction versions still
+    in their window, every one of those nights would refuse again until they aged
+    out, so the operator would have to repeat the override seven times.
+
+    Nothing records the override. A version the default gate would have refused
+    can only have been minted by one, so the history says so by itself."""
+    out = tmp_path / "datasets"
+    _set_persons(built_db, 100)
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    _set_persons(built_db, 50)
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS, max_shrink=1.0)
+
+    _set_persons(built_db, 48)  # 4% below the accepted 50, 52% below 100
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    assert summary["minted"] == 1
+
+
+def test_decay_after_an_override_is_still_measured_from_the_override(built_db, tmp_path) -> None:
+    """The rebaseline is a replay, not a scan for the latest big step (#472).
+
+    After 100 → 80 (accepted) → 85 → 79, the step to 79 is 21% below 100 but 7%
+    below 85: it passed. A scan that reset at every big step back from 100 would
+    take 79 as a second override and forget 85, letting 9% more decay through."""
+    out = tmp_path / "datasets"
+    _set_persons(built_db, 100)
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    _set_persons(built_db, 80)
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS, max_shrink=1.0)
+    for count in (85, 79):
+        _set_persons(built_db, count)
+        publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    _set_persons(built_db, 76)  # 3.8% below 79, 10.6% below 85
+
+    with pytest.raises(PublishRefused, match=r"persons.*85 → 76"):
+        publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+
+def test_an_unlisted_version_dir_is_not_a_baseline(built_db, tmp_path) -> None:
+    """A crash between a version's rename and the catalog flip leaves a complete
+    version dir the catalog never listed. It was never published, so it must not
+    raise the baseline the next night is held to."""
+    out = tmp_path / "datasets"
+    _set_persons(built_db, 100)
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    catalog = (out / "catalog.json").read_text()
+    _set_persons(built_db, 200)
+    publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+    (out / "catalog.json").write_text(catalog)  # the crash: 200 minted, never listed
+
+    _set_persons(built_db, 100, tag="x")
+    summary = publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+    assert summary["minted"] == 1
+
+
+def test_a_dataset_below_its_floor_is_refused(built_db, tmp_path) -> None:
+    """#472's second half: an absolute floor, independent of any history. It holds
+    on a first publish and through ``--max-shrink 1.0``: a flag lasts one run and
+    the floor is there the next night, so the fix is a reviewed commit lowering it."""
+    floored = [PublishedDataset("persons", "conformed", DATASETS[0].releases, min_rows=2)]
+
+    with pytest.raises(PublishRefused, match=r"persons.*1 < 2"):
+        publish(built_db, tmp_path / "datasets", _manifest(tmp_path), datasets=floored)
+    with pytest.raises(PublishRefused, match=r"persons.*1 < 2"):
+        publish(
+            built_db, tmp_path / "datasets", _manifest(tmp_path), datasets=floored, max_shrink=1.0
+        )
+
+
+def test_every_published_dataset_declares_a_floor() -> None:
+    """A floor is a decision per dataset, as publishing one is: a new entry without
+    one fails here rather than shipping with no absolute-count backstop."""
+    undeclared = [d.name for d in PUBLISHED_DATASETS if d.min_rows is None]
+    assert not undeclared, f"PUBLISHED_DATASETS entries with no min_rows: {undeclared}"

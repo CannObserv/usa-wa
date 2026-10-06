@@ -136,6 +136,7 @@ class PublishedDataset:
     name: str
     tier: str
     releases: tuple[ContractRelease, ...]
+    min_rows: int | None = None
 
     @property
     def schema_version(self) -> str:
@@ -648,6 +649,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
 ]
 
 DEFAULT_MAX_SHRINK = 0.10
+SHRINK_WINDOW = 7
 
 #: When the nightly chain runs — ``OnCalendar=`` of ``deploy/usa-wa-pipeline.timer``,
 #: daily, UTC — restated so the catalog can say when the next check is due (#386).
