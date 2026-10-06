@@ -60,14 +60,19 @@ filterwarnings = [
 # never a module list: shipping code only (the ~1000 deselected test modules score zero
 # and would swamp the total), and a module added tomorrow is measured tomorrow.
 #
-# 72 is measured, not chosen. Re-measured at #413 (2026-09-24), after #314 deleted the
-# sync stack: the tier covered 73.67% of `packages/*/src/**` (8,683/11,786 statements),
-# so the floor sits ~1.5pp low, about 200 statements of slack. (At #198 it was 64 against
-# a measured 65.47%, 7,205/11,005, with 95.75% for the full run.) Enough that one PR
-# adding a DB-backed module does not fail an unrelated build; tight enough to notice a
-# tier that stops exercising things. Ratchet it up as the number climbs; it is not an
-# aspiration. test_coverage_profiles pins both floors to their measurement, so a ratchet
-# moves the value there too. Re-measure again after #412 retires the canonical tier.
+# 86 is measured, not chosen. Re-measured at #413's second pass (2026-10-06), after #412
+# deleted the canonical tier and #471 its dead helpers: the tier covered 87.69% of
+# `packages/*/src/**` (6,787/7,740 statements; two isolated runs, identical), so the floor
+# sits ~1.7pp low, about 130 statements of slack. The jump from 73.67% is what left: net
+# of everything since 2026-09-24 the scope shrank by 4,046 statements but only 1,896
+# covered ones, so the departed code was ~47% unit-covered against 87.69% for what stayed
+# (mostly Postgres-tier source only db tests reached). (It was 72 against 73.67% after
+# #314, and 64 against 65.47% at #198.) Enough that one PR adding a DB-backed module
+# does not fail an unrelated build; tight enough to notice a tier that stops exercising
+# things. Ratchet it up as the number climbs; it is not an aspiration.
+# test_coverage_profiles pins both floors to their measurement, so a ratchet moves the
+# value there too. Measure the tier alone: a concurrent run in the same checkout shares
+# its `.coverage` data and reads high (95.00% on 2026-10-06, beside a whole-tree run).
 #
 # Gating costs the tier its speed — instrumentation roughly doubles it (~11s to ~27s
 # when this was added; 91s to 196-208s on 2026-09-22) — so `--no-cov` stays documented
@@ -82,7 +87,7 @@ filterwarnings = [
 # line still wins. The asymmetry with #198 is deliberate: the unit tier runs
 # in-process, so its number means something; this tier's does not.
 unit_cov_include = ["packages/*/src/**"]
-unit_cov_fail_under = "72"
+unit_cov_fail_under = "86"
 
 [tool.coverage.run]
 source = ["packages"]
@@ -96,11 +101,11 @@ omit = [
 
 [tool.coverage.report]
 show_missing = true
-# Measured, not chosen (#413, 2026-09-24): `pytest` covered 97.14% of `packages/`
-# (28,474/29,312 statements, source and tests) after #314 deleted the sync stack, so the
-# floor sits ~2pp below that. 80 had stood since the #1 foundation; the full run measured
-# 95.75% at #198. Re-measure after #412.
-fail_under = 95
+# Measured, not chosen (#413, 2026-10-06): `pytest` covered 97.57% of `packages/`
+# (18,529/18,990 statements, source and tests; two runs, identical) after #412 deleted
+# the canonical tier, so the floor sits ~1.5pp below that. It was 95 against 97.14% after
+# #314; 80 had stood since the #1 foundation; the full run measured 95.75% at #198.
+fail_under = 96
 
 [tool.ruff]
 line-length = 100

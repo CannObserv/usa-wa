@@ -136,20 +136,23 @@ def test_no_test_module_is_in_the_unit_scope() -> None:
 
 def test_the_whole_tree_floor_is_the_measured_one() -> None:
     """The full run's gate is measured, not chosen, and must not soften. Re-measured at
-    #413: ``pytest`` covered 97.14% of ``packages/`` (28,474 / 29,312 statements, source
-    and tests) on 2026-09-24, so the floor sits ~2pp below that. It was 80 from the #1
-    foundation; the full run measured 95.75% at #198 — slack nobody had re-examined."""
+    #413's second pass, after #412 deleted the canonical tier: ``pytest`` covered 97.57% of
+    ``packages/`` (18,529 / 18,990 statements, source and tests; two runs, identical) on
+    2026-10-06, so the floor sits ~1.5pp below that. It was 95 from #413's first pass
+    (97.14%), 80 from the #1 foundation, and the full run measured 95.75% at #198."""
     report = tomllib.loads(PYPROJECT.read_text())["tool"]["coverage"]["report"]
 
-    assert report["fail_under"] == 95
+    assert report["fail_under"] == 96
 
 
 def test_the_unit_floor_is_the_measured_one() -> None:
-    """The unit floor is measured, not chosen (#198), and re-measured at #413: the tier
-    covered 73.67% of ``packages/*/src/**`` (8,683 / 11,786 statements) on 2026-09-24,
-    so the floor sits ~1.5pp below that. A different number here means somebody moved
-    the floor without re-measuring — the pyproject comment records the measurement."""
-    assert _ini()["unit_cov_fail_under"] == "72"
+    """The unit floor is measured, not chosen (#198), and re-measured at #413's second
+    pass: after #412 deleted the canonical tier, mostly source only db tests reached, it
+    covered 87.69% of ``packages/*/src/**`` (6,787 / 7,740 statements; two isolated runs,
+    identical) on 2026-10-06, so the floor sits ~1.7pp below that. A different
+    number here means somebody moved the floor without re-measuring — the pyproject
+    comment records the measurement."""
+    assert _ini()["unit_cov_fail_under"] == "86"
 
 
 def test_the_unit_floor_is_below_the_whole_tree_floor() -> None:
