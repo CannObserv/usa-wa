@@ -362,6 +362,33 @@ async def test_supersede_of_a_retracted_event_is_a_validation_error(db_session, 
         )
 
 
+async def test_superseding_onto_a_retracted_key_is_a_validation_error(db_session, raw):
+    """CR 3: a correction whose date lands on a retracted event's natural key meets the
+    store's refusal inside ``supersede_event``; it takes the CLI's error path, not a
+    traceback."""
+    await _person(db_session, "656")
+    retracted = await validate_and_record(
+        db_session, _departed(member="656", d=date(1996, 5, 13)), raw=raw
+    )
+    await retract_by_id(db_session, str(retracted.id), evidence_url="https://x", raw=raw)
+    live = await validate_and_record(
+        db_session, _departed(member="656", d=date(1996, 6, 1)), raw=raw
+    )
+    with pytest.raises(OperatorEventError, match="retracted"):
+        await validate_and_record(
+            db_session,
+            EventSpec(
+                member_id="656",
+                kind="departed",
+                reason="died",
+                effective_date=date(1996, 5, 13),
+                evidence_url="https://x",
+                supersede_id=str(live.id),
+            ),
+            raw=raw,
+        )
+
+
 async def test_rerecording_a_retracted_event_is_a_validation_error(db_session, raw):
     await _person(db_session, "656")
     event = await validate_and_record(db_session, _departed(member="656"), raw=raw)

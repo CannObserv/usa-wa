@@ -205,18 +205,23 @@ async def validate_and_record(
             raise OperatorEventError(
                 f"--supersede: event {prior.id} was retracted; there is nothing standing to correct"
             )
-        return await supersede_event(
-            session,
-            prior,
-            raw=raw,
-            kind=spec.kind,
-            seat_kind=spec.seat_kind,
-            seat_discriminator=spec.seat_discriminator,
-            reason=spec.reason,
-            effective_date=spec.effective_date,
-            evidence_url=spec.evidence_url,
-            entered_by=_entered_by(),
-        )
+        try:
+            return await supersede_event(
+                session,
+                prior,
+                raw=raw,
+                kind=spec.kind,
+                seat_kind=spec.seat_kind,
+                seat_discriminator=spec.seat_discriminator,
+                reason=spec.reason,
+                effective_date=spec.effective_date,
+                evidence_url=spec.evidence_url,
+                entered_by=_entered_by(),
+            )
+        except ValueError as exc:
+            # CR 3: the correction's own key can be a retracted event's, which the store
+            # refuses below every check above — that refusal takes the error path too.
+            raise OperatorEventError(f"--supersede: {exc}") from exc
     try:
         return await record_operator_event(
             session,
