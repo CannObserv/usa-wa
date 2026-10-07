@@ -241,9 +241,10 @@ async def validate_and_record(
 
 
 def _parse_event_id(event_id: str) -> ULID:
-    """The row id as ``--list`` prints it (a ULID) or as psql prints it (a UUID)."""
+    """The row id as ``--list`` prints it (a ULID, in either case — Crockford base32 is
+    case-insensitive) or as psql prints it (a UUID)."""
     try:
-        return ULID.from_str(event_id)
+        return ULID.from_str(event_id.upper())
     except ValueError:
         pass
     try:

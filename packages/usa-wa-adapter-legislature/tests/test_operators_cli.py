@@ -311,6 +311,19 @@ async def test_retract_takes_the_id_as_psql_prints_it(db_session, raw):
     assert retracted.id == event.id
 
 
+async def test_retract_takes_a_lowercased_ulid(db_session, raw):
+    """CR 9: Crockford base32 is case-insensitive, and an id lowercased in transit is
+    still that id."""
+    await _person(db_session, "656")
+    event = await validate_and_record(db_session, _departed(member="656"), raw=raw)
+
+    retracted = await retract_by_id(
+        db_session, str(event.id).lower(), evidence_url="https://x", raw=raw
+    )
+
+    assert retracted.id == event.id
+
+
 async def test_retract_of_a_malformed_id_is_a_validation_error(db_session, raw):
     with pytest.raises(OperatorEventError, match="neither a ULID nor a UUID"):
         await retract_by_id(db_session, "656", evidence_url="https://x", raw=raw)
