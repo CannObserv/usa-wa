@@ -131,8 +131,6 @@ async def record_operator_event(
         seat_kind=seat_kind,
         seat_discriminator=seat_discriminator,
     )
-    raw.add(sid, body, datetime.now(UTC))
-
     existing = (
         await session.execute(
             select(OperatorEvent).where(
@@ -140,13 +138,16 @@ async def record_operator_event(
             )
         )
     ).scalar_one_or_none()
+    if existing is not None and existing.retracted_at is not None:
+        # Updating it would touch a row no reader sees and report it recorded. Refused
+        # before the body is buffered (CR 7): a refusal leaves nothing to flush.
+        raise ValueError(
+            f"event {existing.id} ({sid}) was retracted; reviving a retracted boundary "
+            "is a decision, not a re-record"
+        )
+    raw.add(sid, body, datetime.now(UTC))
+
     if existing is not None:
-        if existing.retracted_at is not None:
-            # Updating it would touch a row no reader sees and report it recorded.
-            raise ValueError(
-                f"event {existing.id} ({sid}) was retracted; reviving a retracted boundary "
-                "is a decision, not a re-record"
-            )
         existing.reason = reason
         existing.evidence_url = evidence_url
         if entered_by is not None:

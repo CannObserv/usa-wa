@@ -486,3 +486,18 @@ class TestRetract:
         await retract_event(db_session, event, raw=raw, evidence_url=_RETRACTION_URL)
         with pytest.raises(ValueError, match="retracted"):
             await record_operator_event(db_session, raw=raw, **_RAMOS)
+
+    async def test_a_refused_re_record_buffers_nothing(self, db_session, tmp_path) -> None:
+        """CR 7: a refusal leaves nothing behind. Were the event's body buffered before the
+        refusal, a caller that caught it and flushed would make the plain event the key's
+        newest body — the raw store saying it stands while the registry says retracted."""
+        raw = PendingAttestations.for_operator(tmp_path)
+        event = await record_operator_event(db_session, raw=raw, **_RAMOS)
+        await retract_event(db_session, event, raw=raw, evidence_url=_RETRACTION_URL)
+        raw.flush()
+
+        with pytest.raises(ValueError, match="retracted"):
+            await record_operator_event(db_session, raw=raw, **_RAMOS)
+        raw.flush()
+
+        assert json.loads(_archived(raw, event.source_id))["retracted"] is True
