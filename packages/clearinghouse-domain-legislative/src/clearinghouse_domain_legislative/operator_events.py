@@ -176,8 +176,8 @@ class OperatorEvent(Base, TimestampMixin):
     evidence_url: Mapped[str] = mapped_column(Text, nullable=False)
     entered_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
-    #: A correction appends a new row and stamps the prior one here; the overlay reads
-    #: only rows where this is NULL (the current, non-superseded attestation).
+    #: A correction appends a new row and stamps the prior one here. NULL here is half of
+    #: "current" — readers take :func:`current_clause`, which also excludes a retraction.
     superseded_by_id: Mapped[_ULID | None] = mapped_column(
         ULID(),
         ForeignKey(f"{SCHEMA}.operator_events.id", ondelete="SET NULL"),
