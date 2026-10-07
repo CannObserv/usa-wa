@@ -353,18 +353,20 @@ def _format_event(event: OperatorEvent) -> str:
 
 
 async def _run(session: AsyncSession, args: argparse.Namespace, raw: PendingAttestations) -> int:
-    if args.list:
-        events = await current_events(session)
-        for event in events:
-            print(_format_event(event))
-        print(f"{len(events)} current operator event(s)")
-        return 0
-
+    # Before --list (CR 2): a --list beside it would otherwise win and exit 0 having
+    # retracted nothing; the arg check refuses the pair instead.
     if args.retract:
         _check_retract_args(args)
         event = await retract_by_id(session, args.retract, evidence_url=args.evidence_url, raw=raw)
         print(_format_event(event))
         print("retracted 1 operator event")
+        return 0
+
+    if args.list:
+        events = await current_events(session)
+        for event in events:
+            print(_format_event(event))
+        print(f"{len(events)} current operator event(s)")
         return 0
 
     if args.file:

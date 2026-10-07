@@ -376,6 +376,8 @@ async def test_rerecording_a_retracted_event_is_a_validation_error(db_session, r
         ["--retract", "01KXNRSMC0K1K01H2213BYQDDN"],
         ["--retract", "01KXNRSMC0K1K01H2213BYQDDN", "--evidence-url", "u", "--member-id", "1"],
         ["--retract", "01KXNRSMC0K1K01H2213BYQDDN", "--evidence-url", "u", "--file", "x.json"],
+        # CR 2: --list must not win and exit 0 having retracted nothing.
+        ["--retract", "01KXNRSMC0K1K01H2213BYQDDN", "--evidence-url", "u", "--list"],
     ],
 )
 def test_main_retract_takes_only_an_evidence_url(monkeypatch, capsys, argv):
