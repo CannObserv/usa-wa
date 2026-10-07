@@ -113,11 +113,11 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
     event is recorded plainly instead — for a ``--file`` batch, the same file re-run with
     every ``supersede_id`` removed. A committee link's ``--clear-year`` goes too: it needs
     ``--supersede``, and a link recorded with no year is the cleared one, under its own key.
-    A ``--retract`` is the exception (#468): it is idempotent on a retracted event, so the
-    original command re-run is the recovery.
     The re-record restamps the row's ``entered_by`` with whoever runs it, as any re-record
     does; the field is not in the archived body, so the raw store keeps no record of the
-    original author either. (Until #412 PR F the recovery was ``raw_export`` from the
+    original author either. A ``--retract`` is the exception on both counts (#468): it is
+    idempotent on a retracted event, so the original command re-run is the recovery, and it
+    leaves ``entered_by`` alone. (Until #412 PR F the recovery was ``raw_export`` from the
     Postgres copy, which no longer exists.)
     """
     try:
