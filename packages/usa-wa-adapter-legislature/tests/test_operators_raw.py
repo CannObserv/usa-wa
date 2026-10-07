@@ -161,6 +161,8 @@ async def test_a_failed_flush_says_the_database_write_committed(tmp_path, monkey
     # too — named as the committee CLI's, since the operator CLI has no such flag.
     assert "without --supersede (or a committee link's --clear-year" in str(raised.value)
     assert "every supersede_id and clear_year removed" in str(raised.value)
+    # A retraction is the exception: re-running it as it was IS the recovery (#468).
+    assert "a --retract: re-run it as it was" in str(raised.value)
 
 
 async def test_any_failure_after_the_commit_is_an_archive_error(tmp_path):

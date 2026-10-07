@@ -12,6 +12,8 @@ natural key. A correction archives the corrected event as its own body; *which* 
 superseded (``superseded_by_id``) and who entered it (``entered_by``) live only in the
 registry tables, as they lived only in the projection under Postgres provenance too. The
 raw store can say what was attested; the registry's backups say which attestation stands.
+A retraction (#468) is the one exception that lands here: it is archived as the event's
+newest body, under the event's own key, so that key's latest bytes say it no longer stands.
 
 **Buffered, flushed after commit.** The stores write inside the caller's transaction,
 and a rolled-back write (``--dry-run``, a validation failure) must leave nothing behind
@@ -111,6 +113,8 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
     event is recorded plainly instead — for a ``--file`` batch, the same file re-run with
     every ``supersede_id`` removed. A committee link's ``--clear-year`` goes too: it needs
     ``--supersede``, and a link recorded with no year is the cleared one, under its own key.
+    A ``--retract`` is the exception (#468): it is idempotent on a retracted event, so the
+    original command re-run is the recovery.
     The re-record restamps the row's ``entered_by`` with whoever runs it, as any re-record
     does; the field is not in the archived body, so the raw store keeps no record of the
     original author either. (Until #412 PR F the recovery was ``raw_export`` from the
@@ -124,8 +128,8 @@ async def flush_after_commit(raw: PendingAttestations) -> Path | None:
             f"the database write committed, but archiving it to {raw.store.source_dir} "
             f"failed ({exc}); record the event again as it now stands, without --supersede "
             "(or a committee link's --clear-year; a --file batch: re-run it with every "
-            "supersede_id and clear_year removed): the write is idempotent and archives its "
-            "bytes"
+            "supersede_id and clear_year removed; a --retract: re-run it as it was): the write "
+            "is idempotent and archives its bytes"
         ) from exc
 
 

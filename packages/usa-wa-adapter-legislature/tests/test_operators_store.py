@@ -11,6 +11,7 @@ from usa_wa_adapter_legislature.operators.raw import PendingAttestations
 from usa_wa_adapter_legislature.operators.store import (
     current_events,
     record_operator_event,
+    retract_event,
     supersede_event,
 )
 
@@ -265,10 +266,10 @@ class TestSupersedeReclassifies:
                 seat_discriminator="ld-1-position-1",
             )
 
-    async def test_a_retracted_row_cannot_be_superseded_again(self, db_session, tmp_path) -> None:
+    async def test_a_superseded_row_cannot_be_superseded_again(self, db_session, tmp_path) -> None:
         """CR 148, the invariant under the batch fix: `superseded_by_id` is a chain
         link, and re-stamping it orphans the correction it pointed at. A caller
-        that reaches a retracted row is looking at the wrong row."""
+        that reaches a superseded row is looking at the wrong row."""
         raw = PendingAttestations.for_operator(tmp_path)
         prior = await record_operator_event(
             db_session,
@@ -367,3 +368,103 @@ class TestSeatScopeInvariant:
                 seat_kind="chamber-senate",
                 seat_discriminator="5",
             )
+
+
+_RETRACTION_URL = "https://example.gov/roster#page=69"
+
+
+class TestRetract:
+    """#468. An event can be wrong with nothing to correct it to: the 2026-08-17 roster
+    backfill parsed Betty Sue Morris's 1996 resignation onto Jim Springer's 1993 row,
+    so member 656 carries a departure he never made. Superseding needs a corrected
+    event for the same member, and there is none. Retraction takes the row out of the
+    current set and keeps it, with its retraction archived beside its attestation."""
+
+    async def test_a_retracted_event_is_no_longer_current(self, db_session, tmp_path) -> None:
+        raw = PendingAttestations.for_operator(tmp_path)
+        event = await record_operator_event(db_session, raw=raw, **_RAMOS)
+
+        retracted = await retract_event(
+            db_session, event, raw=raw, evidence_url=_RETRACTION_URL, entered_by="greg"
+        )
+
+        assert retracted.id == event.id
+        assert retracted.retracted_at is not None
+        assert retracted.superseded_by_id is None
+        assert await current_events(db_session) == []
+
+    async def test_the_retraction_lands_in_the_raw_store_under_the_event_key(
+        self, db_session, tmp_path
+    ) -> None:
+        """The raw store is the only provenance, so the retraction is archived as the
+        event's newest body: ``latest.json`` then names a body that says it no longer
+        stands, and why."""
+        raw = PendingAttestations.for_operator(tmp_path)
+        event = await record_operator_event(db_session, raw=raw, **_RAMOS)
+        await retract_event(db_session, event, raw=raw, evidence_url=_RETRACTION_URL)
+        raw.flush()
+
+        assert json.loads(_archived(raw, event.source_id)) == {
+            "member_id": "29091",
+            "kind": "departed",
+            "reason": "died",
+            "effective_date": "2025-04-19",
+            "evidence_url": "https://example.gov/ramos",
+            "seat_kind": None,
+            "seat_discriminator": None,
+            "retracted": True,
+            "retraction_evidence_url": _RETRACTION_URL,
+        }
+
+    async def test_retracting_again_restores_a_lost_raw_copy(self, db_session, tmp_path) -> None:
+        """The post-commit recovery: the same retraction re-run is idempotent — it keeps
+        the first retraction time and archives the bytes that never landed."""
+        lost = PendingAttestations.for_operator(tmp_path)
+        event = await record_operator_event(db_session, raw=lost, **_RAMOS)
+        first = await retract_event(db_session, event, raw=lost, evidence_url=_RETRACTION_URL)
+        stamped = first.retracted_at
+
+        raw = PendingAttestations.for_operator(tmp_path)
+        again = await retract_event(db_session, event, raw=raw, evidence_url=_RETRACTION_URL)
+        raw.flush()
+
+        assert again.retracted_at == stamped
+        assert json.loads(_archived(raw, event.source_id))["retracted"] is True
+
+    async def test_a_superseded_event_cannot_be_retracted(self, db_session, tmp_path) -> None:
+        """Its correction is what stands; retracting the prior says nothing about it."""
+        raw = PendingAttestations.for_operator(tmp_path)
+        prior = await record_operator_event(db_session, raw=raw, **_RAMOS)
+        await supersede_event(
+            db_session,
+            prior,
+            raw=raw,
+            reason="died",
+            effective_date=date(2025, 4, 20),
+            evidence_url="https://example.gov/b",
+        )
+        with pytest.raises(ValueError, match="superseded"):
+            await retract_event(db_session, prior, raw=raw, evidence_url=_RETRACTION_URL)
+
+    async def test_a_retracted_event_cannot_be_superseded(self, db_session, tmp_path) -> None:
+        raw = PendingAttestations.for_operator(tmp_path)
+        event = await record_operator_event(db_session, raw=raw, **_RAMOS)
+        await retract_event(db_session, event, raw=raw, evidence_url=_RETRACTION_URL)
+        with pytest.raises(ValueError, match="retracted"):
+            await supersede_event(
+                db_session,
+                event,
+                raw=raw,
+                reason="died",
+                effective_date=date(2025, 4, 20),
+                evidence_url="https://example.gov/b",
+            )
+
+    async def test_a_retracted_event_cannot_be_recorded_again(self, db_session, tmp_path) -> None:
+        """Re-recording its natural key would update a row no reader sees and report it
+        recorded. Reviving a retracted boundary is a decision, not an upsert."""
+        raw = PendingAttestations.for_operator(tmp_path)
+        event = await record_operator_event(db_session, raw=raw, **_RAMOS)
+        await retract_event(db_session, event, raw=raw, evidence_url=_RETRACTION_URL)
+        with pytest.raises(ValueError, match="retracted"):
+            await record_operator_event(db_session, raw=raw, **_RAMOS)

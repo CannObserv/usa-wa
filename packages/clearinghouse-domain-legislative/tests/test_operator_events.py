@@ -1,6 +1,6 @@
 """OperatorEvent model round-trip + constraints (#107)."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from sqlalchemy import select
@@ -10,6 +10,7 @@ from clearinghouse_domain_legislative.operator_events import (
     KIND_DEPARTED,
     KIND_SEATED,
     OperatorEvent,
+    current_clause,
     event_source_id,
 )
 
@@ -108,3 +109,39 @@ async def test_supersedes_chain(db_session, usa_wa):
         )
     ).scalar_one()
     assert current.effective_date == date(2025, 4, 20)
+
+
+def _ramos(day: int = 19) -> OperatorEvent:
+    return OperatorEvent(
+        source_id=event_source_id("29091", KIND_DEPARTED, date(2025, 4, day)),
+        member_id="29091",
+        kind=KIND_DEPARTED,
+        reason="died",
+        effective_date=date(2025, 4, day),
+        evidence_url="https://example.gov/ramos",
+    )
+
+
+async def test_a_retracted_row_is_not_current(db_session, usa_wa):
+    """#468: an event can be wrong with no corrected event to replace it — a boundary
+    projected onto a member who never crossed it. Retraction leaves the row (provenance
+    is append-only) and takes it out of the current set every reader shares."""
+    kept, retracted = _ramos(19), _ramos(20)
+    retracted.retracted_at = datetime(2026, 10, 7, tzinfo=UTC)
+    db_session.add_all([kept, retracted])
+    await db_session.flush()
+
+    current = (await db_session.execute(select(OperatorEvent).where(current_clause()))).scalars()
+    assert [row.id for row in current] == [kept.id]
+
+
+async def test_a_row_is_superseded_or_retracted_never_both(db_session, usa_wa):
+    """A superseded row is already out of the current set, and a retraction of it would
+    say nothing about the correction that stands in its place."""
+    original, correction = _ramos(19), _ramos(20)
+    db_session.add_all([original, correction])
+    await db_session.flush()
+    original.superseded_by_id = correction.id
+    original.retracted_at = datetime(2026, 10, 7, tzinfo=UTC)
+    with pytest.raises(IntegrityError):
+        await db_session.flush()

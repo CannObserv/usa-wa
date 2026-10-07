@@ -11,6 +11,8 @@
 
     python -m usa_wa_adapter_legislature.operators.cli --file events.json   # batch
     python -m usa_wa_adapter_legislature.operators.cli --supersede <id> ... # correction
+    python -m usa_wa_adapter_legislature.operators.cli --retract <id> \
+        --evidence-url https://...                                          # withdrawal
     python -m usa_wa_adapter_legislature.operators.cli --list               # inspect
 
 App-role DML (writes ``registry.operator_events``; the attestation lands in the raw store under
@@ -18,7 +20,8 @@ App-role DML (writes ``registry.operator_events``; the attestation lands in the 
 that ``member_id`` is a registered WSL member, and a committee seat's id a registered committee,
 before writing (a typo would otherwise be a silent no-op overlay). ``--dry-run`` rolls back. The
 nightly pipeline applies each event as an authoritative overlay on its next build; provenance is
-append-only, corrections via ``--supersede``.
+append-only, corrections via ``--supersede``, and an event with nothing to correct it to — a
+boundary the member never crossed — withdrawn via ``--retract`` (#468).
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from ulid import ULID
 
 from clearinghouse_core.job import (
     EXIT_CONFIG,
@@ -61,6 +65,7 @@ from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archiv
 from usa_wa_adapter_legislature.operators.store import (
     current_events,
     record_operator_event,
+    retract_event,
     supersede_event,
 )
 
@@ -195,6 +200,10 @@ async def validate_and_record(
                 "--supersede: seat differs from the prior event's "
                 f"{prior.seat_kind}:{prior.seat_discriminator}"
             )
+        if prior.retracted_at is not None:
+            raise OperatorEventError(
+                f"--supersede: event {prior.id} was retracted; there is nothing standing to correct"
+            )
         return await supersede_event(
             session,
             prior,
@@ -207,18 +216,47 @@ async def validate_and_record(
             evidence_url=spec.evidence_url,
             entered_by=_entered_by(),
         )
-    return await record_operator_event(
-        session,
-        raw=raw,
-        member_id=spec.member_id,
-        kind=spec.kind,
-        reason=spec.reason,
-        effective_date=spec.effective_date,
-        evidence_url=spec.evidence_url,
-        seat_kind=spec.seat_kind,
-        seat_discriminator=spec.seat_discriminator,
-        entered_by=_entered_by(),
-    )
+    try:
+        return await record_operator_event(
+            session,
+            raw=raw,
+            member_id=spec.member_id,
+            kind=spec.kind,
+            reason=spec.reason,
+            effective_date=spec.effective_date,
+            evidence_url=spec.evidence_url,
+            seat_kind=spec.seat_kind,
+            seat_discriminator=spec.seat_discriminator,
+            entered_by=_entered_by(),
+        )
+    except ValueError as exc:
+        # The store's refusal (a retracted natural key) takes the CLI's error path.
+        raise OperatorEventError(str(exc)) from exc
+
+
+async def retract_by_id(
+    session: AsyncSession, event_id: str, *, evidence_url: str, raw: PendingAttestations
+) -> OperatorEvent:
+    """Retract the event ``event_id`` (#468); return the row.
+
+    For an event that was never true — a boundary projected onto a member who never
+    crossed it — not one recorded wrong, which ``--supersede`` corrects. Raises
+    :class:`OperatorEventError` on an unknown or superseded id (no partial write)."""
+    try:
+        key = ULID.from_str(event_id)
+    except ValueError as exc:
+        raise OperatorEventError(f"--retract id {event_id!r} is not a ULID") from exc
+    event = (
+        await session.execute(select(OperatorEvent).where(OperatorEvent.id == key))
+    ).scalar_one_or_none()
+    if event is None:
+        raise OperatorEventError(f"--retract id {event_id!r} not found")
+    try:
+        return await retract_event(
+            session, event, raw=raw, evidence_url=evidence_url, entered_by=_entered_by()
+        )
+    except ValueError as exc:
+        raise OperatorEventError(f"--retract: {exc}") from exc
 
 
 def _entered_by() -> str | None:
@@ -273,6 +311,29 @@ def _spec_from_args(args: argparse.Namespace) -> EventSpec:
     )
 
 
+#: Every flag that describes an event to record — none of which a retraction takes.
+_EVENT_FLAGS = (
+    "member_id",
+    "kind",
+    "reason",
+    "effective_date",
+    "seat_kind",
+    "seat_discriminator",
+    "supersede",
+    "file",
+    "list",
+)
+
+
+def _check_retract_args(args: argparse.Namespace) -> None:
+    """A retraction names a row and why; anything else is a half-typed other command."""
+    if not args.evidence_url:
+        raise OperatorEventError("--retract needs --evidence-url: why the event never held")
+    extra = [f"--{name.replace('_', '-')}" for name in _EVENT_FLAGS if getattr(args, name)]
+    if extra:
+        raise OperatorEventError(f"--retract takes only --evidence-url; also got {extra}")
+
+
 def _format_event(event: OperatorEvent) -> str:
     seat = f" seat={event.seat_kind}:{event.seat_discriminator}" if event.seat_kind else ""
     return (
@@ -287,6 +348,13 @@ async def _run(session: AsyncSession, args: argparse.Namespace, raw: PendingAtte
         for event in events:
             print(_format_event(event))
         print(f"{len(events)} current operator event(s)")
+        return 0
+
+    if args.retract:
+        _check_retract_args(args)
+        event = await retract_by_id(session, args.retract, evidence_url=args.evidence_url, raw=raw)
+        print(_format_event(event))
+        print("retracted 1 operator event")
         return 0
 
     if args.file:
@@ -318,6 +386,11 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
         "--supersede",
         help="prior event id to correct: a date change, or a reclassification within "
         "endings (departed <-> vacated); never an ending into a beginning",
+    )
+    parser.add_argument(
+        "--retract",
+        help="event id to withdraw with nothing in its place — a boundary the member never "
+        "crossed (#468); takes only --evidence-url, the reason it never held",
     )
     parser.add_argument("--file", help="JSON array of event objects (batch)")
     parser.add_argument("--list", action="store_true", help="list current operator events")

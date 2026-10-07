@@ -12,8 +12,11 @@ fact (``departed`` / ``seated`` on a date); :func:`record_operator_event` persis
 
 A **correction** that moves the effective date is a *new* event (distinct natural key)
 that :func:`supersede_event` stamps onto the prior row's ``superseded_by_id``. Provenance
-is never mutated (#54). :func:`current_events` returns only non-superseded rows — what the
-pipeline's overlay consumes on every build.
+is never mutated (#54). An event with nothing to correct it to — a boundary the member
+never crossed (#468) — is **retracted** by :func:`retract_event`: the row stays, stamped
+``retracted_at``, and its retraction is archived as the event's newest raw body.
+:func:`current_events` returns only rows that are neither — what the pipeline's overlay
+consumes on every build.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from clearinghouse_domain_legislative.operator_events import (
     OPERATOR_SOURCE_SLUG,
     SEAT_SCOPED_KINDS,
     OperatorEvent,
+    current_clause,
     event_source_id,
 )
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations
@@ -44,8 +48,10 @@ def _serialize_event(
     evidence_url: str,
     seat_kind: str | None,
     seat_discriminator: str | None,
+    extra: dict[str, object] | None = None,
 ) -> bytes:
-    """Canonical JSON bytes for the event — the hashed, archived provenance body."""
+    """Canonical JSON bytes for the event — the hashed, archived provenance body.
+    ``extra`` adds fields beside the event's own (a retraction's, #468)."""
     return json.dumps(
         {
             "member_id": member_id,
@@ -55,6 +61,7 @@ def _serialize_event(
             "evidence_url": evidence_url,
             "seat_kind": seat_kind,
             "seat_discriminator": seat_discriminator,
+            **(extra or {}),
         },
         sort_keys=True,
     ).encode("utf-8")
@@ -134,6 +141,12 @@ async def record_operator_event(
         )
     ).scalar_one_or_none()
     if existing is not None:
+        if existing.retracted_at is not None:
+            # Updating it would touch a row no reader sees and report it recorded.
+            raise ValueError(
+                f"event {existing.id} ({sid}) was retracted; reviving a retracted boundary "
+                "is a decision, not a re-record"
+            )
         existing.reason = reason
         existing.evidence_url = evidence_url
         if entered_by is not None:
@@ -183,12 +196,14 @@ async def supersede_event(
     """
     if prior.superseded_by_id is not None:
         # `superseded_by_id` is a chain link (CR 148). Re-stamping it orphans the
-        # correction it already points at; a caller here is looking at a retracted
+        # correction it already points at; a caller here is looking at a superseded
         # row and should be told, not accommodated.
         raise ValueError(
             f"event {prior.id} is already superseded by {prior.superseded_by_id}; correct the "
-            "live row, never re-stamp a retracted one"
+            "live row, never re-stamp a superseded one"
         )
+    if prior.retracted_at is not None:
+        raise ValueError(f"event {prior.id} was retracted; there is nothing standing to correct")
     new_kind = kind or prior.kind
     if new_kind != prior.kind and not {new_kind, prior.kind} <= ENDING_KINDS:
         raise ValueError(
@@ -226,12 +241,57 @@ async def supersede_event(
     return corrected
 
 
+async def retract_event(
+    session: AsyncSession,
+    event: OperatorEvent,
+    *,
+    raw: PendingAttestations,
+    evidence_url: str,
+    entered_by: str | None = None,
+) -> OperatorEvent:
+    """Withdraw ``event`` with nothing in its place (#468) and return it.
+
+    For the event that was never true, not the one recorded wrong: a date or a reading
+    to fix is :func:`supersede_event`. The row stays (#54) and leaves the current set.
+    Its retraction is buffered under the event's own natural key — the event's fields,
+    ``retracted``, and the evidence for the withdrawal — so the raw store's newest body
+    for that key says the attestation no longer stands.
+
+    Idempotent, and that is the post-commit recovery: retracting a retracted event keeps
+    its first ``retracted_at`` and re-buffers the same bytes, which the flush archives
+    if they never landed. ``entered_by`` restamps, as a re-record does.
+    """
+    if event.superseded_by_id is not None:
+        raise ValueError(
+            f"event {event.id} is superseded by {event.superseded_by_id}; retract the live "
+            "row, if it is the one that is wrong"
+        )
+    body = _serialize_event(
+        member_id=event.member_id,
+        kind=event.kind,
+        reason=event.reason,
+        effective_date=event.effective_date,
+        evidence_url=event.evidence_url,
+        seat_kind=event.seat_kind,
+        seat_discriminator=event.seat_discriminator,
+        extra={"retracted": True, "retraction_evidence_url": evidence_url},
+    )
+    now = datetime.now(UTC)
+    raw.add(event.source_id, body, now)
+    if event.retracted_at is None:
+        event.retracted_at = now
+    if entered_by is not None:
+        event.entered_by = entered_by
+    await session.flush()
+    return event
+
+
 async def current_events(
     session: AsyncSession, *, member_ids: Iterable[str] | None = None
 ) -> Sequence[OperatorEvent]:
-    """The current (non-superseded) operator events, optionally scoped to ``member_ids`` —
-    what the overlay reads on every build."""
-    stmt = select(OperatorEvent).where(OperatorEvent.superseded_by_id.is_(None))
+    """The current (neither superseded nor retracted) operator events, optionally scoped to
+    ``member_ids`` — what the overlay reads on every build."""
+    stmt = select(OperatorEvent).where(current_clause())
     if member_ids is not None:
         ids = list(member_ids)
         if not ids:
@@ -243,5 +303,6 @@ async def current_events(
 __all__ = [
     "current_events",
     "record_operator_event",
+    "retract_event",
     "supersede_event",
 ]
