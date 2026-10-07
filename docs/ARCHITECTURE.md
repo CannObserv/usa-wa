@@ -170,7 +170,7 @@ they retired with it in #412.
 
 One rule binds every application input: **an input whose absence silently deletes facts must
 refuse, not return empty** (CR 57). `chamber-house` is ~4% of `assignments`, inside the publish
-gate's 10% shrink floor, so `build_house_spans` raises on an empty SOS archive under a live sponsor
+gate's 10% shrink threshold, so `build_house_spans` raises on an empty SOS archive under a live sponsor
 corpus rather than publishing no House seats.
 
 ## Worked example — WA SOS House Position

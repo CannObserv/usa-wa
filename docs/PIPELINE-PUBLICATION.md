@@ -14,9 +14,13 @@ lineage comes from the dbt manifest) as an
 immutable `USA_WA_DATASETS_ROOT/<name>/<version>/data.csv + datapackage.json`
 and flips `catalog.json` last (tmp+rename both — a crash leaves unlisted
 orphans, never a listed partial). Skip-if-unchanged: no version churn on a
-quiet day. Producer-side gates: a missing table or a row shrink beyond
-`--max-shrink` (default 10%) refuses the whole run with nothing minted —
-retraction=absence means a degraded build must never ship as mass retraction.
+quiet day. Producer-side gates: a missing table, a row count below the dataset's
+committed floor (`min_rows`), or a row shrink beyond `--max-shrink` (default 10%)
+against the max of its last 7 versions refuses the whole run with nothing minted —
+retraction=absence means a degraded build must never ship as mass retraction (#472:
+the window sees a slow nightly decay, the floors a drift slower than the window).
+`--max-shrink 1.0` accepts a verified contraction for one run and later runs measure
+from it; a floor moves only by a commit.
 The API serves the tree at `/datasets/*` with `/health/datasets` as the
 publication probe. The nightly systemd chain (`scripts/pipeline-nightly.sh`,
 `usa-wa-pipeline.timer`, daily 08:00 UTC) runs harvests → dbt build →

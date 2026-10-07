@@ -14,9 +14,11 @@ Materializes each published dataset as an immutable versioned directory —
   equal the latest version's — no version churn on a quiet day, and a
   metadata-only contract change still reaches every dataset (#385).
 - **Publish gates** (producer-side; PM's applier gates again), each refusing
-  the whole run with nothing minted: a missing table; a row-count shrink
-  beyond ``max_shrink`` (default 10%) — retraction=absence makes a degraded
-  harvest look like mass retraction, so a shrunken dataset never ships
+  the whole run with nothing minted: a missing table; a row count below the
+  dataset's committed floor (``min_rows``, #472), which no flag lifts; a
+  row-count shrink beyond ``max_shrink`` (default 10%) against the max of the
+  last :data:`SHRINK_WINDOW` versions (#472) — retraction=absence makes a
+  degraded harvest look like mass retraction, so a shrunken dataset never ships
   silently, and ``--max-shrink 1.0`` is the deliberate operator override for
   a real contraction; a dataset whose published contract changed while its
   ``schema_version`` stood still; and a ``schema_version`` declared below the
@@ -39,7 +41,9 @@ Materializes each published dataset as an immutable versioned directory —
   (``v20260903T120000Z-a1b2c3``); the catalog lists only the latest.
   Retention/pruning is deliberately absent: these are archival products at
   ~10^4 rows — sound only because skip-if-unchanged hashes a DETERMINISTIC
-  export (``order by all``), so a quiet day mints nothing.
+  export (``order by all``), so a quiet day mints nothing. The shrink gate
+  depends on it too (#472): its baseline is read from these dirs, so pruning
+  below :data:`SHRINK_WINDOW` versions would silently shorten its window.
 """
 
 from __future__ import annotations
@@ -131,11 +135,19 @@ class PublishedDataset:
     ``pm_anchors`` leaving the catalog — neither dataset's shape had moved by a
     single field. A consumer correctly implementing semver was refusing a dataset
     over a bump that asserted nothing about it.
+
+    ``min_rows`` is the dataset's absolute floor (#472): a build with fewer rows
+    refuses the run whatever its history says, and ``--max-shrink`` does not lift
+    it — a flag lasts one run, and the floor is there again the next night. A real
+    contraction below it is a reviewed commit lowering the number. ``None`` means
+    no floor was decided; ``test_every_published_dataset_declares_a_floor`` keeps
+    it out of :data:`PUBLISHED_DATASETS`, where ``0`` is the way to say "none".
     """
 
     name: str
     tier: str
     releases: tuple[ContractRelease, ...]
+    min_rows: int | None = None
 
     @property
     def schema_version(self) -> str:
@@ -214,6 +226,12 @@ def contract_fingerprint(
 #: them to say it. So the starting values are arbitrary, and harmless: a major is
 #: only ever compared WITHIN a dataset, and comparing two datasets' numbers was
 #: never meaningful enough to buy with a wire break.
+#:
+#: The FLOORS (``min_rows``, #472) were set at about 95% of each dataset's
+#: published count on 2026-10-06, rounded down: the absolute backstop for drift
+#: too slow for :data:`SHRINK_WINDOW` to see. They are deliberately not raised as
+#: a dataset grows; the window covers the recent past. `stg_sos_filings` floors at
+#: 0 because it is empty in production — an accepted outage (#333).
 PUBLISHED_DATASETS: list[PublishedDataset] = [
     PublishedDataset(
         "stg_wsl_committees",
@@ -235,6 +253,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=630,
     ),
     PublishedDataset(
         "stg_wsl_sponsors",
@@ -258,6 +277,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=2650,
     ),
     PublishedDataset(
         "stg_wsl_committee_members",
@@ -284,6 +304,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=6500,
     ),
     PublishedDataset(
         "stg_wsl_meetings",
@@ -303,6 +324,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=2900,
     ),
     PublishedDataset(
         "stg_roster_members",
@@ -325,6 +347,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=8150,
     ),
     PublishedDataset(
         "stg_pdc_winners",
@@ -349,6 +372,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=850,
     ),
     PublishedDataset(
         "stg_sos_results",
@@ -370,6 +394,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=2300,
     ),
     PublishedDataset(
         "stg_sos_filings",
@@ -403,6 +428,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "model's columns inferred INTEGER; a type change is major",
             ),
         ),
+        min_rows=0,
     ),
     PublishedDataset(
         "stg_raw_fetches",
@@ -423,6 +449,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=1300,
     ),
     PublishedDataset(
         "person_crosswalk",
@@ -441,6 +468,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=4350,
     ),
     PublishedDataset(
         "org_crosswalk",
@@ -459,6 +487,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=205,
     ),
     PublishedDataset(
         "persons",
@@ -470,6 +499,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=2950,
     ),
     PublishedDataset(
         "organizations",
@@ -524,6 +554,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "holds; the minor says the column's meaning narrowed",
             ),
         ),
+        min_rows=205,
     ),
     # Committee succession links (#447): the operator-attested edges usa-wa
     # holds in `registry.committee_succession_events` (#124), which reached
@@ -550,6 +581,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "resolved through `org_crosswalk`, the raw WSL ids beside them",
             ),
         ),
+        min_rows=150,
     ),
     PublishedDataset(
         "assignments",
@@ -574,6 +606,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=7950,
     ),
     PublishedDataset(
         "roles",
@@ -596,6 +629,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=295,
     ),
     # `internal` is not the subscriber contract (#313). It is published all the
     # same — same immutable version dirs, same digest, same `/datasets` tree,
@@ -625,6 +659,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
         ),
+        min_rows=30800,
     ),
     # The `cutover` tier is EMPTY, and `test_the_cutover_tier_is_empty` keeps it
     # that way (#314). It carried exactly one dataset for its whole life:
@@ -648,6 +683,16 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
 ]
 
 DEFAULT_MAX_SHRINK = 0.10
+
+#: How many minted versions the shrink gate's baseline spans (#472): a build is
+#: held to the MAX row count among them, not to last night's. Against the previous
+#: publish alone, decay just under ``max_shrink`` compounded unseen — ~50% a week
+#: at 9% a night — and nothing has watched absolute counts since the parity probes
+#: retired (#412). Versions mint only on a change, so a decaying dataset mints
+#: nightly and seven versions are a week of it; a quiet one's seven reach further
+#: back, which only makes the gate stricter. Drift slower than the window is the
+#: floors' to catch (:attr:`PublishedDataset.min_rows`).
+SHRINK_WINDOW = 7
 
 #: When the nightly chain runs — ``OnCalendar=`` of ``deploy/usa-wa-pipeline.timer``,
 #: daily, UTC — restated so the catalog can say when the next check is due (#386).
@@ -743,6 +788,55 @@ def _load_catalog(out_root: Path) -> dict:
     return json.loads(path.read_text())
 
 
+def _shrinks(baseline: int, rows: int, max_shrink: float) -> bool:
+    return baseline > 0 and (baseline - rows) / baseline > max_shrink
+
+
+def _row_history(out_root: Path, prior: dict | None) -> list[int]:
+    """Row counts of a dataset's published versions, oldest first (#472).
+
+    Read from the version dirs, which keep every version the catalog ever listed.
+    Ordered by ``generated_at`` (microseconds) rather than by dir name, whose
+    timestamp stops at the second and then sorts on a random token. A dir minted
+    after the catalog's latest — a crash between its rename and the catalog flip —
+    was never published, so it is left out rather than raising the baseline.
+    """
+    if not prior:
+        return []
+    packages = [
+        json.loads(path.read_text())
+        for path in (out_root / prior["name"]).glob("v*/datapackage.json")
+    ]
+    listed = sorted(
+        (package["generated_at"], package["resources"][0]["rows"])
+        for package in packages
+        if package["generated_at"] <= prior["generated_at"]
+    )
+    return [rows for _, rows in listed] or [prior["rows"]]
+
+
+def _shrink_baseline(history: Sequence[int], max_shrink: float) -> int:
+    """The row count a build is gated against: the max of the last
+    :data:`SHRINK_WINDOW` versions of ``history`` since the latest accepted override.
+
+    Nothing records an override, and nothing needs to: a version this gate would
+    have refused can only have been minted past it with ``--max-shrink``, so the
+    history is replayed under the same gate and each such version restarts the
+    window. Without that, every night after an accepted contraction would refuse
+    again until the pre-contraction versions aged out. It is a forward replay, not
+    a scan back for the latest big step: a scan would also take a step that passed
+    against a post-override baseline for a second override, and forget that
+    baseline. History minted before #472 under the night-over-night gate reads the
+    same way — a decay it let through restarts the window, i.e. it is accepted.
+    """
+    start = 0
+    for i, rows in enumerate(history):
+        window = history[max(start, i - SHRINK_WINDOW) : i]
+        if window and _shrinks(max(window), rows, max_shrink):
+            start = i
+    return max(history[max(start, len(history) - SHRINK_WINDOW) :], default=0)
+
+
 def publish(
     db_path: Path | str,
     out_root: Path | str,
@@ -781,20 +875,27 @@ def publish(
                 raise PublishRefused(f"dataset {name!r}: table missing from the build") from exc
             rows = con.execute(f'select count(*) from "{name}"').fetchone()[0]  # noqa: S608
             prior = previous.get(name)
-            # Baseline is the PREVIOUS publish, not a high-water mark: decay
-            # under max_shrink per night compounds unseen (~50%/week at 10%).
-            # Accepted while the parity probes watched absolute counts; they
-            # retired in #412 PR E, so a windowed max baseline is the upgrade
-            # path if that ever moves.
-            if prior and prior["rows"] > 0:
-                shrink = (prior["rows"] - rows) / prior["rows"]
-                if shrink > max_shrink:
-                    raise PublishRefused(
-                        f"dataset {name!r}: rows {prior['rows']} → {rows} "
-                        f"(shrink {shrink:.0%} > {max_shrink:.0%}); a degraded build "
-                        "must not ship as mass retraction — override with --max-shrink "
-                        "only for a verified real contraction"
-                    )
+            # Two gates on volume (#472), since the parity probes that watched
+            # absolute counts retired with the canonical tier (#412). The floor
+            # needs no history and no flag lifts it; the window holds the build
+            # to the high-water mark of recent versions, not to last night.
+            floor = dataset.min_rows or 0
+            if rows < floor:
+                raise PublishRefused(
+                    f"dataset {name!r}: rows {rows} < {floor}, its committed floor; "
+                    "a degraded build must not ship as mass retraction — a verified "
+                    "real contraction lowers min_rows in PUBLISHED_DATASETS"
+                )
+            baseline = _shrink_baseline(_row_history(out_root, prior), max_shrink)
+            if _shrinks(baseline, rows, max_shrink):
+                shrink = (baseline - rows) / baseline
+                raise PublishRefused(
+                    f"dataset {name!r}: rows {baseline} → {rows} "
+                    f"(shrink {shrink:.0%} > {max_shrink:.0%} against the max of the "
+                    f"last {SHRINK_WINDOW} versions); a degraded build must not ship as "
+                    "mass retraction — override with --max-shrink only for a verified "
+                    "real contraction"
+                )
             fields = [
                 {"name": col[0], "type": _TYPE_MAP.get(col[1].split("(")[0], "string")}
                 for col in columns
@@ -991,7 +1092,10 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
         "--max-shrink",
         type=float,
         default=DEFAULT_MAX_SHRINK,
-        help="Max per-dataset row shrink ratio before refusing (default 0.10).",
+        help=(
+            "Max per-dataset row shrink ratio against the max of the last "
+            f"{SHRINK_WINDOW} versions before refusing (default 0.10)."
+        ),
     )
 
 
