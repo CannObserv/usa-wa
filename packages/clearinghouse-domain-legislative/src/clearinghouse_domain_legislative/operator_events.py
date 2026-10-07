@@ -25,16 +25,29 @@ on the same member, each applied by the builder that owns that seat kind. It is 
 under the ``usa_wa_operator`` source: each CLI write also stores the serialized event in
 the raw store under its sha256 — so the integrity sweep covers operator facts.
 Corrections **append** a new row and stamp the prior one's ``superseded_by_id`` —
-provenance is never mutated (#54).
+provenance is never mutated (#54). An event with no corrected form — a boundary the
+member never crossed (#468) — is **retracted** instead: ``retracted_at`` is stamped and
+the row stays. A row is superseded or retracted, never both.
 
-The overlay reads only non-superseded rows on **every** build (the nightly pipeline
-re-drives the conformed span builders), so the wire can never win back a corrected span and a
-correction is just a new row.
+The overlay reads only current rows (:func:`current_clause`) on **every** build (the nightly
+pipeline re-drives the conformed span builders), so the wire can never win back a corrected
+span and a correction is just a new row.
 """
 
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    ColumnElement,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    and_,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 from ulid import ULID as _ULID
 
@@ -139,6 +152,12 @@ class OperatorEvent(Base, TimestampMixin):
             f" OR (kind = '{KIND_DEPARTED}' AND seat_kind IS NULL AND seat_discriminator IS NULL)",
             name="ck_operator_events_seat_shape",
         ),
+        CheckConstraint(
+            # Superseded or retracted, never both (#468): a superseded row's correction is
+            # what stands, so retracting the prior would say nothing about it.
+            "superseded_by_id IS NULL OR retracted_at IS NULL",
+            name="ck_operator_events_superseded_or_retracted",
+        ),
         Index("ix_operator_events_member", "member_id"),
         {"schema": SCHEMA},
     )
@@ -157,10 +176,20 @@ class OperatorEvent(Base, TimestampMixin):
     evidence_url: Mapped[str] = mapped_column(Text, nullable=False)
     entered_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
-    #: A correction appends a new row and stamps the prior one here; the overlay reads
-    #: only rows where this is NULL (the current, non-superseded attestation).
+    #: A correction appends a new row and stamps the prior one here. NULL here is half of
+    #: "current" — readers take :func:`current_clause`, which also excludes a retraction.
     superseded_by_id: Mapped[_ULID | None] = mapped_column(
         ULID(),
         ForeignKey(f"{SCHEMA}.operator_events.id", ondelete="SET NULL"),
         nullable=True,
     )
+    #: Set when the event is withdrawn with nothing to correct it to (#468) — a boundary
+    #: attributed to a member who never crossed it. The row stays; readers skip it.
+    retracted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+def current_clause() -> ColumnElement[bool]:
+    """The rows that stand: neither superseded nor retracted. The one definition the
+    store's reads and the pipeline's overlay read share, so a third way out of the
+    current set cannot reach one reader and not the other."""
+    return and_(OperatorEvent.superseded_by_id.is_(None), OperatorEvent.retracted_at.is_(None))

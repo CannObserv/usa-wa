@@ -5,7 +5,7 @@ succession decisions. Like the crosswalk seam, a db-free build must be an
 explicit choice, never the silent consequence of a missing env var.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 
 import pytest
 from ulid import ULID as _ULID
@@ -98,6 +98,27 @@ async def test_same_date_events_come_back_in_a_deterministic_order(db_session, u
     # inserted vacated-then-seated, but seated holds the LOWER id
     rows = await operator_event_rows(db_session)
     assert [r.kind for r in rows] == ["seated", "vacated"]
+
+
+@pytest.mark.db
+async def test_a_retracted_event_never_reaches_the_overlay(db_session, usa_wa) -> None:
+    """#468: a retracted event stays in the table for provenance and leaves the build."""
+    for source_id, retracted_at in (("kept", None), ("gone", datetime(2026, 10, 7, tzinfo=UTC))):
+        db_session.add(
+            OperatorEvent(
+                source_id=source_id,
+                member_id="656" if retracted_at else "294",
+                kind="departed",
+                reason="resigned",
+                evidence_url="https://example.test/roster",
+                effective_date=date(1996, 5, 13),
+                retracted_at=retracted_at,
+            )
+        )
+    await db_session.flush()
+
+    rows = await operator_event_rows(db_session)
+    assert [r.member_id for r in rows] == ["294"]
 
 
 def test_succession_links_are_empty_only_under_the_hermetic_marker(monkeypatch) -> None:

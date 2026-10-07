@@ -19,6 +19,7 @@ from usa_wa_adapter_legislature.operators.cli import (
     EventSpec,
     OperatorEventError,
     load_specs,
+    retract_by_id,
     validate_and_record,
 )
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations
@@ -282,6 +283,150 @@ async def test_supersede_records_correction(db_session, raw):
         await db_session.execute(select(OperatorEvent).where(OperatorEvent.id == prior.id))
     ).scalar_one()
     assert refreshed.superseded_by_id == corrected.id
+
+
+# --- retraction (#468) ---------------------------------------------------------
+
+
+async def test_retract_takes_an_event_out_of_the_current_set(db_session, raw):
+    await _person(db_session, "656")
+    event = await validate_and_record(db_session, _departed(member="656"), raw=raw)
+
+    retracted = await retract_by_id(
+        db_session, str(event.id), evidence_url="https://example.gov/roster", raw=raw
+    )
+
+    assert retracted.id == event.id and retracted.retracted_at is not None
+
+
+async def test_retract_takes_the_id_as_psql_prints_it(db_session, raw):
+    """``--list`` prints a ULID; psql prints the same column as a UUID. Either names the row."""
+    await _person(db_session, "656")
+    event = await validate_and_record(db_session, _departed(member="656"), raw=raw)
+
+    retracted = await retract_by_id(
+        db_session, str(event.id.to_uuid()), evidence_url="https://x", raw=raw
+    )
+
+    assert retracted.id == event.id
+
+
+async def test_retract_takes_a_lowercased_ulid(db_session, raw):
+    """CR 9: Crockford base32 is case-insensitive, and an id lowercased in transit is
+    still that id."""
+    await _person(db_session, "656")
+    event = await validate_and_record(db_session, _departed(member="656"), raw=raw)
+
+    retracted = await retract_by_id(
+        db_session, str(event.id).lower(), evidence_url="https://x", raw=raw
+    )
+
+    assert retracted.id == event.id
+
+
+async def test_retract_of_a_malformed_id_is_a_validation_error(db_session, raw):
+    with pytest.raises(OperatorEventError, match="neither a ULID nor a UUID"):
+        await retract_by_id(db_session, "656", evidence_url="https://x", raw=raw)
+
+
+async def test_retract_of_an_unknown_id_is_a_validation_error(db_session, raw):
+    with pytest.raises(OperatorEventError, match="not found"):
+        await retract_by_id(
+            db_session, "01KXNRSMC0K1K01H2213BYQDDN", evidence_url="https://x", raw=raw
+        )
+
+
+async def test_retract_of_a_superseded_event_is_a_validation_error(db_session, raw):
+    """The store's refusal takes the CLI's error path (exit 2, rollback), not a traceback."""
+    await _person(db_session, "100")
+    prior = await validate_and_record(db_session, _departed(d=date(2025, 4, 19)), raw=raw)
+    await validate_and_record(
+        db_session,
+        EventSpec(
+            member_id="100",
+            kind="departed",
+            reason="died",
+            effective_date=date(2025, 4, 20),
+            evidence_url="https://x",
+            supersede_id=str(prior.id),
+        ),
+        raw=raw,
+    )
+    with pytest.raises(OperatorEventError, match="superseded"):
+        await retract_by_id(db_session, str(prior.id), evidence_url="https://x", raw=raw)
+
+
+async def test_supersede_of_a_retracted_event_is_a_validation_error(db_session, raw):
+    await _person(db_session, "656")
+    event = await validate_and_record(db_session, _departed(member="656"), raw=raw)
+    await retract_by_id(db_session, str(event.id), evidence_url="https://x", raw=raw)
+    with pytest.raises(OperatorEventError, match="retracted"):
+        await validate_and_record(
+            db_session,
+            EventSpec(
+                member_id="656",
+                kind="departed",
+                reason="died",
+                effective_date=date(2025, 4, 20),
+                evidence_url="https://x",
+                supersede_id=str(event.id),
+            ),
+            raw=raw,
+        )
+
+
+async def test_superseding_onto_a_retracted_key_is_a_validation_error(db_session, raw):
+    """CR 3: a correction whose date lands on a retracted event's natural key meets the
+    store's refusal inside ``supersede_event``; it takes the CLI's error path, not a
+    traceback."""
+    await _person(db_session, "656")
+    retracted = await validate_and_record(
+        db_session, _departed(member="656", d=date(1996, 5, 13)), raw=raw
+    )
+    await retract_by_id(db_session, str(retracted.id), evidence_url="https://x", raw=raw)
+    live = await validate_and_record(
+        db_session, _departed(member="656", d=date(1996, 6, 1)), raw=raw
+    )
+    with pytest.raises(OperatorEventError, match="retracted"):
+        await validate_and_record(
+            db_session,
+            EventSpec(
+                member_id="656",
+                kind="departed",
+                reason="died",
+                effective_date=date(1996, 5, 13),
+                evidence_url="https://x",
+                supersede_id=str(live.id),
+            ),
+            raw=raw,
+        )
+
+
+async def test_rerecording_a_retracted_event_is_a_validation_error(db_session, raw):
+    await _person(db_session, "656")
+    event = await validate_and_record(db_session, _departed(member="656"), raw=raw)
+    await retract_by_id(db_session, str(event.id), evidence_url="https://x", raw=raw)
+    with pytest.raises(OperatorEventError, match="retracted"):
+        await validate_and_record(db_session, _departed(member="656"), raw=raw)
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--retract", "01KXNRSMC0K1K01H2213BYQDDN"],
+        ["--retract", "01KXNRSMC0K1K01H2213BYQDDN", "--evidence-url", "u", "--member-id", "1"],
+        ["--retract", "01KXNRSMC0K1K01H2213BYQDDN", "--evidence-url", "u", "--file", "x.json"],
+        # CR 2: --list must not win and exit 0 having retracted nothing.
+        ["--retract", "01KXNRSMC0K1K01H2213BYQDDN", "--evidence-url", "u", "--list"],
+    ],
+)
+def test_main_retract_takes_only_an_evidence_url(monkeypatch, capsys, argv):
+    """A retraction names a row and why; anything else on the line is a different command
+    the operator half-typed."""
+    recording = patch_job_runtime(monkeypatch)
+    assert cli.main(argv) == 2
+    assert recording.committed == 0
+    assert "--retract" in capsys.readouterr().err
 
 
 def test_load_specs_parses_batch():

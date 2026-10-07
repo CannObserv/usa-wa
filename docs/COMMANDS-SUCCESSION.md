@@ -48,6 +48,11 @@ the weekly integrity sweep covers — its only provenance since #412 PR F droppe
 # restamps the row's entered_by with whoever ran the recovery); shell access is the trust boundary. Provenance is append-only — a
 # date-correction is --supersede (a NEW row stamping the prior one's superseded_by_id), never
 # a mutation (#54).
+# An event that never held — no corrected form exists, e.g. a boundary projected onto a member
+# who never crossed it (#468: 656 carried Morris's 1996 resignation) — is --retract <id>
+# --evidence-url (the reason): the row stays, leaves the overlay, and its retraction is archived
+# under the event's key. Idempotent; a superseded row refuses it, and a retracted one refuses
+# --supersede and a re-record. Exit 4 recovery: re-run the same --retract.
 # A supersede may also RECLASSIFY, within endings only (#363): departed <-> vacated are
 # two readings of one boundary (left the legislature / moved seats within it), and
 # append-only provenance leaves no other way to say the projection changed its mind.
@@ -67,6 +72,8 @@ python -m usa_wa_adapter_legislature.operators.cli --supersede <id> \
     --member-id 35410 --kind seated --reason appointed \
     --seat-kind chamber-senate --seat-discriminator 5 \
     --effective-date 2025-06-10 --evidence-url https://...   # date-correction of <id>
+python -m usa_wa_adapter_legislature.operators.cli --retract <id> \
+    --evidence-url https://...                     # withdraw an event that never held
 python -m usa_wa_adapter_legislature.operators.cli --list               # current events
 ```
 

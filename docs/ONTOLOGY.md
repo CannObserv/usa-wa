@@ -223,7 +223,10 @@ Both sit under one first-class `Source`, `usa_wa_operator`. Each CLI write store
 attestation in the raw store (flushed once its transaction commits, `operators/raw.py`), which the
 weekly integrity sweep covers like any harvested wire. **Corrections append**: a new row is
 written and the prior row's `superseded_by_id` is stamped — an attestation is never mutated (#54).
-Readers take only `superseded_by_id IS NULL`, ordered so same-date ties settle deterministically.
+An operator event with nothing to correct it to — a boundary the member never crossed — is
+**retracted** instead (`retracted_at`, #468); a row is one or the other, never both. Readers take
+only non-superseded rows — and, for operator events alone, non-retracted ones (`current_clause()`)
+— ordered so same-date ties settle deterministically.
 
 ### Why not unify them
 

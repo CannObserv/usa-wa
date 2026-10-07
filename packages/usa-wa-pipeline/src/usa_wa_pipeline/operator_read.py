@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from clearinghouse_core.config import get_database_url
 from clearinghouse_domain_legislative.committee_succession import CommitteeSuccessionEvent
-from clearinghouse_domain_legislative.operator_events import OperatorEvent
+from clearinghouse_domain_legislative.operator_events import OperatorEvent, current_clause
 
 #: Set by the commit gate / dbt tests only — see registry_read.crosswalk_frame.
 HERMETIC_ENV = "USA_WA_PIPELINE_HERMETIC"
@@ -50,8 +50,8 @@ class EventRow:
 
 
 async def operator_event_rows(session: AsyncSession) -> list[EventRow]:
-    """Every current (non-superseded) operator event, oldest first — and, within
-    one date, in curation order.
+    """Every current (neither superseded nor retracted, #468) operator event, oldest
+    first — and, within one date, in curation order.
 
     The ULID tiebreak is load-bearing (CR 61). ``apply_operator_events`` sorts
     **stably** on ``(is_departed, effective_date)``, so the input order settles
@@ -70,7 +70,7 @@ async def operator_event_rows(session: AsyncSession) -> list[EventRow]:
                 OperatorEvent.seat_kind,
                 OperatorEvent.seat_discriminator,
             )
-            .where(OperatorEvent.superseded_by_id.is_(None))
+            .where(current_clause())
             .order_by(OperatorEvent.effective_date, OperatorEvent.id)
         )
     ).all()
