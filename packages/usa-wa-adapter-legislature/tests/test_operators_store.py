@@ -385,7 +385,7 @@ class TestRetract:
         event = await record_operator_event(db_session, raw=raw, **_RAMOS)
 
         retracted = await retract_event(
-            db_session, event, raw=raw, evidence_url=_RETRACTION_URL, entered_by="greg"
+            db_session, event, raw=raw, evidence_url=_RETRACTION_URL, retracted_by="greg"
         )
 
         assert retracted.id == event.id
@@ -401,7 +401,9 @@ class TestRetract:
         stands, and why."""
         raw = PendingAttestations.for_operator(tmp_path)
         event = await record_operator_event(db_session, raw=raw, **_RAMOS)
-        await retract_event(db_session, event, raw=raw, evidence_url=_RETRACTION_URL)
+        await retract_event(
+            db_session, event, raw=raw, evidence_url=_RETRACTION_URL, retracted_by="greg"
+        )
         raw.flush()
 
         assert json.loads(_archived(raw, event.source_id)) == {
@@ -414,7 +416,23 @@ class TestRetract:
             "seat_discriminator": None,
             "retracted": True,
             "retraction_evidence_url": _RETRACTION_URL,
+            "retracted_by": "greg",
         }
+
+    async def test_a_retraction_keeps_who_attested_the_event(self, db_session, tmp_path) -> None:
+        """CR 1: ``entered_by`` is the only record of who attested the event — the body
+        does not carry it. Retracting 656 must leave ``roster-pdf-backfill`` on the row:
+        it is the evidence of where the bad boundary came from."""
+        raw = PendingAttestations.for_operator(tmp_path)
+        event = await record_operator_event(
+            db_session, raw=raw, entered_by="roster-pdf-backfill", **_RAMOS
+        )
+
+        await retract_event(
+            db_session, event, raw=raw, evidence_url=_RETRACTION_URL, retracted_by="greg"
+        )
+
+        assert event.entered_by == "roster-pdf-backfill"
 
     async def test_retracting_again_restores_a_lost_raw_copy(self, db_session, tmp_path) -> None:
         """The post-commit recovery: the same retraction re-run is idempotent — it keeps

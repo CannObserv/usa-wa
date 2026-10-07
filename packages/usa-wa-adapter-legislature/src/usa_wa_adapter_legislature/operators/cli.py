@@ -263,7 +263,7 @@ async def retract_by_id(
         raise OperatorEventError(f"--retract id {event_id!r} not found")
     try:
         return await retract_event(
-            session, event, raw=raw, evidence_url=evidence_url, entered_by=_entered_by()
+            session, event, raw=raw, evidence_url=evidence_url, retracted_by=_entered_by()
         )
     except ValueError as exc:
         raise OperatorEventError(f"--retract: {exc}") from exc

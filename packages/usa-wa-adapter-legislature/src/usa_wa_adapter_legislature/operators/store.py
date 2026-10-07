@@ -247,19 +247,20 @@ async def retract_event(
     *,
     raw: PendingAttestations,
     evidence_url: str,
-    entered_by: str | None = None,
+    retracted_by: str | None = None,
 ) -> OperatorEvent:
     """Withdraw ``event`` with nothing in its place (#468) and return it.
 
     For the event that was never true, not the one recorded wrong: a date or a reading
     to fix is :func:`supersede_event`. The row stays (#54) and leaves the current set.
     Its retraction is buffered under the event's own natural key — the event's fields,
-    ``retracted``, and the evidence for the withdrawal — so the raw store's newest body
-    for that key says the attestation no longer stands.
+    ``retracted``, the evidence for the withdrawal and who withdrew it — so the raw store's
+    newest body for that key says the attestation no longer stands.
 
     Idempotent, and that is the post-commit recovery: retracting a retracted event keeps
     its first ``retracted_at`` and re-buffers the same bytes, which the flush archives
-    if they never landed. ``entered_by`` restamps, as a re-record does.
+    if they never landed. ``entered_by`` is left alone (CR 1): it is the only record of
+    who attested the event, and a retraction is not a re-attestation.
     """
     if event.superseded_by_id is not None:
         raise ValueError(
@@ -274,14 +275,16 @@ async def retract_event(
         evidence_url=event.evidence_url,
         seat_kind=event.seat_kind,
         seat_discriminator=event.seat_discriminator,
-        extra={"retracted": True, "retraction_evidence_url": evidence_url},
+        extra={
+            "retracted": True,
+            "retraction_evidence_url": evidence_url,
+            "retracted_by": retracted_by,
+        },
     )
     now = datetime.now(UTC)
     raw.add(event.source_id, body, now)
     if event.retracted_at is None:
         event.retracted_at = now
-    if entered_by is not None:
-        event.entered_by = entered_by
     await session.flush()
     return event
 
