@@ -299,6 +299,23 @@ async def test_retract_takes_an_event_out_of_the_current_set(db_session, raw):
     assert retracted.id == event.id and retracted.retracted_at is not None
 
 
+async def test_retract_takes_the_id_as_psql_prints_it(db_session, raw):
+    """``--list`` prints a ULID; psql prints the same column as a UUID. Either names the row."""
+    await _person(db_session, "656")
+    event = await validate_and_record(db_session, _departed(member="656"), raw=raw)
+
+    retracted = await retract_by_id(
+        db_session, str(event.id.to_uuid()), evidence_url="https://x", raw=raw
+    )
+
+    assert retracted.id == event.id
+
+
+async def test_retract_of_a_malformed_id_is_a_validation_error(db_session, raw):
+    with pytest.raises(OperatorEventError, match="neither a ULID nor a UUID"):
+        await retract_by_id(db_session, "656", evidence_url="https://x", raw=raw)
+
+
 async def test_retract_of_an_unknown_id_is_a_validation_error(db_session, raw):
     with pytest.raises(OperatorEventError, match="not found"):
         await retract_by_id(

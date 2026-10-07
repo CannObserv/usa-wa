@@ -31,6 +31,7 @@ import os
 import sys
 from dataclasses import dataclass
 from datetime import date
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -234,6 +235,18 @@ async def validate_and_record(
         raise OperatorEventError(str(exc)) from exc
 
 
+def _parse_event_id(event_id: str) -> ULID:
+    """The row id as ``--list`` prints it (a ULID) or as psql prints it (a UUID)."""
+    try:
+        return ULID.from_str(event_id)
+    except ValueError:
+        pass
+    try:
+        return ULID.from_uuid(UUID(event_id))
+    except ValueError as exc:
+        raise OperatorEventError(f"--retract id {event_id!r} is neither a ULID nor a UUID") from exc
+
+
 async def retract_by_id(
     session: AsyncSession, event_id: str, *, evidence_url: str, raw: PendingAttestations
 ) -> OperatorEvent:
@@ -242,10 +255,7 @@ async def retract_by_id(
     For an event that was never true — a boundary projected onto a member who never
     crossed it — not one recorded wrong, which ``--supersede`` corrects. Raises
     :class:`OperatorEventError` on an unknown or superseded id (no partial write)."""
-    try:
-        key = ULID.from_str(event_id)
-    except ValueError as exc:
-        raise OperatorEventError(f"--retract id {event_id!r} is not a ULID") from exc
+    key = _parse_event_id(event_id)
     event = (
         await session.execute(select(OperatorEvent).where(OperatorEvent.id == key))
     ).scalar_one_or_none()
