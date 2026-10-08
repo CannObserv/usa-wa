@@ -55,7 +55,7 @@ _CONFORMED_SCHEMA = "packages/usa-wa-pipeline/dbt/models/conformed/schema.yml"
 
 #: path → the slug literals it may hold, and how many times.
 ALLOWED: dict[str, Counter[str]] = {
-    # The two declarations.
+    # The declarations — each adapter's coverage module (slugs, plus PDC's key namespace).
     "packages/usa-wa-adapter-legislature/src/usa_wa_adapter_legislature/coverage.py": Counter(
         {WSL_SOURCE_SLUG: 1}
     ),
