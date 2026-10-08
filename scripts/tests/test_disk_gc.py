@@ -1064,8 +1064,8 @@ def test_extensions_root_is_overridable(host, tmp_path):
 
 
 def test_prunes_idle_npx_caches_and_keeps_live_ones(host, live_procs):
-    """#389's known limitation: the plugin keeps launching @latest, so these
-    accrue ~457 MB per release with nothing bounding them."""
+    """~457 MB each. #415 pinned the session's spec, but trees from spec strings
+    no longer launched (@latest, a superseded pin) still accrue unbounded."""
     live = _fill(host["npx"] / "aaaaaaaaaaaaaaaa")
     idle = _fill(host["npx"] / "bbbbbbbbbbbbbbbb")
     live_procs(live / "node_modules" / ".bin" / "socraticode")

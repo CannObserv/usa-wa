@@ -135,7 +135,7 @@ Four changes, in the order they take effect:
 
 | Layer | Change | Where it lives |
 |---|---|---|
-| Don't create the spike | SocratiCode pinned to a pre-installed 1.14.0 instead of `npx … @latest` per launch | `~/.socraticode/pin` — [docs/SOCRATICODE.md § The server is pinned](SOCRATICODE.md#the-server-is-pinned-not-installed-per-launch-389) |
+| Don't create the spike | SocratiCode pinned to 1.16.0 instead of `npx … @latest` per launch — driver to a pre-install, session via `SOCRATICODE_SPEC` (#415) | `~/.socraticode/pin` + VS Code machine settings — [docs/SOCRATICODE.md § The server is pinned](SOCRATICODE.md#the-server-is-pinned-not-installed-per-launch-389) |
 | Keep the kernel's reserve | `vm.min_free_kbytes` 11399 → **65536** (~64 MiB, ~0.8% of RAM) | `/etc/sysctl.d/60-usa-wa-memory.conf` |
 | Kill the cause before the kernel stalls | **earlyoom** 1.7, `--prefer '^(node\|npm\|esbuild)$'`, `--avoid '^(uv\|uvicorn\|postgres\|sshd\|systemd\|dockerd\|tailscaled)$'` | `/etc/default/earlyoom` |
 | Protect the victim | `MemoryLow=256M` + `OOMScoreAdjust=-500` on `usa-wa.service`, **plus `MemoryLow=1G` on `system.slice`** | `deploy/usa-wa.service` + `deploy/system.slice.d/`, pinned by `test_unit_ordering.py` and `test_memory_protection.py` |
