@@ -54,6 +54,7 @@ from usa_wa_adapter_legislature.committees.succession_store import (
     record_succession_event,
     supersede_event,
 )
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.operators.raw import PendingAttestations, archive_after_commit
 
 logger = get_logger(__name__)
@@ -107,7 +108,7 @@ async def validate_and_record(
     for role, sid in (("subject", spec.subject_source_id), ("linked", spec.linked_source_id)):
         if not await is_registered_committee(session, sid):
             raise SuccessionError(
-                f"--{role} {sid!r} is no registered usa_wa_legislature committee org "
+                f"--{role} {sid!r} is no registered {WSL_SOURCE_SLUG} committee org "
                 "(typo, a structural org, or not yet registered — the nightly registrar "
                 "binds a committee the build after it is first staged)"
             )
