@@ -31,9 +31,10 @@ from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 
 REPO = Path(__file__).parent.parent.parent  # scripts/tests/ → repo
 
-#: A quoted slug, as a whole string or as a ``slug:`` key prefix. Docstring mentions
-#: (````usa_wa_legislature````) are prose and do not match.
-SLUG_LITERAL = re.compile(r"""["'](usa_wa_legislature(?:_roster)?)(?=["':])""")
+#: A quoted slug, as a whole string, a ``slug:`` key prefix or a ``slug/`` raw-store path.
+#: Docstring mentions (````usa_wa_legislature````, ````raw/usa_wa_legislature/````) are prose
+#: and do not match — which is why a leading ``/`` is not accepted.
+SLUG_LITERAL = re.compile(r"""["'](usa_wa_legislature(?:_roster)?)(?=["':/])""")
 
 _SCANNED_SUFFIXES = {".py", ".sql", ".yml", ".yaml"}
 
@@ -88,10 +89,12 @@ def test_the_pattern_matches_every_copy_shape():
         '"usa_wa_legislature:" + member_id',
         'f"usa_wa_legislature:{member_id}"',
         "'usa_wa_legislature:' || s.member_id",
+        'root / "usa_wa_legislature/2025-26"',
     ]
     assert [SLUG_LITERAL.findall(shape) for shape in shapes] == [
         ["usa_wa_legislature"],
         ["usa_wa_legislature_roster"],
+        ["usa_wa_legislature"],
         ["usa_wa_legislature"],
         ["usa_wa_legislature"],
         ["usa_wa_legislature"],
