@@ -140,7 +140,8 @@ swept, and reasoned about in isolation:
   the staging model and every registry-key reader: the slug is also the key namespace
   (`usa_wa_legislature:<member_id>`), so a retyped copy that misses a rename matches nothing,
   silently (#245; `scripts/tests/test_source_slug_literals.py` guards every adapter's slugs, #482).
-  A registry namespace that is *not* the slug (PDC's `wa_pdc`) gets the same one home.
+  A registry namespace that is *not* the slug (PDC's `wa_pdc`) is declared beside the slug in
+  `coverage.py` and guarded the same way.
 - **Its own archive key** — the resource-id scheme in a pure `resources.py`
   (`sos-whofiled:<YYYYMMDD>` vs `sos-legresults:<YYYYMMDD>`), imported by both the raw harvest and
   the staging model. Keys never collide across sources, and a rename breaks the import rather than
