@@ -36,7 +36,7 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
     rows already match the declaration, so the steady-state cost is one indexed SELECT.
     """
     existing = (
-        await session.execute(select(Source).where(Source.slug == "usa_wa_legislature"))
+        await session.execute(select(Source).where(Source.slug == WSL_SOURCE_SLUG))
     ).scalar_one_or_none()
     if existing is not None:
         await seed_source_coverage(session, existing, WSL_COVERAGE)

@@ -5,11 +5,12 @@ models); this file only binds the raw store to a DataFrame.
 """
 
 from clearinghouse_core.rawstore import RawStore, get_raw_root
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_pipeline.frames import typed_relation
 from usa_wa_pipeline.staging import wsl
 
 
 def model(dbt, session):
     dbt.config(materialized="table")
-    rows = wsl.committee_member_rows(RawStore(get_raw_root(), "usa_wa_legislature"))
+    rows = wsl.committee_member_rows(RawStore(get_raw_root(), WSL_SOURCE_SLUG))
     return typed_relation(session, rows, wsl.COMMITTEE_MEMBER_SCHEMA)

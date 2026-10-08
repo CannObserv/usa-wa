@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
+from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.identity import WIDE_GAP_YEARS, identity_fold
 
 LINK_SCHEMA = {
@@ -90,11 +92,11 @@ def roster_wsl_links(roster: pd.DataFrame, sponsors: pd.DataFrame) -> pd.DataFra
     return pd.DataFrame(
         {
             "kind": "person",
-            "left_key": "usa_wa_legislature_roster:"
+            "left_key": f"{ROSTER_SOURCE_SLUG}:"
             + joined["fold"]
             + ":"
             + joined["first_year"].astype(int).astype(str),
-            "right_key": "usa_wa_legislature:" + joined["member_id"],
+            "right_key": f"{WSL_SOURCE_SLUG}:" + joined["member_id"],
             "rule": RULE,
             "score": 1.0,
         }

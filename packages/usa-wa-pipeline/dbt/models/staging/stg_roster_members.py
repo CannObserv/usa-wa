@@ -5,11 +5,12 @@ extraction; logic + tests live in the Python package.
 """
 
 from clearinghouse_core.rawstore import RawStore, get_raw_root
+from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_pipeline.frames import typed_relation
 from usa_wa_pipeline.staging import roster
 
 
 def model(dbt, session):
     dbt.config(materialized="table")
-    rows = roster.roster_rows(RawStore(get_raw_root(), "usa_wa_legislature_roster"))
+    rows = roster.roster_rows(RawStore(get_raw_root(), ROSTER_SOURCE_SLUG))
     return typed_relation(session, rows, roster.ROSTER_SCHEMA)

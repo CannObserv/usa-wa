@@ -41,6 +41,7 @@ from clearinghouse_core.registry import (
     decide,
     registered_view,
 )
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.conformed.roles import SOURCE as ROLE_SOURCE
 
@@ -53,11 +54,11 @@ _DEFAULT_DB = "data/pipeline.duckdb"
 
 #: The source every org key is asserted under — committee ids and the
 #: structural orgs alike, the namespace the seed carried across from canonical.
-ORG_SOURCE = "usa_wa_legislature"
+ORG_SOURCE = WSL_SOURCE_SLUG
 
 #: The source a WSL sponsor's person key is asserted under — the right-hand key
 #: of every matching rule, so a sponsor's singleton lands in its pair's cluster.
-PERSON_SOURCE = "usa_wa_legislature"
+PERSON_SOURCE = WSL_SOURCE_SLUG
 
 #: A WSL member id that may mint a person on its own: the numeric ids WSL
 #: serves. Anything else is named by :func:`malformed_sponsor_ids` (CR 1, CR 5).
