@@ -5,11 +5,12 @@ models); this file only binds the raw store to a DataFrame.
 """
 
 from clearinghouse_core.rawstore import RawStore, get_raw_root
+from usa_wa_adapter_pdc.coverage import PDC_SOURCE_SLUG
 from usa_wa_pipeline.frames import typed_relation
 from usa_wa_pipeline.staging import pdc
 
 
 def model(dbt, session):
     dbt.config(materialized="table")
-    rows = pdc.winner_rows(RawStore(get_raw_root(), "usa_wa_pdc"))
+    rows = pdc.winner_rows(RawStore(get_raw_root(), PDC_SOURCE_SLUG))
     return typed_relation(session, rows, pdc.WINNER_SCHEMA)
