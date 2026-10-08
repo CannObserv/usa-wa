@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from usa_wa_adapter_sos.provisioning import RESULTS_SOURCE_SLUG, get_or_create_results_source
+from usa_wa_adapter_sos.coverage import SOS_RESULTS_SOURCE_SLUG
+from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.resources import (
     election_year_from_resource_id,
     legresults_resource_id,
@@ -27,5 +28,5 @@ async def test_get_or_create_results_source_is_idempotent(db_session, usa_wa) ->
     first = await get_or_create_results_source(db_session, usa_wa)
     second = await get_or_create_results_source(db_session, usa_wa)
     assert first.id == second.id
-    assert first.slug == RESULTS_SOURCE_SLUG
+    assert first.slug == SOS_RESULTS_SOURCE_SLUG
     assert first.slug != "usa_wa_sos"  # distinct provenance root from the filings source

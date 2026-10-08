@@ -20,6 +20,12 @@ from clearinghouse_core.source_coverage import CoverageClaim, CoverageStatus, cl
 #: The PDC source slug — matches the ``Source`` row ``provisioning`` get-or-creates.
 PDC_SOURCE_SLUG = "usa_wa_pdc"
 
+#: The registry namespace a PDC person id is keyed under (``wa_pdc:<person_id>``) — the scheme
+#: canonical linked PDC persons by, carried into the registry by the #302 seed. A different
+#: fact from :data:`PDC_SOURCE_SLUG`, deliberately not derived from it: renaming the source
+#: must not re-key every PDC-linked registry entity (or the API's ``?source=wa_pdc`` filter).
+PDC_KEY_NAMESPACE = "wa_pdc"
+
 #: Seated winner cohorts keyed by general-election year (even seating years + odd specials,
 #: #121).
 ELECTION_YEAR = "election_year"

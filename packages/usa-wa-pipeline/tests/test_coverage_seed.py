@@ -15,17 +15,21 @@ from clearinghouse_core.source_coverage import SourceCoverage
 from clearinghouse_core.sources import Source
 from usa_wa_adapter_legislature.coverage import WSL_COVERAGE, WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_COVERAGE, ROSTER_SOURCE_SLUG
-from usa_wa_adapter_pdc.coverage import PDC_COVERAGE
-from usa_wa_adapter_sos.coverage import SOS_FILINGS_COVERAGE, SOS_RESULTS_COVERAGE
-from usa_wa_adapter_sos.provisioning import RESULTS_SOURCE_SLUG, SOS_SOURCE_SLUG
+from usa_wa_adapter_pdc.coverage import PDC_COVERAGE, PDC_SOURCE_SLUG
+from usa_wa_adapter_sos.coverage import (
+    SOS_FILINGS_COVERAGE,
+    SOS_FILINGS_SOURCE_SLUG,
+    SOS_RESULTS_COVERAGE,
+    SOS_RESULTS_SOURCE_SLUG,
+)
 from usa_wa_pipeline.coverage_seed import JOB_SLUG, reconcile_coverage
 
 DECLARED = {
     WSL_SOURCE_SLUG: WSL_COVERAGE,
     ROSTER_SOURCE_SLUG: ROSTER_COVERAGE,
-    "usa_wa_pdc": PDC_COVERAGE,
-    SOS_SOURCE_SLUG: SOS_FILINGS_COVERAGE,
-    RESULTS_SOURCE_SLUG: SOS_RESULTS_COVERAGE,
+    PDC_SOURCE_SLUG: PDC_COVERAGE,
+    SOS_FILINGS_SOURCE_SLUG: SOS_FILINGS_COVERAGE,
+    SOS_RESULTS_SOURCE_SLUG: SOS_RESULTS_COVERAGE,
 }
 
 

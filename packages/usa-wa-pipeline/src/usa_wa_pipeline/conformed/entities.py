@@ -30,6 +30,7 @@ from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold, strip_position_suffix
+from usa_wa_adapter_pdc.coverage import PDC_KEY_NAMESPACE
 from usa_wa_common.names import strip_tenure_notes
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
@@ -232,7 +233,7 @@ def person_rows(
                         break
         if name_full is None:
             for key in keys:
-                if key["key_namespace"] == "wa_pdc":
+                if key["key_namespace"] == PDC_KEY_NAMESPACE:
                     raw = pdc_names.get(key["key_value"])
                     if raw:
                         name_full, name_source = raw.title(), "pdc"

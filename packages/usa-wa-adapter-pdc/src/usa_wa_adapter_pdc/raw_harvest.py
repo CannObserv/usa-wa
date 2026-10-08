@@ -32,6 +32,7 @@ from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
 from clearinghouse_domain_legislative.terms import biennium_for_date
+from usa_wa_adapter_pdc.coverage import PDC_SOURCE_SLUG
 from usa_wa_adapter_pdc.resources import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
     SENATE_WINNERS_RESOURCE_PREFIX,
@@ -48,7 +49,7 @@ logger = get_logger(__name__)
 #: Stable ledger identity (#178); distinct from ``pdc-archive-refresh`` (Postgres tier).
 JOB_SLUG = "pdc-raw-harvest"
 
-SOURCE_SLUG = "usa_wa_pdc"
+SOURCE_SLUG = PDC_SOURCE_SLUG
 
 
 async def harvest_raw(

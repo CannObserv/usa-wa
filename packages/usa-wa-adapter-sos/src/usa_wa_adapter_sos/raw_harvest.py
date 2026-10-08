@@ -33,6 +33,7 @@ from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
 from clearinghouse_domain_legislative.terms import biennium_for_date
+from usa_wa_adapter_sos.coverage import SOS_FILINGS_SOURCE_SLUG, SOS_RESULTS_SOURCE_SLUG
 from usa_wa_adapter_sos.filings.resources import whofiled_resource_id
 from usa_wa_adapter_sos.filings.transport import (
     SOSFilingsClient,
@@ -40,7 +41,6 @@ from usa_wa_adapter_sos.filings.transport import (
 from usa_wa_adapter_sos.filings.transport import (
     general_election_date as filings_election_date,
 )
-from usa_wa_adapter_sos.provisioning import RESULTS_SOURCE_SLUG, SOS_SOURCE_SLUG
 from usa_wa_adapter_sos.results.resources import legresults_resource_id
 from usa_wa_adapter_sos.results.transport import (
     SOSResultsClient,
@@ -146,7 +146,7 @@ async def harvest_raw(
     results_url_source = results if hasattr(results, "export_index_url") else SOSResultsClient()
 
     try:
-        filings_store = RawStore(root, SOS_SOURCE_SLUG)
+        filings_store = RawStore(root, SOS_FILINGS_SOURCE_SLUG)
         filings_run = filings_store.open_run()
         try:
             for year in years:
@@ -165,7 +165,7 @@ async def harvest_raw(
         finally:
             filings_run.close()
 
-        results_store = RawStore(root, RESULTS_SOURCE_SLUG)
+        results_store = RawStore(root, SOS_RESULTS_SOURCE_SLUG)
         results_run = results_store.open_run()
         try:
             for year in years:

@@ -73,6 +73,7 @@ from clearinghouse_domain_legislative.terms import bienniums_in_range
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold
+from usa_wa_adapter_pdc.coverage import PDC_KEY_NAMESPACE
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 
@@ -215,7 +216,7 @@ def citation_rows(inputs: CitationInputs) -> tuple[list[dict[str, Any]], dict[st
             "committee member",
             lambda r: f"{SOURCE}:{_text(r.get('member_id'))}",
         ),
-        (inputs.pdc, "pdc winner", lambda r: f"wa_pdc:{_text(r.get('person_id'))}"),
+        (inputs.pdc, "pdc winner", lambda r: f"{PDC_KEY_NAMESPACE}:{_text(r.get('person_id'))}"),
     ):
         for row in rows:
             wire = _wire(row, what=what)

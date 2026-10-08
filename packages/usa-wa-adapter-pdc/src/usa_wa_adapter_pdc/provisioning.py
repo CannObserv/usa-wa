@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.source_coverage import seed_source_coverage
 from clearinghouse_core.sources import RetentionPolicy, Source
-from usa_wa_adapter_pdc.coverage import PDC_COVERAGE
+from usa_wa_adapter_pdc.coverage import PDC_COVERAGE, PDC_SOURCE_SLUG
 from usa_wa_adapter_pdc.transport import PDC_BASE_URL
 
 
@@ -27,7 +27,7 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
     :func:`usa_wa_adapter_legislature.provisioning.get_or_create_source` for why.
     """
     existing = (
-        await session.execute(select(Source).where(Source.slug == "usa_wa_pdc"))
+        await session.execute(select(Source).where(Source.slug == PDC_SOURCE_SLUG))
     ).scalar_one_or_none()
     if existing is not None:
         await seed_source_coverage(session, existing, PDC_COVERAGE)
@@ -35,7 +35,7 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
     row = Source(
         jurisdiction_id=jurisdiction.id,
         name="WA Public Disclosure Commission",
-        slug="usa_wa_pdc",
+        slug=PDC_SOURCE_SLUG,
         kind="rest",
         base_url=PDC_BASE_URL,
         reliability=1.0,

@@ -14,15 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from clearinghouse_core.jurisdictions import Jurisdiction
 from clearinghouse_core.source_coverage import seed_source_coverage
 from clearinghouse_core.sources import RetentionPolicy, Source
-from usa_wa_adapter_sos.coverage import SOS_FILINGS_COVERAGE, SOS_RESULTS_COVERAGE
+from usa_wa_adapter_sos.coverage import (
+    SOS_FILINGS_COVERAGE,
+    SOS_FILINGS_SOURCE_SLUG,
+    SOS_RESULTS_COVERAGE,
+    SOS_RESULTS_SOURCE_SLUG,
+)
 from usa_wa_adapter_sos.filings.transport import SOS_BASE_URL
 from usa_wa_adapter_sos.results.transport import RESULTS_BASE_URL
-
-#: The filings source slug — its ``Source`` row and its raw-store directory.
-SOS_SOURCE_SLUG = "usa_wa_sos"
-
-#: The results source slug — its ``Source`` row and its raw-store directory.
-RESULTS_SOURCE_SLUG = "usa_wa_sos_results"
 
 
 async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction) -> Source:
@@ -33,7 +32,7 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
     :func:`usa_wa_adapter_legislature.provisioning.get_or_create_source` for why both paths.
     """
     existing = (
-        await session.execute(select(Source).where(Source.slug == SOS_SOURCE_SLUG))
+        await session.execute(select(Source).where(Source.slug == SOS_FILINGS_SOURCE_SLUG))
     ).scalar_one_or_none()
     if existing is not None:
         await seed_source_coverage(session, existing, SOS_FILINGS_COVERAGE)
@@ -41,7 +40,7 @@ async def get_or_create_source(session: AsyncSession, jurisdiction: Jurisdiction
     row = Source(
         jurisdiction_id=jurisdiction.id,
         name="WA Secretary of State (votewa)",
-        slug=SOS_SOURCE_SLUG,
+        slug=SOS_FILINGS_SOURCE_SLUG,
         kind="rest",
         base_url=SOS_BASE_URL,
         reliability=1.0,
@@ -63,7 +62,7 @@ async def get_or_create_results_source(session: AsyncSession, jurisdiction: Juri
     Seeds this feed's declared coverage claims (#180) on both paths.
     """
     existing = (
-        await session.execute(select(Source).where(Source.slug == RESULTS_SOURCE_SLUG))
+        await session.execute(select(Source).where(Source.slug == SOS_RESULTS_SOURCE_SLUG))
     ).scalar_one_or_none()
     if existing is not None:
         await seed_source_coverage(session, existing, SOS_RESULTS_COVERAGE)
@@ -71,7 +70,7 @@ async def get_or_create_results_source(session: AsyncSession, jurisdiction: Juri
     row = Source(
         jurisdiction_id=jurisdiction.id,
         name="WA Secretary of State (election results)",
-        slug=RESULTS_SOURCE_SLUG,
+        slug=SOS_RESULTS_SOURCE_SLUG,
         kind="rest",
         base_url=RESULTS_BASE_URL,
         reliability=1.0,
