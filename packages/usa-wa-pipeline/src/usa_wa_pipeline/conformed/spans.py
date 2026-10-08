@@ -564,6 +564,51 @@ def without_future_bienniums(inputs: SpanInputs, *, current_biennium: str) -> Sp
     return kept
 
 
+def without_non_legislator_committee_rows(inputs: SpanInputs) -> SpanInputs:
+    """``inputs`` minus every committee-roster row whose member is in no sponsor roster
+    that biennium (#469).
+
+    A committee seat is a legislator's, and the sponsor roster is the archive's list of
+    the biennium's legislators. WSL also lists the Lt. Governor on Senate Rules — ex
+    officio, as its chair — but only Brad Owen (321), only 1999-00 through 2011-12, and
+    under his old senator record ("Senator Owen", LD 35), with no title field to say
+    so. Those rows published a 1999–2012 "Member" span for a non-legislator: the wrong
+    role over the wrong years (he held the office 1997–2017), which no later Lt.
+    Governor carries. The office is #479's to model from a source that covers it.
+
+    The test is structural — a ``(biennium, member_id)`` pair absent from the sponsor
+    corpus — never a name or title string, and chamber-agnostic (a member who changed
+    chambers mid-biennium is still a legislator). A biennium with NO sponsor rows is
+    kept: there is nothing to judge it against, and a degraded harvest retracting every
+    membership is the shrink gate's to catch.
+
+    **Spans only**, like :func:`without_future_bienniums`: staging keeps the wire as it
+    is, and ``citations`` still cites the person and the committee at it. Logged at
+    INFO because the corpus carries the 321 rows every night; the member list is the
+    signal a new one arrived.
+    """
+    sponsored = {(str(r.get("biennium")), str(r.get("member_id"))) for r in inputs.sponsors}
+    judged = {biennium for biennium, _ in sponsored}
+    dropped: Counter[str] = Counter()
+
+    def _legislator(row: dict[str, Any]) -> bool:
+        biennium, member = str(row.get("biennium")), str(row.get("member_id"))
+        if biennium not in judged or (biennium, member) in sponsored:
+            return True
+        dropped[member] += 1
+        return False
+
+    kept = replace(
+        inputs, committee_members=[r for r in inputs.committee_members if _legislator(r)]
+    )
+    if dropped:
+        logger.info(
+            "spans_non_legislator_committee_rows_excluded",
+            extra={"members": sorted(dropped), "rows": sum(dropped.values())},
+        )
+    return kept
+
+
 def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, list[TenureSpan]]:
     """Both span families, keyed by source — the one sequence every caller runs.
 
@@ -577,8 +622,11 @@ def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, li
     the roster family's alone (usa-wa#460). Rows from a biennium after the
     current one are dropped first (:func:`without_future_bienniums`, #135), so
     no span is built from one — the guard's reach ends at the spans; see there.
+    So are committee rows for a member no sponsor roster lists that biennium
+    (:func:`without_non_legislator_committee_rows`, #469).
     """
     inputs = without_future_bienniums(inputs, current_biennium=current_biennium)
+    inputs = without_non_legislator_committee_rows(inputs)
     resolution = roster_resolution(inputs.roster, inputs.sponsors)
     spans = build_all_spans(
         inputs,

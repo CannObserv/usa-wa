@@ -8,6 +8,7 @@ orchestration ORDER the Postgres-tier builders use. These tests pin that
 plumbing and the order, not the engine's own behavior.
 """
 
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -773,3 +774,74 @@ def test_the_rollover_closes_every_span_until_the_new_roster_lands() -> None:
     assert spans
     assert not any(s.is_active for s in spans)
     assert {s.valid_to for s in spans} == {date(2026, 12, 31)}
+
+
+def _ex_officio_inputs(*, events: list | None = None) -> SpanInputs:
+    """#469's shape: member 1 is a senator through 2021-22, then leaves the Legislature;
+    the committee wire keeps listing them on Rules (WSL's ex-officio Lt. Governor rows,
+    under the old senator record) while member 3 holds the sponsor roster."""
+    sponsors = [_sponsor("1", "2021-22")] + [
+        _sponsor(
+            "3",
+            b,
+            name="Sam Cole",
+            long_name="Senator Cole",
+            first_name="Sam",
+            last_name="Cole",
+            district="15",
+        )
+        for b in ("2021-22", BIENNIUM, CURRENT)
+    ]
+    members = [_committee_member("1", "2021-22")] + [
+        _committee_member("1", b, committee_id="209", committee_name="Rules")
+        for b in (BIENNIUM, CURRENT)
+    ]
+    return SpanInputs(
+        sponsors=sponsors,
+        committee_members=members,
+        events=events or [],
+        roster=[_roster("Wilbur Cranston", 1925)],
+        sos_results=[_ballot()],
+    )
+
+
+def test_a_committee_row_for_a_non_legislator_builds_no_span(caplog) -> None:
+    """#469: a committee-roster row whose member is in NO sponsor roster that biennium is
+    not a legislator's membership. WSL lists Brad Owen (321) on Senate Rules 1999–2012 as
+    Lt. Governor, ex officio, and those rows published a 1999–2012 "Member" span. The build
+    is the one it would be without them, and the drop is logged with who it was."""
+    inputs = _ex_officio_inputs()
+    rows = inputs.committee_members
+    without = replace(inputs, committee_members=[r for r in rows if r["committee_id"] != "209"])
+    with caplog.at_level("INFO"):
+        families = build_families(inputs, current_biennium=CURRENT)
+    assert families == build_families(without, current_biennium=CURRENT)
+    assert not [s for s in families[SOURCE] if (s.kind, s.discriminator) == (KIND_COMMITTEE, "209")]
+    [record] = [
+        r
+        for r in caplog.records
+        if r.getMessage() == "spans_non_legislator_committee_rows_excluded"
+    ]
+    assert record.members == ["1"]
+    assert record.rows == 2
+
+
+def test_a_departure_after_leaving_the_legislature_logs_already_closed(caplog) -> None:
+    """#469's symptom: the ex-officio rows gave 321 a committee span AFTER his correct
+    `departed` event, so the family logged `operator_departed_no_open_span` for a tenure
+    the wire had already closed. Without them the event is the term end it is."""
+    events = [SuccessionEvent("1", "departed", date(2023, 1, 15))]
+    with caplog.at_level("INFO"):
+        build_families(_ex_officio_inputs(events=events), current_biennium=CURRENT)
+    assert _departure_lines(caplog) == ["operator_departed_already_closed"]
+
+
+def test_a_biennium_with_no_sponsor_roster_keeps_its_committee_rows() -> None:
+    """The guard judges membership only where a sponsor roster exists to judge against:
+    a biennium with none (a degraded harvest) keeps its committee rows rather than
+    retracting every membership in it — the shrink gate's to catch, not this guard's."""
+    inputs = _ex_officio_inputs()
+    inputs = replace(inputs, sponsors=[r for r in inputs.sponsors if r["biennium"] != CURRENT])
+    spans = build_families(inputs, current_biennium=CURRENT)[SOURCE]
+    [rules] = [s for s in spans if s.kind == KIND_COMMITTEE and s.discriminator == "209"]
+    assert rules.start_biennium == CURRENT
