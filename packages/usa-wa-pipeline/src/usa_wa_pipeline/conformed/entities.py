@@ -27,6 +27,8 @@ from datetime import date
 from typing import Any
 
 from clearinghouse_domain_legislative.terms import biennium_for_date
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
+from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold, strip_position_suffix
 from usa_wa_common.names import strip_tenure_notes
 from usa_wa_common.orgs import STRUCTURAL_ORGS
@@ -216,14 +218,14 @@ def person_rows(
         name_full: str | None = None
         name_source: str | None = None
         for key in keys:
-            if key["key_namespace"] == "usa_wa_legislature_roster":
+            if key["key_namespace"] == ROSTER_SOURCE_SLUG:
                 fold = key["key_value"].rsplit(":", 1)[0]
                 if fold in roster_latest:
                     name_full, name_source = roster_latest[fold][1], "roster"
                     break
         if name_full is None:
             for key in keys:
-                if key["key_namespace"] == "usa_wa_legislature":
+                if key["key_namespace"] == WSL_SOURCE_SLUG:
                     hit = wsl_latest.get(key["key_value"])
                     if hit:
                         name_full, name_source = hit[1], "wsl"
@@ -288,7 +290,7 @@ def org_rows(
 
     rows = []
     for entity_id, keys in sorted(_live_entities(crosswalk).items()):
-        committee_ids = [k["key_value"] for k in keys if k["key_namespace"] == "usa_wa_legislature"]
+        committee_ids = [k["key_value"] for k in keys if k["key_namespace"] == WSL_SOURCE_SLUG]
         structural = next(
             (STRUCTURAL_ORGS[cid] for cid in committee_ids if cid in STRUCTURAL_ORGS), None
         )

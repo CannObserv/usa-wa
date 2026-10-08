@@ -38,6 +38,7 @@ from clearinghouse_domain_legislative.committee_succession import (
     SLUG_MERGED_WITH,
     SLUG_SUCCEEDED_BY,
 )
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 
 LINEAGE_SCHEMA = {
@@ -64,7 +65,7 @@ CYCLE_COLUMNS = list(CYCLE_SCHEMA)
 RETIRING_SLUGS = frozenset({SLUG_SUCCEEDED_BY, SLUG_MERGED_WITH})
 
 #: The namespace committee ids are registered under (``registrar.load_org_keys``).
-_COMMITTEE_NAMESPACE = "usa_wa_legislature"
+_COMMITTEE_NAMESPACE = WSL_SOURCE_SLUG
 
 _ARROW = " → "
 

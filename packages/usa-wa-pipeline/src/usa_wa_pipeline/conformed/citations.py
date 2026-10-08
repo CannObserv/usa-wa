@@ -70,6 +70,8 @@ from typing import Any
 
 from clearinghouse_domain_legislative.span_kinds import KIND_COMMITTEE
 from clearinghouse_domain_legislative.terms import bienniums_in_range
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
+from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
@@ -90,8 +92,8 @@ ENTITY_ROLE = "role"
 ENTITY_ASSIGNMENT = "assignment"
 
 #: The WSL archive's numeric-member-id space; the roster-PDF's minted one.
-SOURCE = "usa_wa_legislature"
-ROSTER_SOURCE = "usa_wa_legislature_roster"
+SOURCE = WSL_SOURCE_SLUG
+ROSTER_SOURCE = ROSTER_SOURCE_SLUG
 
 #: Natural-key namespaces, per the registry the crosswalks publish.
 _ROSTER_NAMESPACE = ROSTER_SOURCE

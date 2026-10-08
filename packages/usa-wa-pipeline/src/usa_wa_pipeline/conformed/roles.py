@@ -34,6 +34,7 @@ from clearinghouse_domain_legislative.span_kinds import (
     KIND_PARTY,
     KIND_SENATE,
 )
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.role_keys import (
     committee_member_role_source_id,
     party_role_source_id,
@@ -46,7 +47,7 @@ from usa_wa_common.seats import (
 
 #: The source every role key is asserted under — roles are WSL-space slots even
 #: when the tenure filling them came from the roster PDF.
-SOURCE = "usa_wa_legislature"
+SOURCE = WSL_SOURCE_SLUG
 
 #: Structural org source_ids the seats hang from.
 HOUSE_ORG = "usa_wa_house"

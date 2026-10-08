@@ -66,9 +66,11 @@ from clearinghouse_domain_legislative.tenure_spans import (
     build_tenure_spans,
 )
 from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
+from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.membership.projector import (
     build_committee_membership_observations,
 )
+from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.identity import (
     IDENTITY_WSL,
     ROSTER_IDENTITY_FLOOR,
@@ -99,11 +101,11 @@ from usa_wa_pipeline.conformed.wire import committee_rosters, sponsor_wire_rows
 logger = get_logger(__name__)
 
 #: The WSL archive: numeric member ids, 1991-.
-SOURCE = "usa_wa_legislature"
+SOURCE = WSL_SOURCE_SLUG
 
 #: The roster-PDF source: minted `<fold>:<first-session-year>` identities,
 #: pre-1991. A DISJOINT identity space sharing the same assignments table.
-ROSTER_SOURCE = "usa_wa_legislature_roster"
+ROSTER_SOURCE = ROSTER_SOURCE_SLUG
 
 #: The kinds each build step owns. `chamber-house` is delegated to
 #: :mod:`usa_wa_pipeline.conformed.house` — a Layer-3b composition, not a
