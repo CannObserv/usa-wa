@@ -87,6 +87,15 @@ The rollover itself needs no switch:
 on Jan 1 the clock flips, every 2025-26 span closes at 2026-12-31 (the
 `assignments_chamber_vacancy` warning), and the new roster reopens them.
 
+**A committee seat is a legislator's** (#469). `build_families` then drops a
+committee-member row whose `(biennium, member_id)` no sponsor row carries
+(`without_non_legislator_committee_rows`, logged at INFO
+`spans_non_legislator_committee_rows_excluded` with the member ids). WSL lists the
+Lt. Governor on Senate Rules ex officio — Brad Owen (321) only, 1999-00 to 2011-12,
+under his old senator record — which published a 1999–2012 "Member" span for a
+non-legislator. A biennium with no sponsor rows is not judged. Spans only, like
+#135's guard; modelling the office itself is #479.
+
 **Roles and seats are structural, not registered** (`conformed/roles.py`). A
 Role is a named slot in an Organization; an Assignment binds one in time
 (ONTOLOGY.md § 2). The span already carries the slot's identity as
