@@ -118,6 +118,8 @@ def test_no_package_source_retypes_a_wsl_source_slug():
 
 def test_every_allowed_site_still_exists():
     """A stale entry would let a new copy hide at a path nobody reads."""
+    missing = [path for path in ALLOWED if not (REPO / path).is_file()]
+    assert missing == [], f"ALLOWED names files that are gone: {missing}"
     assert {path: _slug_literals(path) for path in ALLOWED} == ALLOWED
 
 
