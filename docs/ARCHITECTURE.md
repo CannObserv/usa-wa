@@ -136,7 +136,10 @@ swept, and reasoned about in isolation:
 
 - **Its own `Source` slug** — one per feed (`usa_wa_sos` filings vs `usa_wa_sos_results`
   results), never shared, and so its own slice of the raw store. An object traces unambiguously
-  to one feed.
+  to one feed. Declared **once**, in the package's `coverage.py`, and imported by the raw harvest,
+  the staging model and every registry-key reader: the slug is also the key namespace
+  (`usa_wa_legislature:<member_id>`), so a retyped copy that misses a rename matches nothing,
+  silently (#245; `scripts/tests/test_source_slug_literals.py` guards the WSL pair).
 - **Its own archive key** — the resource-id scheme in a pure `resources.py`
   (`sos-whofiled:<YYYYMMDD>` vs `sos-legresults:<YYYYMMDD>`), imported by both the raw harvest and
   the staging model. Keys never collide across sources, and a rename breaks the import rather than
