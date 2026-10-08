@@ -776,10 +776,12 @@ def test_the_rollover_closes_every_span_until_the_new_roster_lands() -> None:
     assert {s.valid_to for s in spans} == {date(2026, 12, 31)}
 
 
-def _ex_officio_inputs(*, events: list | None = None) -> SpanInputs:
+def _ex_officio_inputs(
+    *, events: list | None = None, rules_in: tuple[str, ...] = (BIENNIUM, CURRENT)
+) -> SpanInputs:
     """#469's shape: member 1 is a senator through 2021-22, then leaves the Legislature;
-    the committee wire keeps listing them on Rules (WSL's ex-officio Lt. Governor rows,
-    under the old senator record) while member 3 holds the sponsor roster."""
+    the committee wire lists them on Rules in ``rules_in`` (WSL's ex-officio Lt. Governor
+    rows, under the old senator record) while member 3 holds the sponsor roster."""
     sponsors = [_sponsor("1", "2021-22")] + [
         _sponsor(
             "3",
@@ -793,8 +795,7 @@ def _ex_officio_inputs(*, events: list | None = None) -> SpanInputs:
         for b in ("2021-22", BIENNIUM, CURRENT)
     ]
     members = [_committee_member("1", "2021-22")] + [
-        _committee_member("1", b, committee_id="209", committee_name="Rules")
-        for b in (BIENNIUM, CURRENT)
+        _committee_member("1", b, committee_id="209", committee_name="Rules") for b in rules_in
     ]
     return SpanInputs(
         sponsors=sponsors,
@@ -826,13 +827,24 @@ def test_a_committee_row_for_a_non_legislator_builds_no_span(caplog) -> None:
     assert record.rows == 2
 
 
-def test_a_departure_after_leaving_the_legislature_logs_already_closed(caplog) -> None:
-    """#469's symptom: the ex-officio rows gave 321 a committee span AFTER his correct
-    `departed` event, so the family logged `operator_departed_no_open_span` for a tenure
-    the wire had already closed. Without them the event is the term end it is."""
+def test_a_departure_after_leaving_the_legislature_logs_already_closed(monkeypatch, caplog) -> None:
+    """#469's symptom: 321 departed 1997-01-15, a term end, and the ex-officio rows gave
+    him a committee span from 1999 — AFTER the event, so the family logged
+    `operator_departed_no_open_span` for a tenure the wire had already closed. Same gap
+    here (seat ends 2022-12-31, event 2023-01-15, Rules from 2025-26): without the guard
+    it is the miss prod logged; with it, the term end it is."""
     events = [SuccessionEvent("1", "departed", date(2023, 1, 15))]
+    inputs = _ex_officio_inputs(events=events, rules_in=(CURRENT,))
+    with monkeypatch.context() as unguarded, caplog.at_level("INFO"):
+        unguarded.setattr(
+            "usa_wa_pipeline.conformed.spans.without_non_legislator_committee_rows",
+            lambda i: i,
+        )
+        build_families(inputs, current_biennium=CURRENT)
+    assert _departure_lines(caplog) == ["operator_departed_no_open_span"]
+    caplog.clear()
     with caplog.at_level("INFO"):
-        build_families(_ex_officio_inputs(events=events), current_biennium=CURRENT)
+        build_families(inputs, current_biennium=CURRENT)
     assert _departure_lines(caplog) == ["operator_departed_already_closed"]
 
 
