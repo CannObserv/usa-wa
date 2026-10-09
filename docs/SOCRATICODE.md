@@ -449,6 +449,8 @@ above, `SOCRATICODE_SPEC` in both places, and a capped warm of the new spec's np
 tree — npx keys its cache on the spec string, so the first launch of a new exact
 spec otherwise installs uncapped at session start (command:
 [`host-memory.md`](../skills-vendor/gregoryfoster-skills/skills/init-socraticode/references/host-memory.md)).
+[`test_socraticode_pin.py`](../scripts/tests/test_socraticode_pin.py) fails on a
+tracked spelling of the version left behind.
 The health hook still reports a *defect* only at a minor or major gap between the
 pin and `@latest` — a patch apart is the intended steady state, since a pin is
 meant to lag. Re-pin as a decision, not on a schedule: the reason to pin was to
