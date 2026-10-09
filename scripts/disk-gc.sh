@@ -441,11 +441,67 @@ fi
 # npx caches, ~457 MB per tree. Since #415 the plugin's session launch is pinned
 # too (SOCRATICODE_SPEC — docs/SOCRATICODE.md), so it no longer mints a tree per
 # release; this sweep stays for what a pin does not bound: trees from spec strings
-# no longer launched (@latest, a pin since moved). It is liveness-only, so it also
-# takes the CURRENT pin's tree whenever no session holds it, and the next session
-# start reinstalls it uncapped — until #485 exempts it.
+# no longer launched (@latest, a pin since moved).
+#
+# The CURRENT pin's tree is never a candidate (#485). It was warmed under the
+# memory cap on purpose; pruned while no session held it, the next session start
+# reinstalled it uncapped — the #389 peak on a 7.7 GiB host with no swap. Liveness
+# cannot protect it, because between sessions nothing runs out of it.
+#
+# npx names a one-package tree `sha512(<spec>)[:16]` over the spec string as
+# given, so the dir is identified by hashing the spec — contents cannot do it:
+# the @latest tree and the pin's both declare `socraticode: ^<version>`. The spec
+# is read from both places #415 sets it, and every spec found in either is kept:
+# a re-pin that reached one and not the other would otherwise exempt the tree
+# nothing launches and prune the one something does.
+#
+# Each place is read on its own, and anything unreadable — a missing file, bad
+# JSON (VS Code's settings may carry comments), a spec that is not a one-line
+# string, no python3 — yields no exemption from that place. That is today's
+# behaviour, never a licence to keep more. Superseded pins and @latest trees stay
+# prunable.
+declare -A PINNED=()
+while IFS=$'\t' read -r hash spec; do
+    case "$hash" in
+        [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f])
+            PINNED[$hash]=$spec
+            ;;
+    esac
+done < <(python3 -c '
+import hashlib, json, sys
+
+def declared(doc):
+    return [doc["env"]["SOCRATICODE_SPEC"]]
+
+def launched(doc):
+    return [v["value"] for v in doc["claudeCode.environmentVariables"] if v["name"] == "SOCRATICODE_SPEC"]
+
+for path, pick in ((sys.argv[1], declared), (sys.argv[2], launched)):
+    try:
+        with open(path) as fh:
+            specs = pick(json.load(fh))
+    except Exception:
+        continue
+    for spec in specs:
+        if type(spec) is str and spec and spec.isprintable():
+            print(hashlib.sha512(spec.encode()).hexdigest()[:16], spec, sep="\t")
+' "$REPO/.claude/settings.json" "$VSCODE_ROOT/data/Machine/settings.json" 2>/dev/null)
+
+#: Trees an exemption kept off the candidate list. Reported, so the exemption is
+#: visible rather than a silent `reclaimable: 0B` (#399's complaint).
+KEPT_KINDS=()
+KEPT_PATHS=()
+KEPT_SPECS=()
 for cache in "$NPX_ROOT"/*; do
-    [ -d "$cache" ] && consider npx-cache "$cache"
+    [ -d "$cache" ] || continue
+    name=${cache##*/}
+    if [ -n "${PINNED[$name]+set}" ]; then
+        KEPT_KINDS+=(npx-cache)
+        KEPT_PATHS+=("$cache")
+        KEPT_SPECS+=("${PINNED[$name]}")
+        continue
+    fi
+    consider npx-cache "$cache"
 done
 
 # ── prune or account ──────────────────────────────────────────────────────────
@@ -590,6 +646,14 @@ if [ "$JSON" -eq 1 ]; then
             "$(json_string "${WITHHELD_KINDS[$i]}")" "$(json_string "${WITHHELD_PATHS[$i]}")"
     done
     printf '],'
+    printf '"kept":['
+    for i in "${!KEPT_PATHS[@]}"; do
+        [ "$i" -eq 0 ] || printf ','
+        printf '{"kind":%s,"path":%s,"reason":"pinned","spec":%s}' \
+            "$(json_string "${KEPT_KINDS[$i]}")" "$(json_string "${KEPT_PATHS[$i]}")" \
+            "$(json_string "${KEPT_SPECS[$i]}")"
+    done
+    printf '],'
     printf '"grace_minutes":%s,' "$GRACE_MINUTES"
     printf '"tiers":{'
     for i in "${!TIER_NAMES[@]}"; do
@@ -628,6 +692,12 @@ else
         echo "withheld: ${#WITHHELD_PATHS[@]} item(s) modified within the last ${GRACE_MINUTES}m — still being written, or recently used"
         for i in "${!WITHHELD_PATHS[@]}"; do
             printf '  ~ %-16s %10s  %s\n' "${WITHHELD_KINDS[$i]}" "-" "${WITHHELD_PATHS[$i]}"
+        done
+    fi
+    if [ "${#KEPT_PATHS[@]}" -gt 0 ]; then
+        echo "kept: ${#KEPT_PATHS[@]} item(s) exempt from pruning"
+        for i in "${!KEPT_PATHS[@]}"; do
+            printf '  = %-16s %10s  %s (pinned %s)\n' "${KEPT_KINDS[$i]}" "-" "${KEPT_PATHS[$i]}" "${KEPT_SPECS[$i]}"
         done
     fi
     echo "repo tiers (measured, never pruned here — #396 owns their retention):"
