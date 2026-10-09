@@ -474,7 +474,12 @@ def declared(doc):
     return [doc["env"]["SOCRATICODE_SPEC"]]
 
 def launched(doc):
-    return [v["value"] for v in doc["claudeCode.environmentVariables"] if v["name"] == "SOCRATICODE_SPEC"]
+    # Judged entry by entry: this list holds every variable the extension sets,
+    # and an unrelated one of the wrong shape must not void the pin beside it.
+    return [
+        v.get("value") for v in doc["claudeCode.environmentVariables"]
+        if isinstance(v, dict) and v.get("name") == "SOCRATICODE_SPEC"
+    ]
 
 for path, pick in ((sys.argv[1], declared), (sys.argv[2], launched)):
     try:

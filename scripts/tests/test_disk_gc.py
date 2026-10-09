@@ -1171,6 +1171,23 @@ def test_no_readable_spec_exempts_nothing(host, case):
     assert data["kept"] == []
 
 
+def test_a_malformed_sibling_variable_does_not_spoil_the_pin(host):
+    """`claudeCode.environmentVariables` carries every variable the extension
+    sets, not just this one. An unrelated entry of the wrong shape costs only
+    itself — it must not silently disarm the launch's exemption (CR 1)."""
+    pinned = _fill(host["npx"] / PINNED_DIR)
+    path = host["vscode"] / "data" / "Machine" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entries = [
+        {"value": "nameless"},
+        "not-an-object",
+        {"name": "SOCRATICODE_SPEC", "value": PINNED_SPEC},
+    ]
+    path.write_text(json.dumps({"claudeCode.environmentVariables": entries}))
+    run_gc(host, "--prune")
+    assert pinned.exists()
+
+
 def test_a_garbled_source_does_not_spoil_the_other(host):
     """Each place is read on its own: one unreadable settings file costs only its
     own exemption."""
