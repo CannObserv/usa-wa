@@ -388,7 +388,7 @@ symlinked hook's output drifts silently, because nothing compares the two.
 
 ### The server is pinned, not installed per launch (#389)
 
-The plugin's `mcp.json` is `npx -y --prefer-online socraticode@latest`, and
+The plugin launches `npx -y --prefer-online ${SOCRATICODE_SPEC:-socraticode@latest}`, and
 `--prefer-online` revalidates against the registry on **every** launch — a warm
 cache is not a warm path on any day the package moved. The daily
 `socraticode-health.sh` hook shells out to the same command from `SessionStart`,
@@ -407,24 +407,54 @@ systemd-run --user --scope -p MemoryHigh=1200M -p MemoryMax=1536M \
   -- npm install --prefix ~/.socraticode/pin socraticode@<version>
 ```
 
-Pinned here at **1.14.0** on 2026-09-19 (457 MB under `~/.socraticode/pin`), which
-is what `@latest` resolved to that day — so the pin introduced no version drift.
+Pinned here at **1.16.0** on 2026-10-08 (457 MB under `~/.socraticode/pin`; first
+pinned at 1.14.0 on 2026-09-19). 1.16.0 is what the floating session had been
+running, and what built the current graph, so the re-pin moved nothing backwards.
 Confirm which path wins without launching a server:
 
 ```bash
 node skills-vendor/gregoryfoster-skills/skills/init-socraticode/scripts/mcp-driver.mjs resolve
-# → "source": "pinned install v1.14.0 (/home/exedev/.socraticode/pin)"
+# → "source": "pinned install v1.16.0 (/home/exedev/.socraticode/pin)"
 ```
 
-Nothing else is configured. Absent a pin the chain is exactly what it was, so this
-is opt-in and reversible by deleting the directory.
+Absent a pin the chain is exactly what it was, so this is opt-in and reversible by
+deleting the directory.
 
-**It does not pin the session.** Claude Code cannot override a plugin's MCP
-command, so the plugin keeps launching `@latest` while the driver is
-deterministic. The health hook measures that gap and reports a *defect* only at a
-minor or major difference — a patch apart is the intended steady state, since a
-pin is meant to lag. Re-pin as a decision, not on a schedule: the reason to pin
-was to stop an unattended launch from installing.
+**The session is pinned too (#415): `SOCRATICODE_SPEC=socraticode@1.16.0`.** Since
+upstream [`0c33776`](https://github.com/giancarloerra/socraticode/commit/0c33776)
+the plugin's live manifest, `.claude-plugin/mcp.json`, reads its package spec from
+that variable ([gregoryfoster/skills#327](https://github.com/gregoryfoster/skills/issues/327)).
+It is set in two places:
+
+| Where | Role |
+|---|---|
+| `~/.vscode-server/data/Machine/settings.json` → `claudeCode.environmentVariables` | **the mechanism** — the VS Code extension's environment when it starts `claude`. Host-side, not in the repo |
+| [`.claude/settings.json`](../.claude/settings.json) `env` | the **declared** value `preflight.sh` compares against. Not sufficient alone: on sibling hosts it reached the server's environment but not its launch args ([gregoryfoster/skills#332](https://github.com/gregoryfoster/skills/issues/332)) |
+
+Both reach only sessions started afterwards — reload the VS Code window. The plugin
+must be a build that reads the variable (a 1.14.0-labelled one can predate it);
+`preflight.sh --check` says when it does not.
+
+**Verify what launched, never a manifest** — the two at the plugin's root still
+hardcode `@latest` — nor `claude mcp list` from a session shell, which starts its
+own server with that shell's environment. Read the process table:
+
+```bash
+ps -eo pid,ppid,args | grep '[n]pm exec socraticode'   # expect socraticode@1.16.0, never @latest
+bash skills-vendor/gregoryfoster-skills/skills/init-socraticode/scripts/preflight.sh --check
+```
+
+**Re-pinning changes three things together:** the `npm install --prefix` line
+above, `SOCRATICODE_SPEC` in both places, and a capped warm of the new spec's npx
+tree — npx keys its cache on the spec string, so the first launch of a new exact
+spec otherwise installs uncapped at session start (command:
+[`host-memory.md`](../skills-vendor/gregoryfoster-skills/skills/init-socraticode/references/host-memory.md)).
+[`test_socraticode_pin.py`](../scripts/tests/test_socraticode_pin.py) fails on a
+tracked spelling of the version left behind.
+The health hook still reports a *defect* only at a minor or major gap between the
+pin and `@latest` — a patch apart is the intended steady state, since a pin is
+meant to lag. Re-pin as a decision, not on a schedule: the reason to pin was to
+stop an unattended launch from installing.
 
 Host-side memory protection — `MemoryLow=`/`OOMScoreAdjust=` on the serving unit,
 `vm.min_free_kbytes`, earlyoom — is in

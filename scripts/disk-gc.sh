@@ -438,9 +438,12 @@ for entry in doc:
     fi
 fi
 
-# npx caches. #389 pinned the SocratiCode server but named the limitation that
-# makes this recur: Claude Code cannot override a plugin's MCP command, so the
-# plugin keeps launching @latest and minting a fresh ~457 MB tree per release.
+# npx caches, ~457 MB per tree. Since #415 the plugin's session launch is pinned
+# too (SOCRATICODE_SPEC — docs/SOCRATICODE.md), so it no longer mints a tree per
+# release; this sweep stays for what a pin does not bound: trees from spec strings
+# no longer launched (@latest, a pin since moved). It is liveness-only, so it also
+# takes the CURRENT pin's tree whenever no session holds it, and the next session
+# start reinstalls it uncapped — until #485 exempts it.
 for cache in "$NPX_ROOT"/*; do
     [ -d "$cache" ] && consider npx-cache "$cache"
 done
