@@ -39,6 +39,7 @@ def test_the_session_spec_is_an_exact_version() -> None:
         ("SOCRATICODE.md", "Pinned here at **{v}**"),
         ("SOCRATICODE.md", "pinned install v{v} "),
         ("SOCRATICODE.md", "`SOCRATICODE_SPEC=socraticode@{v}`"),
+        ("SOCRATICODE.md", "expect socraticode@{v},"),
         ("DEPLOYMENT-HOST.md", "SocratiCode pinned to {v} "),
         ("ENVIRONMENT.md", "`socraticode@{v}`"),
     ],
