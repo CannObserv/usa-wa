@@ -22,7 +22,8 @@ DOCS = REPO / "docs"
 
 def _pinned_version() -> str:
     """The exact version ``SOCRATICODE_SPEC`` declares — never a range or a tag."""
-    spec = json.loads(SETTINGS.read_text())["env"]["SOCRATICODE_SPEC"]
+    spec = json.loads(SETTINGS.read_text()).get("env", {}).get("SOCRATICODE_SPEC")
+    assert spec, "settings.json declares no SOCRATICODE_SPEC; the session would float on @latest"
     match = re.fullmatch(r"socraticode@(\d+\.\d+\.\d+)", spec)
     assert match, f"SOCRATICODE_SPEC={spec!r} is not an exact version; a floating spec pins nothing"
     return match.group(1)
