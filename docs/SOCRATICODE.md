@@ -450,9 +450,7 @@ tree — npx keys its cache on the spec string, so the first launch of a new exa
 spec otherwise installs uncapped at session start (command:
 [`host-memory.md`](../skills-vendor/gregoryfoster-skills/skills/init-socraticode/references/host-memory.md)).
 [`test_socraticode_pin.py`](../scripts/tests/test_socraticode_pin.py) fails on a
-tracked spelling of the version left behind. The daily disk GC keeps the tree of
-every spec it finds in either place and prunes the superseded one (#485,
-[DEPLOYMENT-HOST.md § Host maintenance](DEPLOYMENT-HOST.md#host-maintenance-394)).
+tracked spelling of the version left behind. Disk GC keeps every pinned spec's tree (#485).
 The health hook still reports a *defect* only at a minor or major gap between the
 pin and `@latest` — a patch apart is the intended steady state, since a pin is
 meant to lag. Re-pin as a decision, not on a schedule: the reason to pin was to
