@@ -443,7 +443,7 @@ fi
 # release; this sweep stays for what a pin does not bound: trees from spec strings
 # no longer launched (@latest, a pin since moved). It is liveness-only, so it also
 # takes the CURRENT pin's tree whenever no session holds it, and the next session
-# start reinstalls it uncapped — #485 exempts that tree.
+# start reinstalls it uncapped — until #485 exempts it.
 for cache in "$NPX_ROOT"/*; do
     [ -d "$cache" ] && consider npx-cache "$cache"
 done
