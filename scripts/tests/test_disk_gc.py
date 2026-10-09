@@ -1064,8 +1064,9 @@ def test_extensions_root_is_overridable(host, tmp_path):
 
 
 def test_prunes_idle_npx_caches_and_keeps_live_ones(host, live_procs):
-    """~457 MB each. #415 pinned the session's spec, but trees from spec strings
-    no longer launched (@latest, a superseded pin) still accrue unbounded."""
+    """~457 MB each. #415 pinned the session's spec, so a tree no longer lands
+    per release — but each re-pin leaves the superseded spec's tree behind, and
+    this sweep is all that removes it."""
     live = _fill(host["npx"] / "aaaaaaaaaaaaaaaa")
     idle = _fill(host["npx"] / "bbbbbbbbbbbbbbbb")
     live_procs(live / "node_modules" / ".bin" / "socraticode")
