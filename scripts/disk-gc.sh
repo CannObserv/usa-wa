@@ -441,9 +441,9 @@ fi
 # npx caches, ~457 MB per tree. Since #415 the plugin's session launch is pinned
 # too (SOCRATICODE_SPEC — docs/SOCRATICODE.md), so it no longer mints a tree per
 # release; this sweep stays for what a pin does not bound: trees from spec strings
-# no longer launched (@latest, a pin since moved) and their stale hashes. It is
-# liveness-only, so it also takes the CURRENT pin's tree whenever no session
-# holds it, and the next session start reinstalls it uncapped.
+# no longer launched (@latest, a pin since moved). It is liveness-only, so it also
+# takes the CURRENT pin's tree whenever no session holds it, and the next session
+# start reinstalls it uncapped — #485 exempts that tree.
 for cache in "$NPX_ROOT"/*; do
     [ -d "$cache" ] && consider npx-cache "$cache"
 done
