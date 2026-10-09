@@ -1075,6 +1075,129 @@ def test_prunes_idle_npx_caches_and_keeps_live_ones(host, live_procs):
     assert not idle.exists()
 
 
+#: npx names a one-package cache dir `sha512(<spec>)[:16]`. Read off this host's
+#: `~/.npm/_npx` (#485), not recomputed here — a test hashing the way the script
+#: hashes would pass against a script that hashed the wrong thing.
+PINNED_SPEC = "socraticode@1.16.0"
+PINNED_DIR = "482399b050c27a22"
+LATEST_DIR = "e467c9db50cb633b"  # socraticode@latest
+
+
+def _declare_spec(host, spec, *, where: str = "repo") -> None:
+    """Declare SOCRATICODE_SPEC where #415 sets it: the repo's `.claude/settings.json`
+    `env` (the declared value) or the VS Code machine setting (the launch)."""
+    if where == "repo":
+        path = host["repo"] / ".claude" / "settings.json"
+        doc = {"env": {"SOCRATICODE_SPEC": spec}}
+    else:
+        path = host["vscode"] / "data" / "Machine" / "settings.json"
+        doc = {"claudeCode.environmentVariables": [{"name": "SOCRATICODE_SPEC", "value": spec}]}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(doc))
+
+
+@pytest.mark.parametrize("where", ["repo", "machine"])
+def test_keeps_the_pinned_specs_idle_tree(host, where):
+    """The pin's tree was warmed under the memory cap (#415). Pruned while no
+    session holds it, the next session start reinstalls it uncapped — the #389
+    peak the pin exists to prevent. An idle `@latest` tree beside it still goes."""
+    pinned = _fill(host["npx"] / PINNED_DIR)
+    latest = _fill(host["npx"] / LATEST_DIR)
+    _declare_spec(host, PINNED_SPEC, where=where)
+    data = report(host, "--prune")
+    assert pinned.exists()
+    assert not latest.exists()
+    assert data["kept"] == [
+        {"kind": "npx-cache", "path": str(pinned), "reason": "pinned", "spec": PINNED_SPEC}
+    ]
+
+
+def test_a_spec_in_either_place_is_kept(host):
+    """A re-pin that reached one place but not the other: the declared value and
+    what launches disagree. Exempting only one would prune the tree the other
+    names, so every spec found in either is kept."""
+    declared = _fill(host["npx"] / PINNED_DIR)
+    launched = _fill(host["npx"] / LATEST_DIR)
+    _declare_spec(host, PINNED_SPEC, where="repo")
+    _declare_spec(host, "socraticode@latest", where="machine")
+    data = report(host, "--prune")
+    assert declared.exists()
+    assert launched.exists()
+    assert {k["spec"] for k in data["kept"]} == {PINNED_SPEC, "socraticode@latest"}
+
+
+def test_the_pinned_tree_is_named_in_the_human_report(host):
+    """Visible, not silent: an exemption nobody can see is indistinguishable from
+    a sweep that never looked."""
+    _fill(host["npx"] / PINNED_DIR)
+    _declare_spec(host, PINNED_SPEC)
+    out = run_gc(host).stdout
+    assert "kept:" in out
+    assert f"pinned {PINNED_SPEC}" in out
+
+
+def _garble(host, case: str) -> None:
+    path = host["repo"] / ".claude" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = {
+        "bad-json": '{"env": {"SOCRATICODE_SPEC": "socraticode@1.16.0"',
+        "env-not-an-object": json.dumps({"env": ["SOCRATICODE_SPEC"]}),
+        "spec-not-a-string": json.dumps({"env": {"SOCRATICODE_SPEC": 1160}}),
+        "spec-empty": json.dumps({"env": {"SOCRATICODE_SPEC": ""}}),
+        "spec-multiline": json.dumps({"env": {"SOCRATICODE_SPEC": PINNED_SPEC + "\nx"}}),
+    }.get(case)
+    if content is not None:
+        path.write_text(content)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "absent",
+        "bad-json",
+        "env-not-an-object",
+        "spec-not-a-string",
+        "spec-empty",
+        "spec-multiline",
+    ],
+)
+def test_no_readable_spec_exempts_nothing(host, case):
+    """Fail safe toward today's behaviour: a spec that cannot be read is no
+    exemption, never a licence to keep — or to prune — more."""
+    pinned = _fill(host["npx"] / PINNED_DIR)
+    _garble(host, case)
+    data = report(host, "--prune")
+    assert not pinned.exists()
+    assert data["kept"] == []
+
+
+def test_a_malformed_sibling_variable_does_not_spoil_the_pin(host):
+    """`claudeCode.environmentVariables` carries every variable the extension
+    sets, not just this one. An unrelated entry of the wrong shape costs only
+    itself — it must not silently disarm the launch's exemption (CR 1)."""
+    pinned = _fill(host["npx"] / PINNED_DIR)
+    path = host["vscode"] / "data" / "Machine" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entries = [
+        {"value": "nameless"},
+        "not-an-object",
+        {"name": "SOCRATICODE_SPEC", "value": PINNED_SPEC},
+    ]
+    path.write_text(json.dumps({"claudeCode.environmentVariables": entries}))
+    run_gc(host, "--prune")
+    assert pinned.exists()
+
+
+def test_a_garbled_source_does_not_spoil_the_other(host):
+    """Each place is read on its own: one unreadable settings file costs only its
+    own exemption."""
+    pinned = _fill(host["npx"] / PINNED_DIR)
+    _garble(host, "bad-json")
+    _declare_spec(host, PINNED_SPEC, where="machine")
+    run_gc(host, "--prune")
+    assert pinned.exists()
+
+
 # ── report-only is the default ────────────────────────────────────────────────
 
 

@@ -262,6 +262,13 @@ session using a version names it in no `/proc` entry. Only a marker proven dead
 with a warning. Claude Code's own sweep deletes a dropped version after 14 days;
 this tier is the faster backstop.
 
+The `_npx` tier never takes the **current pin's** tree (#485): it was warmed under
+the memory cap, and pruned between sessions the next start reinstalls it uncapped
+(#389). npx names a tree `sha512(<spec>)[:16]`, so the script hashes every
+`SOCRATICODE_SPEC` found in `.claude/settings.json` `env` or the VS Code machine
+setting and reports those trees as `kept:` (JSON `kept`, `reason: pinned`). An
+unreadable spec exempts nothing; superseded pins and `@latest` stay prunable.
+
 A `DISK_GC_GRACE_MINUTES` window (default 60) covers the one case liveness
 cannot: a tree still being installed is named by no process yet, because the
 process that will run out of it does not exist. Set it to `0` to disable.
