@@ -1,7 +1,7 @@
 # Dead-code detection — the `pruning-dead-code` skill
 
 - **Date:** 2026-10-09
-- **Status:** approved in conversation; written spec under review
+- **Status:** approved 2026-10-09
 - **Issues:** usa-wa#475 (driver), follows #471 / PR #474
 - **Cross-repo:** most of the build lands upstream in `gregoryfoster/skills`; usa-wa is the
   first adopter
