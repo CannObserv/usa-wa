@@ -88,7 +88,7 @@ left as it was. The House family adds the mover's seat in that biennium as an
 under that tenure's key. The biennium's own ballot positions the seat. Without a
 ballot, the prior-biennium seat is used, but only within one district map and one
 LD, which is the back-chain's own stop (#118/#140); otherwise nothing is carried
-(`chamber_move_house_seat_unknown`). Below the Position floor there is neither, so
+(`chamber_move_house_seat_unknown`). When there is neither, as below the Position floor,
 the seat is the one a successor's mid-biennium `seated chamber-house` names in the
 mover's LD (#492): only when exactly one seat is named, it is not held by another
 member that biennium, and the mover has no explicit House vacate. That gave six movers

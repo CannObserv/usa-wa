@@ -155,8 +155,8 @@ def carry_mover_house_tenures(
     names one — evidence, where the previous biennium's seat is an assumption. That
     assumption is made only within one district map and one LD: the back-chain's
     own stop (#118/#140), since a new map keeps the LD number but not the district.
-    Below the Position floor there is neither, so the seat a successor was
-    appointed to in the mover's LD names it (usa-wa#492, :func:`_successor_seats`):
+    When there is neither (below the Position floor, as for Pflug), the seat a
+    successor was appointed to in the mover's LD names it (usa-wa#492, :func:`_successor_seats`):
     Rodne's LD-5 Pos. 1 appointment is the only record of which seat Pflug left.
     Otherwise nothing is carried (``chamber_move_house_seat_unknown``); a mover
     appointed into the House in the move biennium (O'Ban) has none of these, and the
