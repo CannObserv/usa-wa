@@ -319,7 +319,8 @@ def _successor_seats(
     succession, not a rival. That guard sees only positioned members, so a peer
     with no observation who left mid-biennium, before the last seating filled a
     named seat, may own the vacancy: then either seat could be the mover's, and
-    both are returned. A peer who left after it opened no seat that seating filled."""
+    both are returned. A peer who left after the last seating opened a vacancy no
+    recorded seating filled."""
     if move.ld is None:
         return set()
     floor = biennium_start_date(move.biennium)
