@@ -280,8 +280,20 @@ class TestDispatches:
             '{"dispatches": "01M3Z75Q76P2SAGDM421HMD7EJ"}',
             '{"dispatches": [1]}',
             '{"dispatches": [{"status": "succeeded"}]}',
+            '{"dispatches": {}}',
+            '{"dispatches": [{"id": 1}]}',
         ],
-        ids=["empty", "not-json", "not-object", "no-key", "not-list", "not-objects", "no-id"],
+        ids=[
+            "empty",
+            "not-json",
+            "not-object",
+            "no-key",
+            "not-list",
+            "not-objects",
+            "no-id",
+            "empty-object",
+            "id-not-str",
+        ],
     )
     def test_a_body_that_does_not_say_still_landed(self, configured, caplog, body) -> None:
         """Logging never changes the outcome. Unknown is logged as null, never as
