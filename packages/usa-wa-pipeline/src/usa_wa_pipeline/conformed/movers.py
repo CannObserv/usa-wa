@@ -35,7 +35,11 @@ from datetime import date
 from typing import Any
 
 from clearinghouse_core.logging import get_logger
-from clearinghouse_domain_legislative.operator_events import KIND_SEATED, KIND_VACATED
+from clearinghouse_domain_legislative.operator_events import (
+    KIND_DEPARTED,
+    KIND_SEATED,
+    KIND_VACATED,
+)
 from clearinghouse_domain_legislative.operator_overlay import SuccessionEvent
 from clearinghouse_domain_legislative.span_kinds import KIND_COMMITTEE, KIND_HOUSE, KIND_SENATE
 from clearinghouse_domain_legislative.tenure_spans import Observation, TenureSpan
@@ -70,13 +74,15 @@ class ChamberMove:
     successor's seating can prove the vacancy came first.
 
     ``ld`` is the district of the mover's House row that biennium; ``ballot_seat``
-    the House discriminator the biennium's own ballot positions them in, if any."""
+    the House discriminator the biennium's own ballot positions them in, if any;
+    ``ld_peers`` the other House members the wire lists in that LD that biennium."""
 
     member_id: str
     biennium: str
     moved_on: date
     ld: int | None = None
     ballot_seat: str | None = None
+    ld_peers: frozenset[str] = frozenset()
 
 
 def chamber_moves(
@@ -127,6 +133,11 @@ def chamber_moves(
                     moved_on=moved_on,
                     ld=ld,
                     ballot_seat=ballot_seat,
+                    ld_peers=frozenset(
+                        entry.member_id
+                        for entry in roster.get(ld, [])
+                        if entry.member_id != member_id
+                    ),
                 )
             )
     return moves
@@ -299,7 +310,9 @@ def _successor_seats(
     A successor is appointed to the seat the mover left, so one such seat is
     theirs; two are ambiguous, and a seat another member already holds that
     biennium is that member's vacancy. The successor's own observation is the
-    succession, not a rival."""
+    succession, not a rival. That guard sees only positioned members, so a peer
+    with no observation who left mid-biennium may own the vacancy: then either
+    seat could be the mover's, and both are returned."""
     if move.ld is None:
         return set()
     floor = biennium_start_date(move.biennium)
@@ -317,14 +330,22 @@ def _successor_seats(
         and biennium_for_date(e.effective_date) == move.biennium
     ]
     successors = {e.member_id for e in seatings}
-    held = {
-        o.discriminator
-        for o in observations
-        if o.kind == KIND_HOUSE
-        and o.biennium == move.biennium
-        and o.member_id not in successors | {move.member_id}
-    }
-    return {e.seat_discriminator for e in seatings} - held
+    observed = [o for o in observations if o.kind == KIND_HOUSE and o.biennium == move.biennium]
+    held = {o.discriminator for o in observed if o.member_id not in successors | {move.member_id}}
+    named = {e.seat_discriminator for e in seatings} - held
+    unseen = move.ld_peers - successors - {o.member_id for o in observed}
+    if named and any(e.member_id in unseen and _left_mid_biennium(e, move) for e in events):
+        return ld_seats
+    return named
+
+
+def _left_mid_biennium(event: SuccessionEvent, move: ChamberMove) -> bool:
+    """A departure or House vacate inside the move biennium, after its first day."""
+    return (
+        (event.kind == KIND_DEPARTED or _is_house_vacate(event))
+        and event.effective_date > biennium_start_date(move.biennium)
+        and biennium_for_date(event.effective_date) == move.biennium
+    )
 
 
 def _house_end(move: ChamberMove, seat: str, events: list[SuccessionEvent]) -> date:
