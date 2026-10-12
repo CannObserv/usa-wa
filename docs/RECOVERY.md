@@ -207,20 +207,16 @@ own runbook is CannObserv/status `docs/RUNBOOK.md`, its API `docs/reference/moni
 error); an `ok` sends `source_host`, `outcome` (`ok`), `object`, `dumped_at`,
 `size_bytes`, `alembic_head`, `raw_uploaded`, `raw_local`.
 
-**What co-status sends** (co-status#28, #487; its `docs/reference/monitors.md` §
-Faults). A run of `alert`s is one **fault**: it reports when it opens, then once per
-`renotify_seconds`, due from 12 h (renotify minus half the interval) after the last
-report — so two failed nights 23h50m apart, as the timer's jitter allows, both report.
-The first `ok` after it sends *"[co-status] co-usa-wa-backup has cleared"*, with how
-long it lasted. A second `alert` within 12 h of a reported one — a same-day retry by
-hand — is recorded and sends nothing, by design.
+**What co-status sends** (co-status#28, #487; mechanics in its `monitors.md` § Faults):
+every failed night reports, even 23h50m apart; the first `ok` after sends *"has
+cleared"*; a second `alert` within 12 h of a reported one (a same-day retry) sends
+nothing.
 
-**Reading `backup_checkin_sent`** (#458). It carries `dispatches`: the ids of the
-notifier dispatches the check-in caused, from co-status's 202 — ids only, never the
-rendered report. `[]` on a nightly `alert` means nothing went out (notifier never took
-it: the monitor's `last_report_status` is `not_accepted`) unless it was such a
-repeat — or `attempt` is `2`: a replay after a lost answer is a repeat, whatever the
-first attempt sent. `null` means the 202's body did not say; the check-in still landed.
+**Reading `backup_checkin_sent`** (#458): `dispatches` holds the 202's notifier
+dispatch ids, never the rendered report. `[]` on a nightly `alert` means nothing went
+out (`last_report_status` is `not_accepted`) — unless it was such a retry, or `attempt`
+is `2`: a replay is a repeat, whatever the first attempt sent. `null`: the body did not
+say; the check-in still landed.
 
 **All three or none** — `USA_WA_BACKUP_CHECKIN_BASE_URL` and `USA_WA_BACKUP_MONITOR_ID`
 in `backup.env`, and a non-empty key file. Half a configuration logs
