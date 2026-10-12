@@ -279,6 +279,13 @@ class TestDispatches:
         assert landed
         assert record.dispatches is None
 
+    def test_a_body_too_deep_to_parse_still_landed(self, caplog) -> None:
+        """``json.loads`` raises ``RecursionError`` here — outside any parse error's
+        type, so only a catch-all keeps the landed check-in landed."""
+        landed, record = self._sent(caplog, (202, "[" * 100_000))
+        assert landed
+        assert record.dispatches is None
+
 
 class TestHttpPost:
     """The real seam hands back what the 202 said, for :func:`checkin._dispatch_ids`."""

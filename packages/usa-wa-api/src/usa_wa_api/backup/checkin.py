@@ -73,12 +73,13 @@ def _dispatch_ids(body: str) -> list[str] | None:
     Ids only: a dispatch carries its rendered report, and that the run's
     ``variables``. None is not ``[]`` — on an ``alert``, ``[]`` means nothing went
     out (co-status#28), which an unreadable body cannot claim. Never raises: the
-    check-in has already landed, and logging must not change that.
+    check-in has already landed, and logging must not change that — so the catch is
+    broad, since a body nested too deep raises ``RecursionError``, no parse error.
     """
     try:
         dispatches = json.loads(body)["dispatches"]
         ids = [dispatch["id"] for dispatch in dispatches]
-    except (ValueError, TypeError, KeyError):
+    except Exception:
         return None
     if not isinstance(dispatches, list) or not all(isinstance(i, str) for i in ids):
         return None
