@@ -185,11 +185,12 @@ def carry_mover_house_tenures(
             and biennium_for_date(e.effective_date) == move.biennium
         }
         successor_seats = set() if explicit else _successor_seats(move, carried, events)
-        seat = (
-            move.ballot_seat
-            or _continued_seat(move, prior)
-            or (next(iter(successor_seats)) if len(successor_seats) == 1 else None)
+        sources = (
+            ("ballot", move.ballot_seat),
+            ("prior", _continued_seat(move, prior)),
+            ("successor", next(iter(successor_seats)) if len(successor_seats) == 1 else None),
         )
+        via, seat = next(((v, s) for v, s in sources if s is not None), (None, None))
         if seat is None:
             if prior is not None or successor_seats:
                 logger.info(
@@ -202,7 +203,12 @@ def carry_mover_house_tenures(
         carried.append(Observation(move.member_id, KIND_HOUSE, seat, move.biennium))
         logger.info(
             "chamber_move_house_tenure_carried",
-            extra={"member_id": move.member_id, "seat": seat, "biennium": move.biennium},
+            extra={
+                "member_id": move.member_id,
+                "seat": seat,
+                "biennium": move.biennium,
+                "via": via,
+            },
         )
         if explicit:
             continue

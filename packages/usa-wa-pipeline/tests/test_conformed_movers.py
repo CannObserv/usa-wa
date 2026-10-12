@@ -233,6 +233,15 @@ def test_a_successors_seating_names_the_seat_of_an_unpositioned_mover() -> None:
     assert implied == [_pflug_vacated()]
 
 
+def test_the_carried_log_names_what_positioned_the_seat(caplog) -> None:
+    """A successor-positioned seat is an inference an operator may want to audit."""
+    caplog.set_level("INFO")
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    carry_mover_house_tenures([_prior_observation()], [MOVE, PFLUG], [rodne])
+    vias = [r.via for r in caplog.records if r.getMessage() == "chamber_move_house_tenure_carried"]
+    assert vias == ["prior", "successor"]
+
+
 def test_a_successor_seated_before_the_move_still_dates_the_end() -> None:
     """The successor names the seat AND, seated first, proves the vacancy came first."""
     early = _seated_house("9710", date(2004, 1, 2), seat=RODNE_SEAT)
