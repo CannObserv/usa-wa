@@ -184,7 +184,7 @@ def carry_mover_house_tenures(
             and e.member_id == move.member_id
             and biennium_for_date(e.effective_date) == move.biennium
         }
-        successor_seats = set() if explicit else _successor_seats(move, observations, events)
+        successor_seats = set() if explicit else _successor_seats(move, carried, events)
         seat = (
             move.ballot_seat
             or _continued_seat(move, prior)

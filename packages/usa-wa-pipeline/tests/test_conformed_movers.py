@@ -313,6 +313,15 @@ def test_the_successor_leaving_later_is_no_rival_vacancy() -> None:
     assert Observation("3479", KIND_HOUSE, RODNE_SEAT, "2003-04") in observations
 
 
+def test_a_seat_an_earlier_move_carried_is_held() -> None:
+    """Two movers in one LD: the first carries Pos. 1 from the ballot, so the only
+    seating recorded (on Pos. 1) is that move's successor, not the second's."""
+    first = ChamberMove("100", "2003-04", date(2004, 1, 5), ld=5, ballot_seat=RODNE_SEAT)
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    observations, _ = carry_mover_house_tenures([], [first, PFLUG], [rodne])
+    assert observations == [Observation("100", KIND_HOUSE, RODNE_SEAT, "2003-04")]
+
+
 def test_a_movers_own_house_vacate_leaves_the_seat_to_the_overlay() -> None:
     """O'Ban's shape: the operator dated and named the House end, so the #145
     synthesis owns that tenure and no successor is consulted."""
