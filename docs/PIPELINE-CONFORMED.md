@@ -74,6 +74,30 @@ back-chain and the #103 within-LD elimination are imported unchanged from
 `usa_wa_facts_seats`. A stateless rebuild is unconditionally the unrestricted,
 deep one, so the #100 depth-mismatch question cannot arise here at all.
 
+**A chamber move dates both chambers** (#490, `conformed/movers.py`). WSL lists a
+mid-biennium House→Senate mover in both chambers, and on both chambers' committees,
+for the whole biennium. The mover exclusion drops their House row so the
+elimination can seat the successor, and before #490 nothing carried their own
+tenure on: June Robinson's House span ended 2018-12-31, not at her 2020-05-13
+Senate seating. Eleven others were cut short the same way, McDermott (2007) through
+Alvarado (2025). The roster PDF records each one ("Resigned; Appointed to the
+Senate"). The move date is the mover's `seated chamber-senate` event, or else their
+`vacated chamber-house`; an undated mover is logged (`chamber_move_undated`) and
+left as it was. The House family adds the mover's seat in that biennium as an
+**observation**, after the elimination, so it merges into the tenure it continues
+under that tenure's key. The biennium's own ballot positions the seat. Without a
+ballot, the prior-biennium seat is used, but only within one district map and one
+LD, which is the back-chain's own stop (#118/#140); otherwise nothing is carried
+(`chamber_move_house_seat_unknown`). It is closed by an implied `vacated` at the move, or at a
+successor's earlier seating on the same seat: Liias's successor was appointed a day
+before his Senate seating, and the later date would add a both-dated overlap to
+`assignments_seat_occupancy`. The committee family ends House committees with the
+House seat and starts floor-opened Senate committees at the move. Movers with
+explicit #145 vacates (Stanford, Angel, Nelson) had been published as two rows, one
+per biennium; they now merge into one row. A mover with neither a ballot
+Position nor a prior seat carries nothing. That covers one appointed into the
+House that biennium, and the 2003-04 four below the Position floor (#492).
+
 **A biennium after the current one builds no span** (#135).
 `build_families` first drops WSL sponsor and committee-member rows from any
 biennium after `spans.current_biennium()` (`without_future_bienniums`, logged

@@ -198,3 +198,63 @@ def test_the_next_seating_ballot_positions_nobody_before_the_rollover() -> None:
     before = spans(seated_2024)
     assert [(s.member_id, s.discriminator) for s in before] == [("100", "ld-5-position-1")]
     assert spans(seated_2024 + ballot_2026) == before
+
+
+def _robinson_ld38(events: list[SuccessionEvent], *, current: str = CURRENT) -> list:
+    """LD-38 across June Robinson's 2020 move, as WSL ships it: she keeps a House row
+    in 2019-20 beside her Senate row, and Wicks (appointed to her seat) is listed too."""
+    return build_house_spans(
+        sponsors=[
+            _sponsor("18265", "2017-18", "38", "Robinson"),
+            _sponsor("2", "2017-18", "38", "Sells"),
+            _sponsor("18265", "2019-20", "38", "Robinson"),
+            _sponsor("18265", "2019-20", "38", "Robinson", agency="Senate"),
+            _sponsor("2", "2019-20", "38", "Sells"),
+            _sponsor("17373", "2019-20", "38", "Wicks"),
+        ],
+        committee_members=[],
+        sos_results=[
+            _result("2016", 38, 1, "Pat Robinson"),
+            _result("2016", 38, 2, "Pat Sells"),
+            _result("2018", 38, 1, "Pat Robinson"),
+            _result("2018", 38, 2, "Pat Sells"),
+        ],
+        events=events,
+        current_biennium=current,
+    )
+
+
+ROBINSON_TO_SENATE = SuccessionEvent("18265", "seated", date(2020, 5, 13), "chamber-senate", "38")
+WICKS_SEATED = SuccessionEvent("17373", "seated", date(2020, 5, 13), KIND_HOUSE, "ld-38-position-1")
+
+
+def test_a_movers_house_tenure_runs_to_the_senate_seating() -> None:
+    """usa-wa#490: the mover exclusion drops her 2019-20 House row so the elimination
+    seats Wicks — and nothing carried her own tenure into 2019-20, so it ended
+    2018-12-31. It continues, as ONE span under its original key, to the seating."""
+    spans = _robinson_ld38([ROBINSON_TO_SENATE, WICKS_SEATED])
+    by_member = {s.member_id: s for s in spans}
+    robinson = by_member["18265"]
+    assert (robinson.discriminator, robinson.start_biennium) == ("ld-38-position-1", "2017-18")
+    assert robinson.valid_to == date(2020, 5, 13)
+    assert robinson.is_active is False
+    assert [s.member_id for s in spans].count("18265") == 1
+    wicks = by_member["17373"]
+    assert (wicks.discriminator, wicks.valid_from) == ("ld-38-position-1", date(2020, 5, 13))
+
+
+def test_a_move_in_the_current_biennium_closes_the_open_house_tenure() -> None:
+    """Alvarado's shape: the carried tenure reaches the current biennium, so it would
+    publish OPEN — a sitting senator still holding her House seat — without the
+    implied vacate closing it."""
+    [robinson, *_] = [
+        s for s in _robinson_ld38([ROBINSON_TO_SENATE], current="2019-20") if s.member_id == "18265"
+    ]
+    assert robinson.valid_to == date(2020, 5, 13)
+    assert robinson.is_active is False
+
+
+def test_an_undated_mover_keeps_the_prior_shape() -> None:
+    """No Senate seating, no move date: her tenure ends where the wire last placed her."""
+    [robinson] = [s for s in _robinson_ld38([]) if s.member_id == "18265"]
+    assert robinson.valid_to == date(2018, 12, 31)

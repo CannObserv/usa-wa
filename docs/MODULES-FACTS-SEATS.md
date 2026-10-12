@@ -39,7 +39,9 @@ packages/
                           whose `Id` also appears in a named Senate row of the same wire is
                           dropped, so the #103 elimination can seat the appointed replacement)
                           and `house_mover_ids` (#145 — that mover set, which the conformed
-                          House passes to the overlay as `movers_by_biennium`). Was
+                          House passes to the overlay as `movers_by_biennium`, and which
+                          `usa_wa_pipeline.conformed.movers` dates from the Senate seating,
+                          #490). Was
                           `pdc/matching.py` until #471 deleted the PDC winner matchers and the
                           `pdc/observations.py` projectors, whose last caller #412 PR F removed
 ```

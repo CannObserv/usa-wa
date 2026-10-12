@@ -94,6 +94,11 @@ from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
 from usa_wa_common.seats import district_number
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 from usa_wa_pipeline.conformed.house import build_house_spans
+from usa_wa_pipeline.conformed.movers import (
+    chamber_moves,
+    committee_agencies,
+    date_mover_committees,
+)
 from usa_wa_pipeline.conformed.roles import role_for_span
 from usa_wa_pipeline.conformed.span_key import span_key
 from usa_wa_pipeline.conformed.wire import committee_rosters, sponsor_wire_rows
@@ -470,6 +475,14 @@ def build_all_spans(
             context_spans=committee_spans,
             applied_departures=applied_departures,
         )
+    )
+    # usa-wa#490: WSL lists a chamber-mover on both chambers' committees for the
+    # whole biennium; the move dates them, ending the House ones with the House seat.
+    committee_spans = date_mover_committees(
+        committee_spans,
+        chamber_moves(roster_map, events),
+        committee_agencies(inputs.committee_members),
+        house_spans=house,
     )
 
     # #105 stale-row exclusion, then the #145 biennium-scoped operator

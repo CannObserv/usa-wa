@@ -857,3 +857,27 @@ def test_a_biennium_with_no_sponsor_roster_keeps_its_committee_rows() -> None:
     spans = build_families(inputs, current_biennium=CURRENT)[SOURCE]
     [rules] = [s for s in spans if s.kind == KIND_COMMITTEE and s.discriminator == "209"]
     assert rules.start_biennium == CURRENT
+
+
+def test_a_chamber_movers_committees_follow_the_move() -> None:
+    """usa-wa#490: WSL lists a mid-biennium mover on the committees of both chambers
+    for the whole biennium, so June Robinson's House committees ran to 2020-12-31
+    after her 2020-05-13 Senate appointment. The move dates both sides."""
+    house_row = {"agency": "House", "name": "June Robinson", "last_name": "Robinson"}
+    inputs = SpanInputs(
+        sponsors=[
+            _sponsor("18265", "2019-20", **house_row),
+            _sponsor("18265", "2019-20", last_name="Robinson"),
+        ],
+        committee_members=[
+            _committee_member("18265", "2019-20", committee_id="12167", committee_agency="House"),
+            _committee_member("18265", "2019-20", committee_id="500", committee_agency="Senate"),
+        ],
+        events=[SuccessionEvent("18265", "seated", date(2020, 5, 13), KIND_SENATE, "14")],
+    )
+    spans = build_all_spans(
+        inputs, current_biennium=CURRENT, extra_observations=NO_DEEPENING, house_spans=NO_HOUSE
+    )
+    committees = {s.discriminator: s for s in spans if s.kind == KIND_COMMITTEE}
+    assert committees["12167"].valid_to == date(2020, 5, 13)
+    assert committees["500"].valid_from == date(2020, 5, 13)

@@ -25,6 +25,13 @@ carries a decided question:
   re-including them in the roster, which would re-run the elimination and split
   the backfill.
 
+One step is this module's own, because it needs the elimination's output:
+:func:`~usa_wa_pipeline.conformed.movers.carry_mover_house_tenures` (usa-wa#490)
+carries a mover's House seat into the biennium they move in — positioned by that
+biennium's ballot, dated by their Senate seating. The exclusion that lets the
+elimination seat their successor had left their own tenure ending at the previous
+ceiling.
+
 **What dissolves**, as in the sibling families: the emitter, every citation
 path (``inferred_keys``/``special_keys``/``fetch_events``/``roster_events``),
 the synthetic-anchor bootstrap and ``close_stale_spans`` (#83) all exist to
@@ -63,6 +70,7 @@ from usa_wa_facts_seats.house.backchain import (
 )
 from usa_wa_facts_seats.house.positions import merge_positions
 from usa_wa_facts_seats.house.roster import build_house_roster, house_mover_ids
+from usa_wa_pipeline.conformed.movers import carry_mover_house_tenures, chamber_moves
 from usa_wa_pipeline.conformed.wire import committee_rosters, sponsor_wire_rows
 
 logger = get_logger(__name__)
@@ -189,6 +197,12 @@ def build_house_spans(
     backchain = backchain_house_observations(
         roster_by_biennium, positions_by_biennium, max_hops=max_backchain_hops
     )
+    # usa-wa#490: AFTER the elimination, so the carried tenure cannot perturb it.
+    observations, implied_vacates = carry_mover_house_tenures(
+        list(backchain.observations),
+        chamber_moves(rows_by_biennium, overlay, positions_by_biennium=positions_by_biennium),
+        overlay,
+    )
     # Its reader was `parity_spans` (CR 83), not the build: under `dbt build`
     # this emits nothing — no `configure_logging()` — but `registry_coverage`
     # calls the same builder under the job harness, where the record serializes
@@ -203,8 +217,8 @@ def build_house_spans(
         },
     )
     spans = apply_operator_events(
-        build_tenure_spans(list(backchain.observations), current_biennium=current_biennium),
-        overlay,
+        build_tenure_spans(observations, current_biennium=current_biennium),
+        [*overlay, *implied_vacates],
         current_biennium=current_biennium,
         owned_kinds=set(HOUSE_KINDS),
         movers_by_biennium=movers_by_biennium,
