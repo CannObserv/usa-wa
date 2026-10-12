@@ -288,16 +288,17 @@ def _house_end(move: ChamberMove, seat: str, events: list[SuccessionEvent]) -> d
 
 
 def _house_ends(house_spans: Iterable[TenureSpan]) -> dict[tuple[str, str], date]:
-    """``(member, biennium) → valid_to`` for each House span closed strictly inside its
-    last biennium — a dated end, never the quantized floor or ceiling."""
+    """``(member, biennium) → valid_to`` of the member's **last** House span closed
+    strictly inside that biennium — a dated end, never the quantized floor or ceiling."""
     out: dict[tuple[str, str], date] = {}
     for span in house_spans:
         if span.kind != KIND_HOUSE or span.valid_to is None:
             continue
         floor = biennium_start_date(span.end_biennium)
         ceiling = date(floor.year + 1, 12, 31)
-        if floor < span.valid_to < ceiling:
-            out[(span.member_id, span.end_biennium)] = span.valid_to
+        key = (span.member_id, span.end_biennium)
+        if floor < span.valid_to < ceiling and span.valid_to > out.get(key, floor):
+            out[key] = span.valid_to
     return out
 
 

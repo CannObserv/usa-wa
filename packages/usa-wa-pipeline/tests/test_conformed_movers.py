@@ -296,3 +296,35 @@ def test_committee_agencies_key_on_biennium_and_committee() -> None:
         (MOVE_BIENNIUM, "12167"): "House",
         (MOVE_BIENNIUM, "456"): "Senate",
     }
+
+
+def test_house_committees_end_with_the_last_house_seat_held() -> None:
+    """Two dated House ends in one biennium (a seat change, then the move): the
+    committees outlast the first seat, so they end with the later one, whatever
+    order the family lists them in."""
+    first = TenureSpan(
+        "18265",
+        KIND_HOUSE,
+        SEAT,
+        "2017-18",
+        MOVE_BIENNIUM,
+        date(2017, 1, 1),
+        date(2019, 3, 1),
+        False,
+    )
+    second = TenureSpan(
+        "18265",
+        KIND_HOUSE,
+        "ld-38-position-2",
+        MOVE_BIENNIUM,
+        MOVE_BIENNIUM,
+        date(2019, 3, 1),
+        date(2020, 5, 12),
+        False,
+    )
+    house = _committee(
+        "12167", start="2015-16", end=MOVE_BIENNIUM, frm=date(2015, 1, 1), to=date(2020, 12, 31)
+    )
+    for order in ([first, second], [second, first]):
+        [closed] = date_mover_committees([house], [MOVE], AGENCIES, house_spans=order)
+        assert closed.valid_to == date(2020, 5, 12)
