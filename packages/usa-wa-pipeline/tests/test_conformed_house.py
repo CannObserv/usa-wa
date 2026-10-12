@@ -263,8 +263,8 @@ def test_an_undated_mover_keeps_the_prior_shape() -> None:
 def test_a_2003_04_mover_takes_the_seat_their_successor_was_appointed_to() -> None:
     """usa-wa#492: 2003-04 is the first biennium with House Positions and no 2002 ballot
     is staged, so Cheryl Pflug had no seat to carry and published NO House span. Jay
-    Rodne's appointment to LD-5 Pos. 1 names the seat she left; her tenure runs from
-    the floor to her Senate seating."""
+    Rodne's appointment to LD-5 Pos. 1 names the seat Pflug left; the tenure runs from
+    the floor to the Senate seating."""
     spans = build_house_spans(
         sponsors=[
             _sponsor("3479", "2003-04", "5", "Pflug"),

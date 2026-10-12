@@ -214,8 +214,8 @@ def test_no_prior_seat_is_assumed_in_another_district() -> None:
 # --- the successor's seating names the seat (usa-wa#492) -------------------------
 
 #: Cheryl Pflug's shape: LD-5 in 2003-04, the first biennium with House Positions.
-#: No 2002 ballot is staged and 2001-02 has no seat to continue, so nothing but her
-#: successor's appointment says which Position she left.
+#: No 2002 ballot is staged and 2001-02 has no seat to continue, so nothing but the
+#: successor's appointment says which Position Pflug left.
 PFLUG = ChamberMove("3479", "2003-04", date(2004, 1, 5), ld=5, ld_peers=frozenset({"5160", "9710"}))
 RODNE_SEAT = "ld-5-position-1"
 
@@ -296,7 +296,7 @@ def test_the_successor_may_hold_the_seat_in_the_move_biennium() -> None:
 
 
 def test_an_unpositioned_peers_vacancy_makes_the_seating_ambiguous(caplog) -> None:
-    """Anderson unpositioned and gone mid-biennium: Rodne's seating may fill HIS seat,
+    """Anderson unpositioned and gone mid-biennium: Rodne's seating may fill THEIR seat,
     and with no observation of Anderson's the held-seat guard cannot tell."""
     caplog.set_level("INFO")
     rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
@@ -318,7 +318,9 @@ def test_a_positioned_peers_vacancy_is_the_held_seat_guards() -> None:
     """Anderson's seat is known, so the seating that is not on it is the mover's."""
     anderson = Observation("5160", KIND_HOUSE, "ld-5-position-2", "2003-04")
     rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
-    anderson_left = SuccessionEvent("5160", "vacated", date(2004, 1, 10), KIND_HOUSE, "x")
+    anderson_left = SuccessionEvent(
+        "5160", "vacated", date(2004, 1, 10), KIND_HOUSE, "ld-5-position-2"
+    )
     observations, _ = carry_mover_house_tenures([anderson], [PFLUG], [rodne, anderson_left])
     assert Observation("3479", KIND_HOUSE, RODNE_SEAT, "2003-04") in observations
 
