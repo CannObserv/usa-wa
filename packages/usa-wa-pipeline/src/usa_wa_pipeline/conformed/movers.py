@@ -317,8 +317,9 @@ def _successor_seats(
     theirs; two are ambiguous, and a seat another member already holds that
     biennium is that member's vacancy. The successor's own observation is the
     succession, not a rival. That guard sees only positioned members, so a peer
-    with no observation who left mid-biennium may own the vacancy: then either
-    seat could be the mover's, and both are returned."""
+    with no observation who left mid-biennium, before the last seating filled a
+    named seat, may own the vacancy: then either seat could be the mover's, and
+    both are returned. A peer who left after it opened no seat that seating filled."""
     if move.ld is None:
         return set()
     floor = biennium_start_date(move.biennium)
@@ -339,8 +340,14 @@ def _successor_seats(
     observed = [o for o in observations if o.kind == KIND_HOUSE and o.biennium == move.biennium]
     held = {o.discriminator for o in observed if o.member_id not in successors | {move.member_id}}
     named = {e.seat_discriminator for e in seatings} - held
+    if not named:
+        return named
+    last_filled = max(e.effective_date for e in seatings if e.seat_discriminator in named)
     unseen = move.ld_peers - successors - {o.member_id for o in observed}
-    if named and any(e.member_id in unseen and _left_mid_biennium(e, move) for e in events):
+    if any(
+        e.member_id in unseen and _left_mid_biennium(e, move) and e.effective_date <= last_filled
+        for e in events
+    ):
         return ld_seats
     return named
 

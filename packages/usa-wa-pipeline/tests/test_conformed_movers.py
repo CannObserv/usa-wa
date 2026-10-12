@@ -305,6 +305,15 @@ def test_an_unpositioned_peers_vacancy_makes_the_seating_ambiguous(caplog) -> No
     assert "chamber_move_house_seat_unknown" in caplog.text
 
 
+def test_a_peer_leaving_after_the_seating_is_not_its_vacancy() -> None:
+    """Rodne was seated before Anderson left: a seat already filled is not the one a
+    later exit opened, so the seating is still Pflug's successor's."""
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    anderson_left = SuccessionEvent("5160", "departed", date(2004, 11, 1), None, None)
+    observations, _ = carry_mover_house_tenures([], [PFLUG], [rodne, anderson_left])
+    assert Observation("3479", KIND_HOUSE, RODNE_SEAT, "2003-04") in observations
+
+
 def test_a_positioned_peers_vacancy_is_the_held_seat_guards() -> None:
     """Anderson's seat is known, so the seating that is not on it is the mover's."""
     anderson = Observation("5160", KIND_HOUSE, "ld-5-position-2", "2003-04")
