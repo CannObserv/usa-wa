@@ -197,7 +197,7 @@ own runbook is CannObserv/status `docs/RUNBOOK.md`, its API `docs/reference/moni
 |---|---|---|
 | `interval_seconds` | `86400` | one run a night |
 | `grace_seconds` | `7200` | the timer's 10-minute jitter plus the unit's one-hour timeout — a run killed by it cannot check in |
-| `renotify_seconds` | `86400` | repeat daily while missing |
+| `renotify_seconds` | `86400` | repeat daily while missing, and remind daily while a fault lasts — every failed night still reports (co-status#28, #487) |
 | `channel_ids` | co-status's tenant channels in notifier that should reach the usa-wa operator | checked against notifier on every write |
 | `title_template` / `body_template` | `usa-wa backup {{ outcome }} on {{ source_host }}` / `{{ error }}` | rendered for an `alert` only |
 | `enabled` | `true`, stated | a disabled monitor still forwards `alert`s but never alarms on silence — it looks wired |
@@ -206,6 +206,17 @@ own runbook is CannObserv/status `docs/RUNBOOK.md`, its API `docs/reference/moni
 `outcome` (`failed`) and `error` (every failed half, `; `-joined, or the config
 error); an `ok` sends `source_host`, `outcome` (`ok`), `object`, `dumped_at`,
 `size_bytes`, `alembic_head`, `raw_uploaded`, `raw_local`.
+
+**What co-status sends** (co-status#28, #487; mechanics in its `monitors.md` § Faults):
+every failed night reports, even 23h50m apart; the first `ok` after them sends *"has
+cleared"*; a second `alert` within 12 h of a reported one (a same-day retry) sends
+nothing.
+
+**Reading `backup_checkin_sent`** (#458): `dispatches` holds the 202's notifier
+dispatch ids, never the rendered report. `[]` on a nightly `alert` means nothing went
+out (`last_report_status` is `not_accepted`) — unless it was such a retry. On `attempt`
+`2`, `[]` may be a replay of a report the first attempt sent. `null`: the body did not
+say; the check-in still landed.
 
 **All three or none** — `USA_WA_BACKUP_CHECKIN_BASE_URL` and `USA_WA_BACKUP_MONITOR_ID`
 in `backup.env`, and a non-empty key file. Half a configuration logs
@@ -284,7 +295,7 @@ first `PATCH` and the second, since any check-in pushes the deadline out:
    `PATCH` lets the 60-second window lapse again after the recovery: a second false alarm.
 3. `sudo systemctl start usa-wa-backup.service` here. The check-in that ends an outage
    dispatches *"has recovered"* inside the same request (~10 s after the start), not on
-   the next sweep.
+   the next sweep; its id is in that run's `backup_checkin_sent` `dispatches`.
 
 Record the result under § Rehearsals.
 
@@ -459,8 +470,8 @@ order:
     `recovered` at 21:08:55.626Z, dispatch `01M3Z75Q76P2SAGDM421HMD7EJ` accepted by
     notifier; state `ok`; received in Mailgun and Slack. co-status's pending copy of the
     key was shredded after it: `/etc/usa-wa/backup-checkin.key` is the only copy.
-  - This side logs the check-in's status code only, not the 202's `dispatches` ids:
-    #458.
+  - This side logged the check-in's status code only, not the 202's `dispatches` ids:
+    #458, since fixed — `backup_checkin_sent` now carries them.
 
 **Repeating the drill** — the same steps against any night's object:
 `sudo -u postgres createdb usa_wa_restore_drill`, `$R --latest --prefix usa-wa --into

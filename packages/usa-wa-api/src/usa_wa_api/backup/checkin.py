@@ -10,7 +10,11 @@ check-in contract exactly.
 ``POST /api/v1/monitors/{id}/checkin`` with ``{"status": "ok"|"alert",
 "variables": {...}}``. An ``ok`` dispatches nothing and resets the timer; an
 ``alert`` renders the monitor's template against ``variables``. Retry-safe by
-contract: a replay overwrites the previous check-in.
+contract: a replay overwrites the previous check-in. The 202 lists the notifier
+dispatches the check-in caused — a report, a *has recovered* or *has cleared*
+notice — and their ids go on ``backup_checkin_sent`` (#458), so a check-in can be
+matched to notifier from this side. With the ``attempt`` that landed: a replay after a
+lost answer is a repeat, and its ``[]`` says nothing of the first attempt's report.
 
 **Failure never propagates.** A check-in never raises and never changes the job's
 exit status: a monitoring path that fails the thing it monitors trains an operator
@@ -26,6 +30,7 @@ docs/RECOVERY.md § The dead-man monitor is the provisioning.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -53,13 +58,33 @@ _ATTEMPTS = 2
 _MONITOR_ID_RE = re.compile(r"^[0-9A-Za-z]+$")
 
 Status = Literal["ok", "alert"]
-Post = Callable[[str, dict, dict, float], int]
+Post = Callable[[str, dict, dict, float], tuple[int, str]]
 
 
-def _http_post(url: str, payload: dict, headers: dict, timeout: float) -> int:
-    """One POST, returning the status code. The seam the tests replace."""
+def _http_post(url: str, payload: dict, headers: dict, timeout: float) -> tuple[int, str]:
+    """One POST, returning the status code and the body. The seam the tests replace."""
     with httpx.Client(timeout=timeout) as client:
-        return client.post(url, json=payload, headers=headers).status_code
+        response = client.post(url, json=payload, headers=headers)
+        return response.status_code, response.text
+
+
+def _dispatch_ids(body: str) -> list[str] | None:
+    """The ids of the 202's ``dispatches``, or None when the body does not say.
+
+    Ids only: a dispatch carries its rendered report, and that the run's
+    ``variables``. None is not ``[]`` — on an ``alert``, ``[]`` means nothing went
+    out (co-status#28), which an unreadable body cannot claim. Never raises: the
+    check-in has already landed, and logging must not change that — so the catch is
+    broad, since a body nested too deep raises ``RecursionError``, no parse error.
+    """
+    try:
+        dispatches = json.loads(body)["dispatches"]
+        ids = [dispatch["id"] for dispatch in dispatches]
+    except Exception:
+        return None
+    if not isinstance(dispatches, list) or not all(isinstance(i, str) for i in ids):
+        return None
+    return ids
 
 
 def _read_key(environ: Mapping[str, str]) -> str:
@@ -145,14 +170,17 @@ def _post_checkin(
     payload = {"status": status, "variables": variables}
     headers = {"X-API-Key": api_key}
     failure = ""
-    for _ in range(_ATTEMPTS):
+    for attempt in range(1, _ATTEMPTS + 1):
         try:
-            code = post(url, payload, headers, TIMEOUT_SECONDS)
+            code, body = post(url, payload, headers, TIMEOUT_SECONDS)
         except httpx.TransportError as exc:
             failure = f"{type(exc).__name__}: {exc}"
             continue
         if 200 <= code < 300:
-            logger.info("backup_checkin_sent", extra={"status": status})
+            logger.info(
+                "backup_checkin_sent",
+                extra={"status": status, "attempt": attempt, "dispatches": _dispatch_ids(body)},
+            )
             return True
         if code < 500:
             logger.warning(
