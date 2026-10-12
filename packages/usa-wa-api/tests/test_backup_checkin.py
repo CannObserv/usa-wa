@@ -230,25 +230,23 @@ class TestDispatches:
     report, a *has recovered* or *has cleared* notice (#458). Their ids go on
     ``backup_checkin_sent``, so a check-in can be matched to notifier from this side."""
 
-    def _sent(self, caplog, answer, status="alert"):
+    def _sent(self, environ, caplog, answer, status="alert"):
         with caplog.at_level(logging.INFO, logger=LOGGER):
-            landed = checkin.post_checkin(status, {}, environ=self.environ, post=Recorder(answer))
+            landed = checkin.post_checkin(status, {}, environ=environ, post=Recorder(answer))
         [record] = [r for r in caplog.records if r.getMessage() == "backup_checkin_sent"]
         return landed, record
 
-    @pytest.fixture(autouse=True)
-    def _environ(self, configured) -> None:
-        self.environ = configured
-
-    def test_the_dispatch_ids_are_logged(self, caplog) -> None:
-        landed, record = self._sent(caplog, _accepted("01M3Z75Q76P2SAGDM421HMD7EJ", "01M3Z7A"))
+    def test_the_dispatch_ids_are_logged(self, configured, caplog) -> None:
+        landed, record = self._sent(
+            configured, caplog, _accepted("01M3Z75Q76P2SAGDM421HMD7EJ", "01M3Z7A")
+        )
         assert landed
         assert record.dispatches == ["01M3Z75Q76P2SAGDM421HMD7EJ", "01M3Z7A"]
 
-    def test_none_sent_is_an_empty_list(self, caplog) -> None:
+    def test_none_sent_is_an_empty_list(self, configured, caplog) -> None:
         """On an ``alert``, ``[]`` means nothing went out: a repeat inside a fault, or
         a report notifier never took (co-status#28)."""
-        landed, record = self._sent(caplog, _accepted())
+        landed, record = self._sent(configured, caplog, _accepted())
         assert landed
         assert record.dispatches == []
 
@@ -261,13 +259,13 @@ class TestDispatches:
         [record] = [r for r in caplog.records if r.getMessage() == "backup_checkin_sent"]
         assert (record.attempt, record.dispatches) == (2, [])
 
-    def test_a_first_attempt_is_attempt_one(self, caplog) -> None:
-        _, record = self._sent(caplog, _accepted())
+    def test_a_first_attempt_is_attempt_one(self, configured, caplog) -> None:
+        _, record = self._sent(configured, caplog, _accepted())
         assert record.attempt == 1
 
-    def test_ids_only_never_what_was_rendered(self, caplog) -> None:
+    def test_ids_only_never_what_was_rendered(self, configured, caplog) -> None:
         """A rendered report carries the run's ``variables``."""
-        _, record = self._sent(caplog, _accepted("01M3Z75Q76P2SAGDM421HMD7EJ"))
+        _, record = self._sent(configured, caplog, _accepted("01M3Z75Q76P2SAGDM421HMD7EJ"))
         logged = json.dumps(record.dispatches)
         assert "rendered" not in logged
         assert "sk_backup" not in logged
@@ -285,17 +283,17 @@ class TestDispatches:
         ],
         ids=["empty", "not-json", "not-object", "no-key", "not-list", "not-objects", "no-id"],
     )
-    def test_a_body_that_does_not_say_still_landed(self, caplog, body) -> None:
+    def test_a_body_that_does_not_say_still_landed(self, configured, caplog, body) -> None:
         """Logging never changes the outcome. Unknown is logged as null, never as
         ``[]``, which would claim nothing went out."""
-        landed, record = self._sent(caplog, (202, body))
+        landed, record = self._sent(configured, caplog, (202, body))
         assert landed
         assert record.dispatches is None
 
-    def test_a_body_too_deep_to_parse_still_landed(self, caplog) -> None:
+    def test_a_body_too_deep_to_parse_still_landed(self, configured, caplog) -> None:
         """``json.loads`` raises ``RecursionError`` here — outside any parse error's
         type, so only a catch-all keeps the landed check-in landed."""
-        landed, record = self._sent(caplog, (202, "[" * 100_000))
+        landed, record = self._sent(configured, caplog, (202, "[" * 100_000))
         assert landed
         assert record.dispatches is None
 
