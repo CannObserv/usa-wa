@@ -205,6 +205,88 @@ def test_no_prior_seat_is_assumed_in_another_district() -> None:
     )
 
 
+# --- the successor's seating names the seat (usa-wa#492) -------------------------
+
+#: Cheryl Pflug's shape: LD-5 in 2003-04, the first biennium with House Positions.
+#: No 2002 ballot is staged and 2001-02 has no seat to continue, so nothing but her
+#: successor's appointment says which Position she left.
+PFLUG = ChamberMove("3479", "2003-04", date(2004, 1, 5), ld=5)
+RODNE_SEAT = "ld-5-position-1"
+
+
+def _pflug_vacated(on: date = date(2004, 1, 5)) -> SuccessionEvent:
+    return SuccessionEvent("3479", "vacated", on, KIND_HOUSE, RODNE_SEAT)
+
+
+def test_a_successors_seating_names_the_seat_of_an_unpositioned_mover() -> None:
+    """Jay Rodne was appointed to LD-5 Pos. 1 on 2004-01-20, after Pflug went to the
+    Senate: the seat a successor is appointed to is the one the mover left."""
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    observations, implied = carry_mover_house_tenures([], [PFLUG], [rodne])
+    assert observations == [Observation("3479", KIND_HOUSE, RODNE_SEAT, "2003-04")]
+    assert implied == [_pflug_vacated()]
+
+
+def test_a_successor_seated_before_the_move_still_dates_the_end() -> None:
+    """The successor names the seat AND, seated first, proves the vacancy came first."""
+    early = _seated_house("9710", date(2004, 1, 2), seat=RODNE_SEAT)
+    _, implied = carry_mover_house_tenures([], [PFLUG], [early])
+    assert implied == [_pflug_vacated(on=date(2004, 1, 2))]
+
+
+def test_a_seating_elsewhere_names_no_seat() -> None:
+    """Another district, another biennium, or the biennium's first day (a fresh term,
+    not a vacancy): none of them is the mover's successor."""
+    elsewhere = [
+        _seated_house("1", date(2004, 1, 20), seat="ld-6-position-1"),
+        _seated_house("2", date(2005, 3, 1), seat=RODNE_SEAT),
+        _seated_house("3", date(2003, 1, 1), seat=RODNE_SEAT),
+    ]
+    assert carry_mover_house_tenures([], [PFLUG], elsewhere) == ([], [])
+
+
+def test_a_seat_the_operator_spelled_unparseably_is_skipped_not_fatal() -> None:
+    """Operator events are hand-entered and nothing validates the seat's spelling on
+    the way in: one stray value must not fail the nightly build."""
+    stray = _seated_house("9710", date(2004, 1, 20), seat="LD5 Pos 1")
+    assert carry_mover_house_tenures([], [PFLUG], [stray]) == ([], [])
+
+
+def test_two_seats_filled_in_the_district_name_neither(caplog) -> None:
+    """Both of the LD's Positions filled mid-biennium: which one was the mover's is not
+    something the seatings say."""
+    caplog.set_level("INFO")
+    both = [
+        _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT),
+        _seated_house("4", date(2004, 3, 1), seat="ld-5-position-2"),
+    ]
+    assert carry_mover_house_tenures([], [PFLUG], both) == ([], [])
+    assert "chamber_move_house_seat_unknown" in caplog.text
+
+
+def test_a_seat_someone_else_held_that_biennium_is_not_the_movers() -> None:
+    """The seating filled a seat the ballot or back-chain already gives another member
+    in the move biennium: their vacancy, not the mover's."""
+    holder = Observation("5160", KIND_HOUSE, RODNE_SEAT, "2003-04")
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    assert carry_mover_house_tenures([holder], [PFLUG], [rodne]) == ([holder], [])
+
+
+def test_the_successor_may_hold_the_seat_in_the_move_biennium() -> None:
+    """The successor's own observation on the seat is the succession, not a rival."""
+    successor = Observation("9710", KIND_HOUSE, RODNE_SEAT, "2003-04")
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    observations, _ = carry_mover_house_tenures([successor], [PFLUG], [rodne])
+    assert Observation("3479", KIND_HOUSE, RODNE_SEAT, "2003-04") in observations
+
+
+def test_a_movers_own_house_vacate_leaves_the_seat_to_the_overlay() -> None:
+    """O'Ban's shape: the operator dated and named the House end, so the #145
+    synthesis owns that tenure and no successor is consulted."""
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    assert carry_mover_house_tenures([], [PFLUG], [rodne, _pflug_vacated()]) == ([], [])
+
+
 # --- date_mover_committees -------------------------------------------------------
 
 

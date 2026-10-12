@@ -144,8 +144,11 @@ def carry_mover_house_tenures(
     names one — evidence, where the previous biennium's seat is an assumption. That
     assumption is made only within one district map and one LD: the back-chain's
     own stop (#118/#140), since a new map keeps the LD number but not the district.
+    Below the Position floor there is neither, so the seat a successor was
+    appointed to in the mover's LD names it (usa-wa#492, :func:`_successor_seats`):
+    Rodne's LD-5 Pos. 1 appointment is the only record of which seat Pflug left.
     Otherwise nothing is carried (``chamber_move_house_seat_unknown``); a mover
-    appointed into the House in the move biennium (O'Ban) has neither, and the
+    appointed into the House in the move biennium (O'Ban) has none of these, and the
     #145 ``vacated`` synthesis is theirs. An explicit ``vacated chamber-house`` in
     the move biennium already dates the end, so none is implied; one naming a
     different seat is left to that synthesis.
@@ -163,14 +166,6 @@ def carry_mover_house_tenures(
     implied: list[SuccessionEvent] = []
     for move in moves:
         prior = held.get((move.member_id, previous_biennium(move.biennium)))
-        seat = move.ballot_seat or _continued_seat(move, prior)
-        if seat is None:
-            if prior is not None:
-                logger.info(
-                    "chamber_move_house_seat_unknown",
-                    extra={"member_id": move.member_id, "biennium": move.biennium},
-                )
-            continue
         explicit = {
             e.seat_discriminator
             for e in events
@@ -178,6 +173,19 @@ def carry_mover_house_tenures(
             and e.member_id == move.member_id
             and biennium_for_date(e.effective_date) == move.biennium
         }
+        successor_seats = set() if explicit else _successor_seats(move, observations, events)
+        seat = (
+            move.ballot_seat
+            or _continued_seat(move, prior)
+            or (next(iter(successor_seats)) if len(successor_seats) == 1 else None)
+        )
+        if seat is None:
+            if prior is not None or successor_seats:
+                logger.info(
+                    "chamber_move_house_seat_unknown",
+                    extra={"member_id": move.member_id, "biennium": move.biennium},
+                )
+            continue
         if explicit - {seat}:
             continue
         carried.append(Observation(move.member_id, KIND_HOUSE, seat, move.biennium))
@@ -280,6 +288,43 @@ def _continued_seat(move: ChamberMove, prior: Observation | None) -> str | None:
     if parse_house_span_discriminator(prior.discriminator)[0] != move.ld:
         return None
     return prior.discriminator
+
+
+def _successor_seats(
+    move: ChamberMove, observations: list[Observation], events: list[SuccessionEvent]
+) -> set[str]:
+    """The seats in the mover's LD another member was ``seated`` in mid-biennium,
+    less any the move biennium's observations give someone else (usa-wa#492).
+
+    A successor is appointed to the seat the mover left, so one such seat is
+    theirs; two are ambiguous, and a seat another member already holds that
+    biennium is that member's vacancy. The successor's own observation is the
+    succession, not a rival."""
+    if move.ld is None:
+        return set()
+    floor = biennium_start_date(move.biennium)
+    # Matched against the LD's own two seats, never parsed: an operator event's seat
+    # is hand-entered, and a stray spelling must not fail the build.
+    ld_seats = {house_span_discriminator(move.ld, f"Position {n}") for n in (1, 2)}
+    seatings = [
+        e
+        for e in events
+        if e.kind == KIND_SEATED
+        and e.seat_kind == KIND_HOUSE
+        and e.seat_discriminator in ld_seats
+        and e.member_id != move.member_id
+        and e.effective_date > floor
+        and biennium_for_date(e.effective_date) == move.biennium
+    ]
+    successors = {e.member_id for e in seatings}
+    held = {
+        o.discriminator
+        for o in observations
+        if o.kind == KIND_HOUSE
+        and o.biennium == move.biennium
+        and o.member_id not in successors | {move.member_id}
+    }
+    return {e.seat_discriminator for e in seatings} - held
 
 
 def _house_end(move: ChamberMove, seat: str, events: list[SuccessionEvent]) -> date:
