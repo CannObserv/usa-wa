@@ -46,7 +46,11 @@ from clearinghouse_domain_legislative.terms import (
 from usa_wa_common.ballot import HousePositionsByLd, position_for
 from usa_wa_common.seats import house_span_discriminator, parse_house_span_discriminator
 from usa_wa_facts_seats.house.backchain import REDISTRICTING_ERA_START_BIENNIA
-from usa_wa_facts_seats.house.roster import build_house_roster, house_mover_ids
+from usa_wa_facts_seats.house.roster import (
+    HouseRosterEntry,
+    build_house_roster,
+    house_mover_ids,
+)
 
 logger = get_logger(__name__)
 
@@ -114,15 +118,7 @@ def chamber_moves(
                     "chamber_move_undated", extra={"member_id": member_id, "biennium": biennium}
                 )
                 continue
-            ld, ballot_seat = None, None
-            for district, entries in roster.items():
-                for entry in entries:
-                    if entry.member_id != member_id:
-                        continue
-                    ld = district
-                    qualifier = position_for(positions, ld, entry.folded_last, entry.party_slug)
-                    if qualifier is not None:
-                        ballot_seat = house_span_discriminator(ld, qualifier)
+            ld, ballot_seat = _mover_seat(roster, positions, member_id)
             moves.append(
                 ChamberMove(
                     member_id=member_id,
@@ -261,6 +257,19 @@ def _date_committee(
     ):
         return replace(span, valid_from=move.moved_on)
     return span
+
+
+def _mover_seat(
+    roster: dict[int, list[HouseRosterEntry]], positions: HousePositionsByLd, member_id: str
+) -> tuple[int | None, str | None]:
+    """``(LD, ballot seat)`` for the mover's own House row — the seat ``None`` when the
+    ballot does not position them, both ``None`` when the row did not parse."""
+    rows = {entry.member_id: (ld, entry) for ld, entries in roster.items() for entry in entries}
+    if member_id not in rows:
+        return None, None
+    ld, entry = rows[member_id]
+    qualifier = position_for(positions, ld, entry.folded_last, entry.party_slug)
+    return ld, None if qualifier is None else house_span_discriminator(ld, qualifier)
 
 
 def _continued_seat(move: ChamberMove, prior: Observation | None) -> str | None:
