@@ -11,8 +11,9 @@ measured the same way (McDermott 2007 to Alvarado 2025), every one confirmed by 
 roster PDF's "Resigned; Appointed to the Senate". Her House committee spans, for
 their part, ran on to 2020-12-31.
 
-The date is already curated: every such move carries a ``seated chamber-senate``
-event (the #226 backfill). A mover with an explicit ``vacated chamber-house`` (the
+The date is already curated: every such move carries an operator-recorded
+``seated chamber-senate`` event (the #145 tranches and the #226 roster backfill,
+each with its evidence URL). A mover with an explicit ``vacated chamber-house`` (the
 #145 recipe) is dated by it too. A mover with neither is logged and left alone,
 because the biennium floor is not when anybody moved.
 
