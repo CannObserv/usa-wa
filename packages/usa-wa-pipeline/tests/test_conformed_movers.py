@@ -328,3 +328,23 @@ def test_house_committees_end_with_the_last_house_seat_held() -> None:
     for order in ([first, second], [second, first]):
         [closed] = date_mover_committees([house], [MOVE], AGENCIES, house_spans=order)
         assert closed.valid_to == date(2020, 5, 12)
+
+
+def test_a_house_seats_quantized_ceiling_is_not_its_end() -> None:
+    """A House span running to the biennium's Dec 31 was never dated there; the
+    committees end at the move instead."""
+    seat = TenureSpan(
+        "18265",
+        KIND_HOUSE,
+        SEAT,
+        "2017-18",
+        MOVE_BIENNIUM,
+        date(2017, 1, 1),
+        date(2020, 12, 31),
+        False,
+    )
+    house = _committee(
+        "12167", start="2015-16", end=MOVE_BIENNIUM, frm=date(2015, 1, 1), to=date(2020, 12, 31)
+    )
+    [closed] = date_mover_committees([house], [MOVE], AGENCIES, house_spans=[seat])
+    assert closed.valid_to == SEATED_SENATE
