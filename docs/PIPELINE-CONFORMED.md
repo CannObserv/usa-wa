@@ -91,7 +91,8 @@ LD, which is the back-chain's own stop (#118/#140); otherwise nothing is carried
 (`chamber_move_house_seat_unknown`). When there is neither, as below the Position floor,
 the seat is the one a successor's mid-biennium `seated chamber-house` names in the
 mover's LD (#492): only when exactly one seat is named, it is not held by another
-member that biennium, and the mover has no explicit House vacate. That gave six movers
+member that biennium, no other LD member without a known seat left before it was
+filled, and the mover has no explicit House vacate. That gave six movers
 the House span they had lacked entirely: Keiser and Doumit (2001-02), and Pflug and Berkey
 (2003-04). It is closed by an implied `vacated` at the move, or at a
 successor's earlier seating on the same seat: Liias's successor was appointed a day
