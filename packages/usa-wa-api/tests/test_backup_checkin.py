@@ -13,11 +13,13 @@ Here a ``tmp_path`` directory plays that part.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
 import httpx
 import pytest
+import respx
 
 from usa_wa_api.backup import checkin
 
@@ -48,18 +50,42 @@ def configured(tmp_path) -> dict[str, str]:
 
 
 class Recorder:
-    """A POST seam that records calls and answers from a script."""
+    """A POST seam that records calls and answers from a script: a status code
+    (with an empty body), a ``(status code, body)`` pair, or an exception."""
 
     def __init__(self, *answers) -> None:
         self.answers = list(answers)
         self.calls: list[tuple[str, dict, dict]] = []
 
-    def __call__(self, url: str, payload: dict, headers: dict, timeout: float) -> int:
+    def __call__(self, url: str, payload: dict, headers: dict, timeout: float) -> tuple[int, str]:
         self.calls.append((url, payload, headers))
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
-        return answer
+        return answer if isinstance(answer, tuple) else (answer, "")
+
+
+def _dispatch(dispatch_id: str) -> dict:
+    """One of the 202's ``dispatches``, in notifier's shape (abridged)."""
+    return {
+        "id": dispatch_id,
+        "tenant_id": "01M24A8CA2GT0M7WE57NEMD0EX",
+        "rendered_title": "usa-wa backup failed on usa-wa",
+        "rendered_body": "pg_dump: sk_backup",
+        "status": "succeeded",
+        "metadata": {},
+        "attempts": [],
+    }
+
+
+def _accepted(*dispatch_ids: str) -> tuple[int, str]:
+    """co-status's 202, listing the dispatches the check-in caused."""
+    body = {
+        "monitor_id": MONITOR,
+        "state": "ok",
+        "dispatches": [_dispatch(d) for d in dispatch_ids],
+    }
+    return 202, json.dumps(body)
 
 
 def _events(caplog, level: int) -> list[str]:
@@ -197,6 +223,73 @@ class TestPostCheckin:
         [record] = caplog.records
         assert record.error == type(error).__name__
         assert "sk_b" not in record.error
+
+
+class TestDispatches:
+    """The 202 lists the notifier dispatches the check-in caused — an ``alert``'s
+    report, a *has recovered* or *has cleared* notice (#458). Their ids go on
+    ``backup_checkin_sent``, so a check-in can be matched to notifier from this side."""
+
+    def _sent(self, caplog, answer, status="alert"):
+        with caplog.at_level(logging.INFO, logger=LOGGER):
+            landed = checkin.post_checkin(status, {}, environ=self.environ, post=Recorder(answer))
+        [record] = [r for r in caplog.records if r.getMessage() == "backup_checkin_sent"]
+        return landed, record
+
+    @pytest.fixture(autouse=True)
+    def _environ(self, configured) -> None:
+        self.environ = configured
+
+    def test_the_dispatch_ids_are_logged(self, caplog) -> None:
+        landed, record = self._sent(caplog, _accepted("01M3Z75Q76P2SAGDM421HMD7EJ", "01M3Z7A"))
+        assert landed
+        assert record.dispatches == ["01M3Z75Q76P2SAGDM421HMD7EJ", "01M3Z7A"]
+
+    def test_none_sent_is_an_empty_list(self, caplog) -> None:
+        """On an ``alert``, ``[]`` means nothing went out: a repeat inside a fault, or
+        a report notifier never took (co-status#28)."""
+        landed, record = self._sent(caplog, _accepted())
+        assert landed
+        assert record.dispatches == []
+
+    def test_ids_only_never_what_was_rendered(self, caplog) -> None:
+        """A rendered report carries the run's ``variables``."""
+        _, record = self._sent(caplog, _accepted("01M3Z75Q76P2SAGDM421HMD7EJ"))
+        logged = json.dumps(record.dispatches)
+        assert "rendered" not in logged
+        assert "sk_backup" not in logged
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "",
+            "<html>bad gateway</html>",
+            "[1, 2]",
+            '{"state": "ok"}',
+            '{"dispatches": "01M3Z75Q76P2SAGDM421HMD7EJ"}',
+            '{"dispatches": [1]}',
+            '{"dispatches": [{"status": "succeeded"}]}',
+        ],
+        ids=["empty", "not-json", "not-object", "no-key", "not-list", "not-objects", "no-id"],
+    )
+    def test_a_body_that_does_not_say_still_landed(self, caplog, body) -> None:
+        """Logging never changes the outcome. Unknown is logged as null, never as
+        ``[]``, which would claim nothing went out."""
+        landed, record = self._sent(caplog, (202, body))
+        assert landed
+        assert record.dispatches is None
+
+
+class TestHttpPost:
+    """The real seam hands back what the 202 said, for :func:`checkin._dispatch_ids`."""
+
+    @respx.mock
+    def test_returns_the_status_code_and_the_body(self) -> None:
+        url = f"{BASE}/api/v1/monitors/{MONITOR}/checkin"
+        status, body = _accepted("01M3Z75Q76P2SAGDM421HMD7EJ")
+        route = respx.post(url).mock(return_value=httpx.Response(status, text=body))
+        assert checkin._http_post(url, {"status": "ok"}, {"X-API-Key": KEY}, 1.0) == (status, body)
+        assert route.calls.last.request.headers["X-API-Key"] == KEY
 
 
 class TestKeyCredential:
