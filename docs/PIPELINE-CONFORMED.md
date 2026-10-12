@@ -83,16 +83,20 @@ Senate seating. Eleven others were cut short the same way, McDermott (2007) thro
 Alvarado (2025). The roster PDF records each one ("Resigned; Appointed to the
 Senate"). The move date is the mover's `seated chamber-senate` event, or else their
 `vacated chamber-house`; an undated mover is logged (`chamber_move_undated`) and
-left as it was. The House family carries the prior-biennium seat forward as an
+left as it was. The House family adds the mover's seat in that biennium as an
 **observation**, after the elimination, so it merges into the tenure it continues
-under that tenure's key. It is closed by an implied `vacated` at the move, or at a
+under that tenure's key. The biennium's own ballot positions the seat. Without a
+ballot, the prior-biennium seat is used, but only within one district map and one
+LD, which is the back-chain's own stop (#118/#140); otherwise nothing is carried
+(`chamber_move_house_seat_unknown`). It is closed by an implied `vacated` at the move, or at a
 successor's earlier seating on the same seat: Liias's successor was appointed a day
 before his Senate seating, and the later date would add a both-dated overlap to
 `assignments_seat_occupancy`. The committee family ends House committees with the
 House seat and starts floor-opened Senate committees at the move. Movers with
 explicit #145 vacates (Stanford, Angel, Nelson) had been published as two rows, one
-per biennium; they now merge into one row. A mover with no prior-biennium seat
-(newly elected, or 2003-04 at the Position floor) carries nothing.
+per biennium; they now merge into one row. A mover with neither a ballot
+Position nor a prior seat carries nothing. That covers one appointed into the
+House that biennium, and the 2003-04 four below the Position floor (#492).
 
 **A biennium after the current one builds no span** (#135).
 `build_families` first drops WSL sponsor and committee-member rows from any
