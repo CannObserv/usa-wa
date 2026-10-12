@@ -219,7 +219,8 @@ hand — is recorded and sends nothing, by design.
 notifier dispatches the check-in caused, from co-status's 202 — ids only, never the
 rendered report. `[]` on a nightly `alert` means nothing went out (notifier never took
 it: the monitor's `last_report_status` is `not_accepted`) unless it was such a
-repeat. `null` means the 202's body did not say; the check-in still landed.
+repeat — or `attempt` is `2`: a replay after a lost answer is a repeat, whatever the
+first attempt sent. `null` means the 202's body did not say; the check-in still landed.
 
 **All three or none** — `USA_WA_BACKUP_CHECKIN_BASE_URL` and `USA_WA_BACKUP_MONITOR_ID`
 in `backup.env`, and a non-empty key file. Half a configuration logs

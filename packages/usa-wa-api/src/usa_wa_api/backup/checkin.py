@@ -13,7 +13,8 @@ check-in contract exactly.
 contract: a replay overwrites the previous check-in. The 202 lists the notifier
 dispatches the check-in caused — a report, a *has recovered* or *has cleared*
 notice — and their ids go on ``backup_checkin_sent`` (#458), so a check-in can be
-matched to notifier from this side.
+matched to notifier from this side. With the ``attempt`` that landed: a replay after a
+lost answer is a repeat, and its ``[]`` says nothing of the first attempt's report.
 
 **Failure never propagates.** A check-in never raises and never changes the job's
 exit status: a monitoring path that fails the thing it monitors trains an operator
@@ -169,7 +170,7 @@ def _post_checkin(
     payload = {"status": status, "variables": variables}
     headers = {"X-API-Key": api_key}
     failure = ""
-    for _ in range(_ATTEMPTS):
+    for attempt in range(1, _ATTEMPTS + 1):
         try:
             code, body = post(url, payload, headers, TIMEOUT_SECONDS)
         except httpx.TransportError as exc:
@@ -178,7 +179,7 @@ def _post_checkin(
         if 200 <= code < 300:
             logger.info(
                 "backup_checkin_sent",
-                extra={"status": status, "dispatches": _dispatch_ids(body)},
+                extra={"status": status, "attempt": attempt, "dispatches": _dispatch_ids(body)},
             )
             return True
         if code < 500:

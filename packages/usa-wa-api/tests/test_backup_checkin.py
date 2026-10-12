@@ -252,6 +252,19 @@ class TestDispatches:
         assert landed
         assert record.dispatches == []
 
+    def test_the_attempt_that_landed_is_logged(self, configured, caplog) -> None:
+        """A replay after a lost answer is a repeat inside the fault, so its ``[]``
+        cannot say the first attempt's report never went out."""
+        post = Recorder(httpx.ReadTimeout("lost"), _accepted())
+        with caplog.at_level(logging.INFO, logger=LOGGER):
+            assert checkin.post_checkin("alert", {}, environ=configured, post=post)
+        [record] = [r for r in caplog.records if r.getMessage() == "backup_checkin_sent"]
+        assert (record.attempt, record.dispatches) == (2, [])
+
+    def test_a_first_attempt_is_attempt_one(self, caplog) -> None:
+        _, record = self._sent(caplog, _accepted())
+        assert record.attempt == 1
+
     def test_ids_only_never_what_was_rendered(self, caplog) -> None:
         """A rendered report carries the run's ``variables``."""
         _, record = self._sent(caplog, _accepted("01M3Z75Q76P2SAGDM421HMD7EJ"))
