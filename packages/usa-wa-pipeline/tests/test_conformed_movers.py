@@ -348,3 +348,15 @@ def test_a_house_seats_quantized_ceiling_is_not_its_end() -> None:
     )
     [closed] = date_mover_committees([house], [MOVE], AGENCIES, house_spans=[seat])
     assert closed.valid_to == SEATED_SENATE
+
+
+def test_an_open_house_seat_is_not_a_dated_end() -> None:
+    """A current-biennium seat still open has no end to read; the committees end at
+    the move rather than staying open beside a Senate seat."""
+    seat = TenureSpan(
+        "18265", KIND_HOUSE, SEAT, "2017-18", MOVE_BIENNIUM, date(2017, 1, 1), None, True
+    )
+    house = _committee("12167", start="2015-16", end=MOVE_BIENNIUM, frm=date(2015, 1, 1), to=None)
+    [closed] = date_mover_committees([house], [MOVE], AGENCIES, house_spans=[seat])
+    assert closed.valid_to == SEATED_SENATE
+    assert closed.is_active is False
