@@ -27,9 +27,10 @@ carries a decided question:
 
 One step is this module's own, because it needs the elimination's output:
 :func:`~usa_wa_pipeline.conformed.movers.carry_mover_house_tenures` (usa-wa#490)
-carries a mover's House seat into the biennium they move in, dated by their Senate
-seating — the exclusion that lets the elimination seat their successor had left
-their own tenure ending at the previous ceiling.
+carries a mover's House seat into the biennium they move in — positioned by that
+biennium's ballot, dated by their Senate seating. The exclusion that lets the
+elimination seat their successor had left their own tenure ending at the previous
+ceiling.
 
 **What dissolves**, as in the sibling families: the emitter, every citation
 path (``inferred_keys``/``special_keys``/``fetch_events``/``roster_events``),
@@ -198,7 +199,9 @@ def build_house_spans(
     )
     # usa-wa#490: AFTER the elimination, so the carried tenure cannot perturb it.
     observations, implied_vacates = carry_mover_house_tenures(
-        list(backchain.observations), chamber_moves(rows_by_biennium, overlay), overlay
+        list(backchain.observations),
+        chamber_moves(rows_by_biennium, overlay, positions_by_biennium=positions_by_biennium),
+        overlay,
     )
     # Its reader was `parity_spans` (CR 83), not the build: under `dbt build`
     # this emits nothing — no `configure_logging()` — but `registry_coverage`

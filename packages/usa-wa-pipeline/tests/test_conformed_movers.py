@@ -9,11 +9,13 @@ that biennium: June Robinson's LD-38 Pos. 1 span ended 2018-12-31, not on her
 pin the wiring.
 """
 
+from dataclasses import replace
 from datetime import date
 
 from clearinghouse_domain_legislative.operator_overlay import SuccessionEvent
 from clearinghouse_domain_legislative.span_kinds import KIND_COMMITTEE, KIND_HOUSE, KIND_SENATE
 from clearinghouse_domain_legislative.tenure_spans import Observation, TenureSpan
+from usa_wa_common.ballot import HousePosition
 from usa_wa_pipeline.conformed.movers import (
     ChamberMove,
     carry_mover_house_tenures,
@@ -55,7 +57,7 @@ def _seated_house(member_id: str, on: date, seat: str = SEAT) -> SuccessionEvent
     return SuccessionEvent(member_id, "seated", on, KIND_HOUSE, seat)
 
 
-MOVE = ChamberMove(member_id="18265", biennium=MOVE_BIENNIUM, moved_on=SEATED_SENATE)
+MOVE = ChamberMove(member_id="18265", biennium=MOVE_BIENNIUM, moved_on=SEATED_SENATE, ld=38)
 
 
 # --- chamber_moves ---------------------------------------------------------------
@@ -66,6 +68,19 @@ def test_a_movers_senate_seating_dates_the_move() -> None:
     the move on both rows ("Resigned; Appntd to the Senate" / "Appointed May 13,
     2020"), and the seating carries the date."""
     assert chamber_moves(_mover_wires(), [_seated_senate()]) == [MOVE]
+
+
+def test_the_move_biennium_ballot_positions_the_mover() -> None:
+    """The November that seated the move biennium is the Position's own evidence: the
+    mover is out of the roster, so the elimination never consulted it for them."""
+    ballot = {MOVE_BIENNIUM: {38: [HousePosition("Position 2", frozenset({"robinson"}), "d")]}}
+    [move] = chamber_moves(_mover_wires(), [_seated_senate()], positions_by_biennium=ballot)
+    assert move.ballot_seat == "ld-38-position-2"
+
+
+def test_the_earliest_senate_seating_dates_the_move() -> None:
+    later = _seated_senate(on=date(2020, 9, 1))
+    assert chamber_moves(_mover_wires(), [later, _seated_senate()]) == [MOVE]
 
 
 def test_a_mover_with_no_dated_move_is_not_guessed(caplog) -> None:
@@ -148,10 +163,46 @@ def test_an_explicit_vacate_of_another_seat_is_left_to_the_overlay() -> None:
     assert implied == []
 
 
-def test_a_mover_with_no_prior_house_seat_carries_nothing() -> None:
-    """Newly elected in the move biennium (Rivers, Frockt): there is no tenure to
-    continue, and the ballot positioned nobody — the #145 vacate is that case's."""
+def test_a_mover_with_no_prior_house_seat_and_no_ballot_carries_nothing() -> None:
+    """Appointed into the House in the move biennium (O'Ban): no tenure to continue and
+    no ballot naming them — the #145 vacate synthesis is that case's."""
     assert carry_mover_house_tenures([], [MOVE], []) == ([], [])
+
+
+def test_the_ballot_seat_wins_over_the_prior_seat() -> None:
+    """A Position the move biennium's ballot names is evidence; the prior biennium's
+    is an assumption that the seat did not change."""
+    move = replace(MOVE, ballot_seat="ld-38-position-2")
+    observations, implied = carry_mover_house_tenures([_prior_observation()], [move], [])
+    assert Observation("18265", KIND_HOUSE, "ld-38-position-2", MOVE_BIENNIUM) in observations
+    assert implied == [_vacated_house(seat="ld-38-position-2")]
+
+
+def test_a_ballot_positioned_mover_needs_no_prior_seat() -> None:
+    """Elected in the November before the move biennium, moved within it."""
+    move = replace(MOVE, ballot_seat=SEAT)
+    observations, implied = carry_mover_house_tenures([], [move], [])
+    assert observations == [Observation("18265", KIND_HOUSE, SEAT, MOVE_BIENNIUM)]
+    assert implied == [_vacated_house()]
+
+
+def test_no_prior_seat_is_assumed_across_a_redistricting_era(caplog) -> None:
+    """The back-chain's own stop (#118/#140): a new map keeps the LD number, not the
+    district, so a prior Position proves nothing in 2013-14 without a ballot."""
+    caplog.set_level("INFO")
+    move = ChamberMove("13546", "2013-14", date(2014, 1, 22), ld=21)
+    prior = Observation("13546", KIND_HOUSE, "ld-21-position-2", "2011-12")
+    assert carry_mover_house_tenures([prior], [move], []) == ([prior], [])
+    assert "chamber_move_house_seat_unknown" in caplog.text
+
+
+def test_no_prior_seat_is_assumed_in_another_district() -> None:
+    """The mover's House row names the LD they sat in that biennium."""
+    move = replace(MOVE, ld=39)
+    assert carry_mover_house_tenures([_prior_observation()], [move], []) == (
+        [_prior_observation()],
+        [],
+    )
 
 
 # --- date_mover_committees -------------------------------------------------------

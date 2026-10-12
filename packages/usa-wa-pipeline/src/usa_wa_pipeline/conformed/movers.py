@@ -43,7 +43,10 @@ from clearinghouse_domain_legislative.terms import (
     biennium_start_date,
     previous_biennium,
 )
-from usa_wa_facts_seats.house.roster import house_mover_ids
+from usa_wa_common.ballot import HousePositionsByLd, position_for
+from usa_wa_common.seats import house_span_discriminator, parse_house_span_discriminator
+from usa_wa_facts_seats.house.backchain import REDISTRICTING_ERA_START_BIENNIA
+from usa_wa_facts_seats.house.roster import build_house_roster, house_mover_ids
 
 logger = get_logger(__name__)
 
@@ -59,19 +62,32 @@ class ChamberMove:
 
     ``moved_on`` is the Senate seating, else the earliest explicit House vacate:
     when the Senate tenure began. The House tenure ended then or earlier — a
-    successor's seating can prove the vacancy came first."""
+    successor's seating can prove the vacancy came first.
+
+    ``ld`` is the district of the mover's House row that biennium; ``ballot_seat``
+    the House discriminator the biennium's own ballot positions them in, if any."""
 
     member_id: str
     biennium: str
     moved_on: date
+    ld: int | None = None
+    ballot_seat: str | None = None
 
 
 def chamber_moves(
-    rows_by_biennium: dict[str, list[dict[str, Any]]], events: Iterable[SuccessionEvent]
+    rows_by_biennium: dict[str, list[dict[str, Any]]],
+    events: Iterable[SuccessionEvent],
+    *,
+    positions_by_biennium: dict[str, HousePositionsByLd] | None = None,
 ) -> list[ChamberMove]:
     """Every dated move: a #105 mover (:func:`house_mover_ids`, the signal the House
     roster excludes on) with a ``seated chamber-senate`` or ``vacated chamber-house``
-    event inside that biennium, after its first day."""
+    event inside that biennium, after its first day.
+
+    ``positions_by_biennium`` (the House family's merged #123 maps) positions the
+    mover from their own House row — the lookup the elimination would have made had
+    the exclusion not removed them from its roster."""
+    positions_by_biennium = positions_by_biennium or {}
     seatings: dict[tuple[str, str], date] = {}
     vacates: dict[tuple[str, str], date] = {}
     for event in events:
@@ -86,7 +102,11 @@ def chamber_moves(
             target[key] = min(target.get(key, event.effective_date), event.effective_date)
     moves: list[ChamberMove] = []
     for biennium, rows in sorted(rows_by_biennium.items()):
-        for member_id in sorted(house_mover_ids(rows)):
+        movers = house_mover_ids(rows)
+        # keep_ids: the movers' own rows, which the exclusion would otherwise drop.
+        roster = build_house_roster(rows, keep_ids=movers)
+        positions = positions_by_biennium.get(biennium, {})
+        for member_id in sorted(movers):
             key = (member_id, biennium)
             moved_on = seatings.get(key) or vacates.get(key)
             if moved_on is None:
@@ -94,7 +114,24 @@ def chamber_moves(
                     "chamber_move_undated", extra={"member_id": member_id, "biennium": biennium}
                 )
                 continue
-            moves.append(ChamberMove(member_id=member_id, biennium=biennium, moved_on=moved_on))
+            ld, ballot_seat = None, None
+            for district, entries in roster.items():
+                for entry in entries:
+                    if entry.member_id != member_id:
+                        continue
+                    ld = district
+                    qualifier = position_for(positions, ld, entry.folded_last, entry.party_slug)
+                    if qualifier is not None:
+                        ballot_seat = house_span_discriminator(ld, qualifier)
+            moves.append(
+                ChamberMove(
+                    member_id=member_id,
+                    biennium=biennium,
+                    moved_on=moved_on,
+                    ld=ld,
+                    ballot_seat=ballot_seat,
+                )
+            )
     return moves
 
 
@@ -106,11 +143,15 @@ def carry_mover_house_tenures(
     """``observations`` plus each mover's House seat carried into the move biennium,
     and the ``vacated`` events that close the carried tenures.
 
-    Only a tenure the member held in the **previous** biennium is carried: one
-    newly elected in the move biennium has none, and the ballot positioned nobody
-    (Rivers, Frockt — the #145 ``vacated`` synthesis is theirs). An explicit
-    ``vacated chamber-house`` in the move biennium already dates the end, so none
-    is implied; one naming a different seat is left to that synthesis.
+    The seat is the move biennium's own ballot Position (``ballot_seat``) when it
+    names one — evidence, where the previous biennium's seat is an assumption. That
+    assumption is made only within one district map and one LD: the back-chain's
+    own stop (#118/#140), since a new map keeps the LD number but not the district.
+    Otherwise nothing is carried (``chamber_move_house_seat_unknown``); a mover
+    appointed into the House in the move biennium (O'Ban) has neither, and the
+    #145 ``vacated`` synthesis is theirs. An explicit ``vacated chamber-house`` in
+    the move biennium already dates the end, so none is implied; one naming a
+    different seat is left to that synthesis.
 
     The implied vacate is the Senate seating, or a successor's earlier dated
     seating on the same seat. A seat holds one person at a time, so the successor's
@@ -125,7 +166,13 @@ def carry_mover_house_tenures(
     implied: list[SuccessionEvent] = []
     for move in moves:
         prior = held.get((move.member_id, previous_biennium(move.biennium)))
-        if prior is None:
+        seat = move.ballot_seat or _continued_seat(move, prior)
+        if seat is None:
+            if prior is not None:
+                logger.info(
+                    "chamber_move_house_seat_unknown",
+                    extra={"member_id": move.member_id, "biennium": move.biennium},
+                )
             continue
         explicit = {
             e.seat_discriminator
@@ -134,16 +181,12 @@ def carry_mover_house_tenures(
             and e.member_id == move.member_id
             and biennium_for_date(e.effective_date) == move.biennium
         }
-        if explicit - {prior.discriminator}:
+        if explicit - {seat}:
             continue
-        carried.append(replace(prior, biennium=move.biennium))
+        carried.append(Observation(move.member_id, KIND_HOUSE, seat, move.biennium))
         logger.info(
             "chamber_move_house_tenure_carried",
-            extra={
-                "member_id": move.member_id,
-                "seat": prior.discriminator,
-                "biennium": move.biennium,
-            },
+            extra={"member_id": move.member_id, "seat": seat, "biennium": move.biennium},
         )
         if explicit:
             continue
@@ -151,9 +194,9 @@ def carry_mover_house_tenures(
             SuccessionEvent(
                 member_id=move.member_id,
                 kind=KIND_VACATED,
-                effective_date=_house_end(move, prior.discriminator, events),
+                effective_date=_house_end(move, seat, events),
                 seat_kind=KIND_HOUSE,
-                seat_discriminator=prior.discriminator,
+                seat_discriminator=seat,
             )
         )
     return carried, implied
@@ -218,6 +261,15 @@ def _date_committee(
     ):
         return replace(span, valid_from=move.moved_on)
     return span
+
+
+def _continued_seat(move: ChamberMove, prior: Observation | None) -> str | None:
+    """The previous biennium's seat, if the move biennium shares its map and LD."""
+    if prior is None or move.biennium in REDISTRICTING_ERA_START_BIENNIA:
+        return None
+    if parse_house_span_discriminator(prior.discriminator)[0] != move.ld:
+        return None
+    return prior.discriminator
 
 
 def _house_end(move: ChamberMove, seat: str, events: list[SuccessionEvent]) -> date:
