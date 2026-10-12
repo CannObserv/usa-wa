@@ -88,15 +88,22 @@ left as it was. The House family adds the mover's seat in that biennium as an
 under that tenure's key. The biennium's own ballot positions the seat. Without a
 ballot, the prior-biennium seat is used, but only within one district map and one
 LD, which is the back-chain's own stop (#118/#140); otherwise nothing is carried
-(`chamber_move_house_seat_unknown`). It is closed by an implied `vacated` at the move, or at a
+(`chamber_move_house_seat_unknown`). When there is neither, as below the Position floor,
+the seat is the one a successor's mid-biennium `seated chamber-house` names in the
+mover's LD (#492): only when exactly one seat is named, it is not held by another
+member that biennium, no other LD member without a known seat left before it was
+filled, and the mover has no explicit House vacate. That gave six movers
+the House span they had lacked entirely: Keiser and Doumit (2001-02), and Pflug and Berkey
+(2003-04). It is closed by an implied `vacated` at the move, or at a
 successor's earlier seating on the same seat: Liias's successor was appointed a day
 before his Senate seating, and the later date would add a both-dated overlap to
 `assignments_seat_occupancy`. The committee family ends House committees with the
 House seat and starts floor-opened Senate committees at the move. Movers with
 explicit #145 vacates (Stanford, Angel, Nelson) had been published as two rows, one
-per biennium; they now merge into one row. A mover with neither a ballot
-Position nor a prior seat carries nothing. That covers one appointed into the
-House that biennium, and the 2003-04 four below the Position floor (#492).
+per biennium; they now merge into one row. A mover with no ballot Position, no
+prior seat and no successor seating carries nothing. That covers one appointed into
+the House that biennium, and Delvin and Carrell (2003-04), whose successors' seatings
+are not recorded.
 
 **A biennium after the current one builds no span** (#135).
 `build_families` first drops WSL sponsor and committee-member rows from any

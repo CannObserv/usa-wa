@@ -258,3 +258,30 @@ def test_an_undated_mover_keeps_the_prior_shape() -> None:
     """No Senate seating, no move date: her tenure ends where the wire last placed her."""
     [robinson] = [s for s in _robinson_ld38([]) if s.member_id == "18265"]
     assert robinson.valid_to == date(2018, 12, 31)
+
+
+def test_a_2003_04_mover_takes_the_seat_their_successor_was_appointed_to() -> None:
+    """usa-wa#492: 2003-04 is the first biennium with House Positions and no 2002 ballot
+    is staged, so Cheryl Pflug had no seat to carry and published NO House span. Jay
+    Rodne's appointment to LD-5 Pos. 1 names the seat Pflug left; the tenure runs from
+    the floor to the Senate seating."""
+    spans = build_house_spans(
+        sponsors=[
+            _sponsor("3479", "2003-04", "5", "Pflug"),
+            _sponsor("3479", "2003-04", "5", "Pflug", agency="Senate"),
+            _sponsor("5160", "2003-04", "5", "Anderson"),
+            _sponsor("9710", "2003-04", "5", "Rodne"),
+        ],
+        committee_members=[],
+        sos_results=[_result("2008", 5, 1, "Pat Rodne")],
+        events=[
+            SuccessionEvent("3479", "seated", date(2004, 1, 5), "chamber-senate", "5"),
+            SuccessionEvent("9710", "seated", date(2004, 1, 20), KIND_HOUSE, "ld-5-position-1"),
+        ],
+        current_biennium=CURRENT,
+    )
+    by_member = {s.member_id: s for s in spans}
+    pflug = by_member["3479"]
+    assert (pflug.discriminator, pflug.start_biennium) == ("ld-5-position-1", "2003-04")
+    assert (pflug.valid_from, pflug.valid_to) == (date(2003, 1, 1), date(2004, 1, 5))
+    assert pflug.is_active is False

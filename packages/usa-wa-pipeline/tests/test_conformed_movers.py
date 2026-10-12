@@ -57,7 +57,13 @@ def _seated_house(member_id: str, on: date, seat: str = SEAT) -> SuccessionEvent
     return SuccessionEvent(member_id, "seated", on, KIND_HOUSE, seat)
 
 
-MOVE = ChamberMove(member_id="18265", biennium=MOVE_BIENNIUM, moved_on=SEATED_SENATE, ld=38)
+MOVE = ChamberMove(
+    member_id="18265",
+    biennium=MOVE_BIENNIUM,
+    moved_on=SEATED_SENATE,
+    ld=38,
+    ld_peers=frozenset({"17373"}),
+)
 
 
 # --- chamber_moves ---------------------------------------------------------------
@@ -203,6 +209,144 @@ def test_no_prior_seat_is_assumed_in_another_district() -> None:
         [_prior_observation()],
         [],
     )
+
+
+# --- the successor's seating names the seat (usa-wa#492) -------------------------
+
+#: Cheryl Pflug's shape: LD-5 in 2003-04, the first biennium with House Positions.
+#: No 2002 ballot is staged and 2001-02 has no seat to continue, so nothing but the
+#: successor's appointment says which Position Pflug left.
+PFLUG = ChamberMove("3479", "2003-04", date(2004, 1, 5), ld=5, ld_peers=frozenset({"5160", "9710"}))
+RODNE_SEAT = "ld-5-position-1"
+
+
+def _pflug_vacated(on: date = date(2004, 1, 5)) -> SuccessionEvent:
+    return SuccessionEvent("3479", "vacated", on, KIND_HOUSE, RODNE_SEAT)
+
+
+def test_a_successors_seating_names_the_seat_of_an_unpositioned_mover() -> None:
+    """Jay Rodne was appointed to LD-5 Pos. 1 on 2004-01-20, after Pflug went to the
+    Senate: the seat a successor is appointed to is the one the mover left."""
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    observations, implied = carry_mover_house_tenures([], [PFLUG], [rodne])
+    assert observations == [Observation("3479", KIND_HOUSE, RODNE_SEAT, "2003-04")]
+    assert implied == [_pflug_vacated()]
+
+
+def test_the_carried_log_names_what_positioned_the_seat(caplog) -> None:
+    """A successor-positioned seat is an inference an operator may want to audit."""
+    caplog.set_level("INFO")
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    carry_mover_house_tenures([_prior_observation()], [MOVE, PFLUG], [rodne])
+    vias = [r.via for r in caplog.records if r.getMessage() == "chamber_move_house_tenure_carried"]
+    assert vias == ["prior", "successor"]
+
+
+def test_a_successor_seated_before_the_move_still_dates_the_end() -> None:
+    """The successor names the seat AND, seated first, proves the vacancy came first."""
+    early = _seated_house("9710", date(2004, 1, 2), seat=RODNE_SEAT)
+    _, implied = carry_mover_house_tenures([], [PFLUG], [early])
+    assert implied == [_pflug_vacated(on=date(2004, 1, 2))]
+
+
+def test_a_seating_elsewhere_names_no_seat() -> None:
+    """Another district, another biennium, or the biennium's first day (a fresh term,
+    not a vacancy): none of them is the mover's successor."""
+    elsewhere = [
+        _seated_house("1", date(2004, 1, 20), seat="ld-6-position-1"),
+        _seated_house("2", date(2005, 3, 1), seat=RODNE_SEAT),
+        _seated_house("3", date(2003, 1, 1), seat=RODNE_SEAT),
+    ]
+    assert carry_mover_house_tenures([], [PFLUG], elsewhere) == ([], [])
+
+
+def test_a_seat_the_operator_spelled_unparseably_is_skipped_not_fatal() -> None:
+    """Operator events are hand-entered and nothing validates the seat's spelling on
+    the way in: one stray value must not fail the nightly build."""
+    stray = _seated_house("9710", date(2004, 1, 20), seat="LD5 Pos 1")
+    assert carry_mover_house_tenures([], [PFLUG], [stray]) == ([], [])
+
+
+def test_two_seats_filled_in_the_district_name_neither(caplog) -> None:
+    """Both of the LD's Positions filled mid-biennium: which one was the mover's is not
+    something the seatings say."""
+    caplog.set_level("INFO")
+    both = [
+        _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT),
+        _seated_house("4", date(2004, 3, 1), seat="ld-5-position-2"),
+    ]
+    assert carry_mover_house_tenures([], [PFLUG], both) == ([], [])
+    assert "chamber_move_house_seat_unknown" in caplog.text
+
+
+def test_a_seat_someone_else_held_that_biennium_is_not_the_movers() -> None:
+    """The seating filled a seat the ballot or back-chain already gives another member
+    in the move biennium: their vacancy, not the mover's."""
+    holder = Observation("5160", KIND_HOUSE, RODNE_SEAT, "2003-04")
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    assert carry_mover_house_tenures([holder], [PFLUG], [rodne]) == ([holder], [])
+
+
+def test_the_successor_may_hold_the_seat_in_the_move_biennium() -> None:
+    """The successor's own observation on the seat is the succession, not a rival."""
+    successor = Observation("9710", KIND_HOUSE, RODNE_SEAT, "2003-04")
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    observations, _ = carry_mover_house_tenures([successor], [PFLUG], [rodne])
+    assert Observation("3479", KIND_HOUSE, RODNE_SEAT, "2003-04") in observations
+
+
+def test_an_unpositioned_peers_vacancy_makes_the_seating_ambiguous(caplog) -> None:
+    """Anderson unpositioned and gone mid-biennium: Rodne's seating may fill THEIR seat,
+    and with no observation of Anderson's the held-seat guard cannot tell."""
+    caplog.set_level("INFO")
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    anderson_left = SuccessionEvent("5160", "departed", date(2004, 1, 10), None, None)
+    assert carry_mover_house_tenures([], [PFLUG], [rodne, anderson_left]) == ([], [])
+    assert "chamber_move_house_seat_unknown" in caplog.text
+
+
+def test_a_peer_leaving_after_the_seating_is_not_its_vacancy() -> None:
+    """Rodne was seated before Anderson left: a seat already filled is not the one a
+    later exit opened, so the seating is still Pflug's successor's."""
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    anderson_left = SuccessionEvent("5160", "departed", date(2004, 11, 1), None, None)
+    observations, _ = carry_mover_house_tenures([], [PFLUG], [rodne, anderson_left])
+    assert Observation("3479", KIND_HOUSE, RODNE_SEAT, "2003-04") in observations
+
+
+def test_a_positioned_peers_vacancy_is_the_held_seat_guards() -> None:
+    """Anderson's seat is known, so the seating that is not on it is the mover's."""
+    anderson = Observation("5160", KIND_HOUSE, "ld-5-position-2", "2003-04")
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    anderson_left = SuccessionEvent(
+        "5160", "vacated", date(2004, 1, 10), KIND_HOUSE, "ld-5-position-2"
+    )
+    observations, _ = carry_mover_house_tenures([anderson], [PFLUG], [rodne, anderson_left])
+    assert Observation("3479", KIND_HOUSE, RODNE_SEAT, "2003-04") in observations
+
+
+def test_the_successor_leaving_later_is_no_rival_vacancy() -> None:
+    """The successor is a peer on the wire too; their own later exit names nothing."""
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    rodne_left = SuccessionEvent("9710", "departed", date(2004, 11, 1), None, None)
+    observations, _ = carry_mover_house_tenures([], [PFLUG], [rodne, rodne_left])
+    assert Observation("3479", KIND_HOUSE, RODNE_SEAT, "2003-04") in observations
+
+
+def test_a_seat_an_earlier_move_carried_is_held() -> None:
+    """Two movers in one LD: the first carries Pos. 1 from the ballot, so the only
+    seating recorded (on Pos. 1) is that move's successor, not the second's."""
+    first = ChamberMove("100", "2003-04", date(2004, 1, 5), ld=5, ballot_seat=RODNE_SEAT)
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    observations, _ = carry_mover_house_tenures([], [first, PFLUG], [rodne])
+    assert observations == [Observation("100", KIND_HOUSE, RODNE_SEAT, "2003-04")]
+
+
+def test_a_movers_own_house_vacate_leaves_the_seat_to_the_overlay() -> None:
+    """O'Ban's shape: the operator dated and named the House end, so the #145
+    synthesis owns that tenure and no successor is consulted."""
+    rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
+    assert carry_mover_house_tenures([], [PFLUG], [rodne, _pflug_vacated()]) == ([], [])
 
 
 # --- date_mover_committees -------------------------------------------------------
