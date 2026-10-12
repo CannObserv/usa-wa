@@ -230,9 +230,9 @@ class TestDispatches:
     report, a *has recovered* or *has cleared* notice (#458). Their ids go on
     ``backup_checkin_sent``, so a check-in can be matched to notifier from this side."""
 
-    def _sent(self, environ, caplog, answer, status="alert"):
+    def _sent(self, environ, caplog, answer):
         with caplog.at_level(logging.INFO, logger=LOGGER):
-            landed = checkin.post_checkin(status, {}, environ=environ, post=Recorder(answer))
+            landed = checkin.post_checkin("alert", {}, environ=environ, post=Recorder(answer))
         [record] = [r for r in caplog.records if r.getMessage() == "backup_checkin_sent"]
         return landed, record
 
