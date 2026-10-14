@@ -64,7 +64,9 @@ the acceptance lines in the journal instead:
 journalctl -u usa-wa-pipeline --since today | grep -E 'wsl_raw_harvest_accepted_fault|dbt_build_accepted_warning'
 ```
 
-Both should appear every night of the window, each naming `#452`. The stage summaries carry
+Each names `#452`. The vacancy line appears every night until 2027-28 sponsors stage; the
+harvest line only while `GetCommittees` still faults (if WSL publishes committees first, the
+harvest is simply ok). The stage summaries carry
 the same facts: `job=wsl-raw-harvest outcome=ok … errors=1 fanout_skipped=1 … roster_faulted=1
 sponsor_rows=0 accepted_faults=["2027-28"]` and `job=dbt-build-warnings outcome=ok … warned=1
 not_clean=[] accepted_warnings=["test.usa_wa_pipeline.assignments_chamber_vacancy"]`.
@@ -82,8 +84,8 @@ not_clean=[] accepted_warnings=["test.usa_wa_pipeline.assignments_chamber_vacanc
   no 2027-28 sponsors. Any other warning still fails the stage.
 - **Any email in the window is real.** That includes the SOS harvest, because by Jan 1 the
   certified 2026 export lands and only `2027` errs, so the source is not degraded.
-- **If the acceptance lines are missing** and no email came, check that the nightly ran at
-  all (`GET /health/datasets`, `GET /api/v1/health/jobs`).
+- **If the `dbt_build_accepted_warning` line is missing** and no email came, check that the
+  nightly ran at all (`GET /health/datasets`, `GET /api/v1/health/jobs`).
 
 The data state the same night, which is correct and needs no repair:
 
