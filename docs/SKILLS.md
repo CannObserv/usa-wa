@@ -60,6 +60,7 @@ Pinned by [`scripts/tests/test_hook_registration_gate.py`](../scripts/tests/test
 | `init-socraticode` | Set up / repair SocratiCode indexing, the context-artifact manifest, and the code-exploration policy. Vendors the two `SessionStart` hooks — the prefetch reminder and the daily health check (see [§ SocratiCode health](#socraticode-health)). |
 | `managing-skills` | Add/update/audit skills across vendors and overrides. |
 | `orchestrating-issue-backlog` | Triage and sequence open GitHub issues into actionable work. |
+| `patching-hosts` | The monthly OS-patch run; reads the knob `.skills/patching-hosts` — [DEPLOYMENT-HOST.md § OS updates](DEPLOYMENT-HOST.md#os-updates-497). Problems go upstream as issues, never into the vendored copy. |
 | `reviewing-architecture` | Architectural review of a design doc or large change. Delegates to `enforcing-architecture` on a `fix + fitness` / `fitness` directive — both must be symlinked or the delegation fails to resolve. |
 | `reviewing-code-python-fastapi` | Python/FastAPI-stack code review (the review workflow for this repo). |
 | `shipping-work-python-fastapi` | Python/FastAPI ship workflow with `pre-ship.sh` (the ship workflow for this repo). |
