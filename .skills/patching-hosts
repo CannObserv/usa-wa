@@ -1,0 +1,88 @@
+# patching-hosts host knob (#497). Grammar: the vendored skill's
+# references/knob.md. The skill reads this file and never writes it; a
+# malformed line makes the host report-only (scripts/tests/test_patching_hosts_knob.py).
+# Times are UTC. Step 0, the hand-run this knob starts from: #430.
+
+class production
+posture scheduled
+
+# --- when -----------------------------------------------------------------
+# The owner's monthly window (2026-10-14): Tuesday or Wednesday, 09:00-16:30
+# PDT / 08:00-15:30 PST, so nothing moves at a DST change. Every step's whole
+# span, the reboot included, must fit inside one and clear the quiet ranges
+# below, or apply.sh refuses it.
+window Tue 16:00-23:30
+window Wed 16:00-23:30
+
+# The host's timers (deploy/*.timer): each range runs from 5 min before
+# OnCalendar to its RandomizedDelaySec plus the service's TimeoutStartSec, so
+# a step can't meet a run however late it starts or long it takes. The test
+# pins each range to its unit files.
+quiet 05:40-06:00                  # usa-wa-disk-gc, 05:45
+quiet 07:55-08:40                  # usa-wa-pipeline, 08:00; usa-wa-integrity-sweep, Sun 08:00
+quiet 08:55-09:45                  # usa-wa-roster-pdf-recheck, the 1st 09:00; usa-wa-wsl-availability-probe, 09:20; power-map's 09:00 pull
+quiet 10:12-11:30                  # usa-wa-backup, 10:17
+# logrotate.timer, 00:00 (not this repo's): step 0 kept Postgres and usa-wa
+# restarts clear of it (#430).
+quiet 23:55-00:10
+
+# --- what runs ------------------------------------------------------------
+# Every usa-wa-* oneshot is Type=oneshot without RemainAfterExit, so a running
+# one is "activating". usa-wa-migrate has RemainAfterExit=yes and stays
+# "active (exited)" after boot: excluded. usa-wa.service doesn't match the glob.
+inflight systemctl list-units 'usa-wa-*.service' --state=activating,active,deactivating --no-legend --plain | awk '$1 != "usa-wa-migrate.service"' | wc -l
+# A hand-started dev server (AGENTS.md: port 8001) is a second instance on the
+# same database and venv.
+inflight ss -Hltn 'sport = :8001' | wc -l
+
+service usa-wa.service
+health curl -sf -m5 http://localhost:8000/health
+health curl -sf -m5 http://localhost:8000/ready | jq -e '.db == true'
+
+# No restarter: usa-wa.service's Restart=on-failure is its own, and every
+# OnFailure= is usa-wa-notify-failure@, which only mails (#49).
+
+# --- the data store -------------------------------------------------------
+# Ubuntu main's postgresql-16, C.UTF-8 on libc everywhere (#430).
+datastore postgres postgresql@16-main usa_wa
+# The nightly backup to GCS (#434) stands in for a dump of usa_wa: pg_dump -Fc,
+# verified, then shipped create-only. recovery-point.sh starts it and needs
+# that run to succeed. Restore: docs/RECOVERY.md.
+backup usa-wa-backup.service postgresql@16-main
+
+# --- third-party apt -----------------------------------------------------
+# Tailscale, followed in the maintenance lane (owner, 2026-10-14) and scoped by
+# deploy/apt-preferences.d/tailscale.pref. Its postinst restarts tailscaled,
+# which carries the backup's co-status check-in (#455) and the agent's tailnet,
+# so it is its own approved step. Its own auto-update is off on the node and
+# for the tailnet: updates come only through this lane.
+origin pkgs.tailscale.com follow
+hold tailscale tailscale
+
+# --- who is told ----------------------------------------------------------
+# power-map pulls the published datasets at 09:00 (docs/PIPELINE-PUBLICATION.md).
+caller CannObserv/power-map
+
+# No image-owner line: this repo is public and the image repo isn't, so the
+# line would publish its name (gregoryfoster/skills#350).
+
+records CannObserv/usa-wa
+
+# --- exceptions -----------------------------------------------------------
+# The pytest databases (TEST_DATABASE_URL and its xdist workers): the suite
+# rebuilds each from the migrations, so there is nothing to restore.
+exception database:usa_wa_test 2027-04-14 pytest database, rebuilt from the migrations by the suite
+exception database:usa_wa_1_test 2027-04-14 pytest xdist worker database, rebuilt by the suite
+exception database:usa_wa_2_test 2027-04-14 pytest xdist worker database, rebuilt by the suite
+exception database:usa_wa_3_test 2027-04-14 pytest xdist worker database, rebuilt by the suite
+exception database:usa_wa_4_test 2027-04-14 pytest xdist worker database, rebuilt by the suite
+# SocratiCode's agent search index (docs/SOCRATICODE.md): dev tooling, not
+# production, and rebuilt by re-indexing rather than restored.
+exception datastore:socraticode-qdrant 2027-04-14 agent code-search index, dev tooling; rebuilt by re-indexing, never restored
+# The restarter scan can't follow a uv run or python -m module. None starts or
+# restarts a unit (read 2026-10-14): no systemctl in any, and the backup runs
+# with an empty capability set, shelling out only to pg_dump, psql and git.
+exception not-restarter:usa-wa-backup.service 2027-04-14 pg_dump to GCS (#434); starts and restarts no unit
+exception not-restarter:usa-wa-integrity-sweep.service 2027-04-14 raw-store hash sweep; starts and restarts no unit
+exception not-restarter:usa-wa-roster-pdf-recheck.service 2027-04-14 dry-run harvest of the roster PDF; starts and restarts no unit
+exception not-restarter:usa-wa-wsl-availability-probe.service 2027-04-14 WSL availability probe writing a JSONL log; starts and restarts no unit

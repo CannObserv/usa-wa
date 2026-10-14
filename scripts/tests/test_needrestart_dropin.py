@@ -12,7 +12,7 @@ as CannObserv/broker ``ad03a3d`` and CannObserv/archiver ``4409060``.
 
 These tests read the deploy artifact, not the live host: the gate must hold in a
 worktree and in CI. What the live host carries is verified at install time —
-``docs/DEPLOYMENT-HOST.md`` § OS security updates carries the commands.
+``docs/DEPLOYMENT-HOST.md`` § OS updates carries the commands.
 """
 
 from __future__ import annotations
