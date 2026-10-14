@@ -382,6 +382,19 @@ class TestRolloverCounters:
         assert (await _rollover_night(tmp_path, sponsors=0))["sponsor_rows"] == 0
         assert (await _rollover_night(tmp_path, sponsors=147))["sponsor_rows"] == 147
 
+    async def test_sponsor_rows_is_unknown_when_the_payload_carries_no_rows(self, tmp_path) -> None:
+        """A wire with no derived ``records`` says nothing about emptiness: unknown, never 0,
+        so a transport contract change cannot satisfy the acceptance's condition."""
+        summary = await harvest_raw(
+            tmp_path,
+            biennium="2027-28",
+            committee_client=_UnpublishedRosterClient(),
+            meeting_client=FakeMeetingClient(),
+            sponsor_client=FakeSponsorClient(),
+        )
+        assert summary["sponsor_rows"] is None
+        assert job_outcome(summary).outcome == "degraded"
+
     async def test_sponsor_rows_is_unknown_when_sponsors_did_not_land(self, tmp_path) -> None:
         class DeadSponsors:
             async def fetch_sponsors(self, biennium: str) -> _Wire:
