@@ -347,9 +347,9 @@ def test_a_rehearsal_writes_only_under_its_scratch_dir(run_nightly, scratch):
     dbt = _argv(lines, "dbt")
     assert f"--target-path {root}/target" in dbt
     assert f"--log-path {root}/dbt-logs" in dbt
-    assert f"--run-results {root}/target/run_results.json" in _argv(
-        lines, "usa_wa_pipeline.build_warnings"
-    )
+    gate = _argv(lines, "usa_wa_pipeline.build_warnings")
+    assert f"--run-results {root}/target/run_results.json" in gate
+    assert f"--db {root}/pipeline.duckdb" in gate  # #452: its staged sponsors
     publish = _argv(lines, "usa_wa_pipeline.publish")
     assert f"--db {root}/pipeline.duckdb" in publish
     assert f"--manifest {root}/target/manifest.json" in publish

@@ -10,13 +10,16 @@
 # - a HARVEST failure is contained (counted, chain continues): the raw store
 #   keeps the last good wires and the publish shrink-gate protects downstream.
 #   A harvest may also exit 0 while reporting a KNOWN outage it has named in
-#   code (sos ACCEPTED_OUTAGES, #333) — that is deliberate: a nightly email
+#   code (sos ACCEPTED_OUTAGES, #333; the rollover's WSL roster fault,
+#   ACCEPTED_ROSTER_FAULTS, #452) — that is deliberate: a nightly email
 #   nobody can act on is how alerting stops being read. The outage is still in
 #   the journal, and the acceptance fails the run once upstream recovers;
 # - a BUILD failure aborts (nothing downstream can run without the duckdb);
 # - a BUILD WARNING is counted, not fatal (#412 PR E): `dbt build` exits 0 on a
 #   `warn` test, so build_warnings reads run_results.json and fails on it. A
-#   vacancy is news, not a defect, so the registrar and publish still run;
+#   vacancy is news, not a defect, so the registrar and publish still run. The
+#   rollover's all-closed vacancy is accepted while the new biennium stages no
+#   sponsors (ACCEPTED_WARNINGS, #452), read from --db;
 # - REGISTRAR conflicts (exit 4) are counted, not fatal: the pipeline stays
 #   publishable during a triage backlog — yesterday's identity universe with
 #   today's attributes, never a guessed identity (spec § registrar);
@@ -187,6 +190,7 @@ if ! run_stage "dbt build" $UV dbt build \
 fi
 
 if ! run_stage usa_wa_pipeline.build_warnings $UV python -m usa_wa_pipeline.build_warnings \
+    --db "$DB" \
     --run-results "$DATA/target/run_results.json"; then
   echo "pipeline-nightly: dbt build warned (publish continues)" >&2
   failures=$((failures + 1))

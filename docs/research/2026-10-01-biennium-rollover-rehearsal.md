@@ -78,6 +78,10 @@ Data state:
    message is a generic server null-reference. The repo's rule (never key a parser on an
    exact upstream string) argues against treating it as benign the way `"valid biennium"`
    is, so the harvest is unchanged, and the runbook names the expected email exactly.
+   **Since #452 (decided 2026-10-13):** the fault is accepted for `2027-28` while
+   `GetSponsors` answers empty, keyed on the SOAP `Fault` type, never its text, and so is
+   the vacancy warning while no 2027-28 sponsors stage. The window sends no email; the
+   acceptances go stale, and mail, the night sponsors land.
 2. **The House chamber depends on the early-captured 2026 ballot.** Already handled by
    #449; the runbook's 2026-11-04 checklist confirms it landed.
 3. Every other prediction held: spans close at the old biennium's end, committees go
