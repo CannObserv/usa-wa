@@ -68,6 +68,11 @@ caller CannObserv/power-map
 
 records CannObserv/usa-wa
 
+# The venv's tree (uv.lock) is this repo's to update, through its own deploy.
+# The probe reads a tree's owner from its git origin, but misses this
+# checkout's deploy-key alias remote, git@github-usa-wa:… (filed upstream, #497).
+owner /home/exedev/usa-wa self
+
 # --- exceptions -----------------------------------------------------------
 # The pytest databases (TEST_DATABASE_URL and its xdist workers): the suite
 # rebuilds each from the migrations, so there is nothing to restore.
@@ -86,3 +91,11 @@ exception not-restarter:usa-wa-backup.service 2027-04-14 pg_dump to GCS (#434); 
 exception not-restarter:usa-wa-integrity-sweep.service 2027-04-14 raw-store hash sweep; starts and restarts no unit
 exception not-restarter:usa-wa-roster-pdf-recheck.service 2027-04-14 dry-run harvest of the roster PDF; starts and restarts no unit
 exception not-restarter:usa-wa-wsl-availability-probe.service 2027-04-14 WSL availability probe writing a JSONL log; starts and restarts no unit
+# fwupd: the image ships it with its units masked and its motd conffile
+# deleted, so its upgrade stopped unattended-upgrade at a conffile prompt
+# (exit 1). Purged with its 53 orphans on 2026-10-14, by hand, as
+# wslcb-licensing-tracker#193 did: prune-plan.sh knows no apt component
+# beyond its six (gregoryfoster/skills#370). The masks stay. Savepoint, kept
+# until the review: /var/backups/patching-hosts-prune-fwupd. Review: does the
+# image still ship it?
+exception purged:fwupd 2027-04-14 purged with its 53 orphans (#497); the image still ships it masked, with the motd conffile deleted that blocks unattended-upgrade

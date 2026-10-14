@@ -210,3 +210,18 @@ def test_tailscale_is_followed_scoped_and_its_own_step() -> None:
     assert _named("origin") == [["pkgs.tailscale.com", "follow"]]
     assert ["tailscale", "tailscale"] in _named("hold")
     assert (DEPLOY / "apt-preferences.d" / "tailscale.pref").is_file()
+
+
+def test_the_checkout_tree_is_owned_by_this_repo() -> None:
+    """The probe reads a tree's owner from its origin, and misses the deploy-key
+    alias remote (``git@github-usa-wa:…``), so the knob names it: without this
+    line the language class reports owner ``unknown``."""
+    assert ["/home/exedev/usa-wa", "self"] in _named("owner")
+
+
+def test_fwupd_is_declared_purged() -> None:
+    """The image deleted fwupd's motd conffile, so its upgrade stopped
+    unattended-upgrade at a conffile prompt; it was purged with its 53 orphans
+    on 2026-10-14 (#497, wslcb-licensing-tracker#193's route)."""
+    (purged,) = [e for e in _named("exception") if e[0] == "purged:fwupd"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", purged[1])
