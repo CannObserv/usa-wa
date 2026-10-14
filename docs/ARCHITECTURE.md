@@ -160,7 +160,10 @@ swept, and reasoned about in isolation:
   a byte-identical re-fetch still counts as fetched (`unchanged`), so a quiet day is not an alarm,
   and a TTL-masked outage still is. A *known* outage is accepted in code, with a reason and an
   issue, and the acceptance degrades the run the night the source recovers
-  (`usa_wa_adapter_sos.raw_harvest.ACCEPTED_OUTAGES`, #333).
+  (`usa_wa_adapter_sos.raw_harvest.ACCEPTED_OUTAGES`, #333). A *window* known in advance — the
+  biennium rollover before WSL publishes — is accepted the same way, pinned to one biennium and
+  conditioned on its sponsors still being empty (`ACCEPTED_ROSTER_FAULTS`,
+  `build_warnings.ACCEPTED_WARNINGS`, #452).
 
 ### What makes the application "source-agnostic"
 

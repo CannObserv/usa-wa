@@ -78,10 +78,34 @@ Data state:
    message is a generic server null-reference. The repo's rule (never key a parser on an
    exact upstream string) argues against treating it as benign the way `"valid biennium"`
    is, so the harvest is unchanged, and the runbook names the expected email exactly.
+   **Since #452 (decided 2026-10-13):** the fault is accepted for `2027-28` while
+   `GetSponsors` answers empty, keyed on the SOAP `Fault` type, never its text, and so is
+   the vacancy warning while no 2027-28 sponsors stage. The window sends no email; the
+   acceptances go stale, and mail, the night sponsors land.
 2. **The House chamber depends on the early-captured 2026 ballot.** Already handled by
    #449; the runbook's 2026-11-04 checklist confirms it landed.
 3. Every other prediction held: spans close at the old biennium's end, committees go
    inactive, publish proceeds without a shrink refusal, and the probes stay clean.
+
+## Rehearsal 2 — 2026-10-14 (#452 branch, `empty` only, before the election)
+
+Run from the #452 worktree, to exercise the two acceptances against live upstream answers.
+This is not the December re-run the runbook asks for: the 2026 ballot still does not exist.
+
+### `empty` — exit 1
+
+| Stage | Result |
+|---|---|
+| WSL harvest | **ok**, `errors=1 fanout_skipped=1 roster_faulted=1 sponsor_rows=0 accepted_faults=["2027-28"]`; logs `wsl_raw_harvest_accepted_fault` (#452). `GetCommittees(2027-28)` still faults |
+| PDC harvest | ok, 5 cohorts, all unchanged |
+| SOS harvest | degraded, the only failed stage: `results` fails for `2026`/`2027` (the October artifact above; filings accepted under #333) |
+| dbt build | PASS=138, WARN=1 (`assignments_chamber_vacancy`), ERROR=0 |
+| `build_warnings` | **ok**, `warned=1 not_clean=[] accepted_warnings=[vacancy]`; logs `dbt_build_accepted_warning` (#452) |
+| publish | ok, 3 minted, no shrink refusal |
+| `registry_coverage` / `parity_citations` | ok, 0 unregistered, 0 orphan citations |
+
+Both #452 predictions held. On 2027-01-01, with the certified 2026 export landed, the
+nightly should exit 0 and send no email.
 
 ## Source availability for 2027-28
 

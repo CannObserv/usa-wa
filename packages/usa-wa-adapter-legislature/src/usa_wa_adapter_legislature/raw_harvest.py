@@ -14,15 +14,25 @@ database — and nothing here normalizes; bytes in, bytes stored. Every SOAP
 call passes through the central WSL rate limiter (#77) inside the transport,
 so the sequential fan-out cannot burst the host. Per-resource failures are
 contained as ``err`` manifest entries; a dead roster kills only the fan-out.
+
+**The rollover window (#452).** From the day a biennium becomes current until WSL publishes
+it, ``GetCommittees`` raises a server fault rather than returning an empty list, so the run
+degrades every night. ``ACCEPTED_ROSTER_FAULTS`` names that biennium: while
+``sponsors:<biennium>`` answers empty, that one fault exits 0 (logged
+``wsl_raw_harvest_accepted_fault``); the night sponsors land, the entry goes stale and
+degrades until it is removed — the #333 ``ACCEPTED_OUTAGES`` pattern.
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from zeep.exceptions import Fault
 
 from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
@@ -46,6 +56,54 @@ JOB_SLUG = "wsl-raw-harvest"
 SOURCE_SLUG = WSL_SOURCE_SLUG
 
 
+@dataclass(frozen=True)
+class AcceptedRosterFault:
+    """A biennium whose ``GetCommittees`` server fault is KNOWN: WSL has not published it.
+
+    Accepted only in the exact rollover shape — the roster raised a SOAP fault (not a
+    transport error), it is the run's only error, and ``GetSponsors`` answered with no
+    rows. Any second failure, or sponsors that did not land, degrades as before. The
+    ``biennium`` is the time box: before it becomes current the entry is dormant, and
+    once its sponsors land the entry is stale.
+    """
+
+    biennium: str
+    reason: str
+    issue: str
+    observed: str
+    #: Every chore WSL publishing unblocks. The stale signal is the only reminder, so
+    #: anything not named here is lost with it (the #333 rule).
+    follow_up: tuple[str, ...]
+
+
+#: The rollover faults currently accepted. Empty is the normal state; an entry lives for
+#: one rollover window and is removed when it goes stale.
+ACCEPTED_ROSTER_FAULTS: tuple[AcceptedRosterFault, ...] = (
+    AcceptedRosterFault(
+        biennium="2027-28",
+        reason=(
+            "WSL answers GetCommittees for an unpublished biennium with a server fault "
+            "(DataPortal.Fetch failed), not an empty list; GetSponsors answers empty. From "
+            "2027-01-01 until WSL publishes 2027-28 the harvest would degrade every night "
+            "with nothing to act on."
+        ),
+        issue="#452",
+        observed="2026-10-01",
+        follow_up=(
+            (
+                "remove this entry from ACCEPTED_ROSTER_FAULTS in "
+                "usa_wa_adapter_legislature/raw_harvest.py"
+            ),
+            "remove the 2027-28 entry from ACCEPTED_WARNINGS in usa_wa_pipeline/build_warnings.py",
+            (
+                "record the date WSL published 2027-28 in "
+                "docs/research/2026-10-01-biennium-rollover-rehearsal.md"
+            ),
+        ),
+    ),
+)
+
+
 async def harvest_raw(
     root: Path | str,
     *,
@@ -63,7 +121,8 @@ async def harvest_raw(
     sponsors = sponsor_client or WSLClient("SponsorService")
     store = RawStore(root, SOURCE_SLUG)
     run = store.open_run()
-    counters = {
+    counters: dict[str, Any] = {
+        "biennium": biennium,
         "fetched": 0,
         "unchanged": 0,
         "skipped_fresh": 0,
@@ -71,9 +130,20 @@ async def harvest_raw(
         "fanout_skipped": 0,
         "fanout_attempted": 0,
         "fanout_landed": 0,
+        "roster_faulted": 0,
+        "sponsor_rows": None,
     }
     service = f"{WSL_BASE_URL}/CommitteeService.asmx"
     roster_resource = f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}"
+
+    async def fetch_roster() -> Any:
+        try:
+            return await committees.fetch_committees(biennium)
+        except Fault:
+            # Which failure, not whether (#452): an unpublished biennium answers a SOAP
+            # fault. Re-raised, so record_fetch still contains and counts it.
+            counters["roster_faulted"] = 1
+            raise
 
     try:
         try:
@@ -82,7 +152,7 @@ async def harvest_raw(
                 store,
                 roster_resource,
                 f"{service}?biennium={biennium}#GetCommittees",
-                lambda: committees.fetch_committees(biennium),
+                fetch_roster,
                 counters,
                 ttl_days,
                 log_event="wsl_raw_harvest_fetch_failed",
@@ -108,7 +178,7 @@ async def harvest_raw(
                 ttl_days,
                 log_event="wsl_raw_harvest_fetch_failed",
             )
-            await record_fetch(
+            sponsor = await record_fetch(
                 run,
                 store,
                 f"{SPONSORS_RESOURCE_PREFIX}{biennium}",
@@ -118,6 +188,7 @@ async def harvest_raw(
                 ttl_days,
                 log_event="wsl_raw_harvest_fetch_failed",
             )
+            counters["sponsor_rows"] = _record_count(sponsor.payload)
 
             roster_wire = _roster_wire(store, roster, roster_resource)
             parsed: list[dict] | None = None
@@ -173,8 +244,15 @@ async def harvest_raw(
         # The alert must still say how far the run got (#331) — outside the
         # finally, so a failed manifest write is wrapped too (CR 1).
         raise JobFailure(counters) from exc
-    logger.info("wsl_raw_harvest_complete", extra={"biennium": biennium, **counters})
+    logger.info("wsl_raw_harvest_complete", extra=counters)
     return counters
+
+
+def _record_count(payload: Any) -> int | None:
+    """How many rows a landed fetch carried; ``None`` when nothing landed (an error, a
+    TTL skip) or the payload carries no derived rows — unknown, never zero."""
+    records = getattr(payload, "records", None)
+    return None if records is None else len(records)
 
 
 def _roster_wire(store: RawStore, roster: Any, resource_id: str) -> bytes | None:
@@ -202,7 +280,33 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def job_outcome(counters: dict[str, int]) -> JobResult:
+def _degraded(counters: dict[str, Any]) -> bool:
+    landed_nothing = counters["fetched"] == 0 and counters["skipped_fresh"] == 0
+    every_attempt_failed = counters["errors"] > 0 and counters["fetched"] == 0
+    fanout_lost = counters.get("fanout_skipped") or (
+        counters.get("fanout_attempted", 0) > 0 and counters.get("fanout_landed", 0) == 0
+    )
+    return bool(landed_nothing or every_attempt_failed or fanout_lost)
+
+
+def _rollover_signature(counters: dict[str, Any]) -> bool:
+    """The run failed exactly as an unpublished biennium makes it fail (#452): the roster's
+    SOAP fault is the only error, everything else landed, and the lost fan-out is that
+    roster's — and ``GetSponsors`` answered with no rows."""
+    return (
+        counters.get("roster_faulted") == 1
+        and counters["errors"] == 1
+        and counters["fetched"] > 0
+        and counters.get("fanout_attempted", 0) == 0
+        and counters.get("sponsor_rows") == 0
+    )
+
+
+def job_outcome(
+    counters: dict[str, Any],
+    *,
+    accepted: tuple[AcceptedRosterFault, ...] = ACCEPTED_ROSTER_FAULTS,
+) -> JobResult:
     """Degraded when the source landed nothing, when every attempted fetch
     failed (a TTL-masked outage), or when the member fan-out was lost — #49
     alerting must fire for each of these real degradations (#302 CR).
@@ -210,15 +314,44 @@ def job_outcome(counters: dict[str, int]) -> JobResult:
     Fan-out loss has two shapes (CR 38/39): the roster wire unusable
     (``fanout_skipped``, parse-level) and every member fetch erroring
     (``fanout_attempted`` with nothing landed, fetch-level). A benign empty
-    roster attempts no fan-out and is NOT a loss."""
-    landed_nothing = counters["fetched"] == 0 and counters["skipped_fresh"] == 0
-    every_attempt_failed = counters["errors"] > 0 and counters["fetched"] == 0
-    fanout_lost = counters.get("fanout_skipped") or (
-        counters.get("fanout_attempted", 0) > 0 and counters.get("fanout_landed", 0) == 0
-    )
-    if landed_nothing or every_attempt_failed or fanout_lost:
-        return JobResult.degraded(counters)
-    return JobResult.ok(counters)
+    roster attempts no fan-out and is NOT a loss.
+
+    An acceptance for this run's biennium (#452) turns the rollover signature into
+    ``ok``, logged at WARNING. Once that biennium's sponsors land the acceptance is a
+    false claim: it degrades the run and names its follow-ups in ``stale_acceptances``,
+    whatever else the run did — what forces its removal.
+    """
+    live = [a for a in accepted if a.biennium == counters.get("biennium")]
+    sponsor_rows = counters.get("sponsor_rows")
+    stale = live if sponsor_rows else []
+    degraded = _degraded(counters)
+    accepting = live if degraded and _rollover_signature(counters) else []
+    reported = dict(counters)
+    reported["accepted_faults"] = [a.biennium for a in accepting]
+    reported["stale_acceptances"] = [a.biennium for a in stale]
+
+    if stale:
+        logger.warning(
+            "wsl_raw_harvest_acceptance_stale",
+            extra={
+                "bienniums": reported["stale_acceptances"],
+                "issues": [a.issue for a in stale],
+                "detail": "WSL published the biennium's sponsors — this acceptance is now false",
+                "follow_up": [step for a in stale for step in a.follow_up],
+            },
+        )
+    if accepting:
+        logger.warning(
+            "wsl_raw_harvest_accepted_fault",
+            extra={
+                "bienniums": reported["accepted_faults"],
+                "issues": [a.issue for a in accepting],
+                "observed": [a.observed for a in accepting],
+            },
+        )
+    if stale or (degraded and not accepting):
+        return JobResult.degraded(reported)
+    return JobResult.ok(reported)
 
 
 async def _harvest_job(ctx: JobContext) -> JobResult:
