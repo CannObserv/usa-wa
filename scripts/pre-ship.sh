@@ -127,10 +127,10 @@ if [[ -z "${TEST_DATABASE_URL:-}" ]]; then
 fi
 
 # The lock audit (#499): OSV advisories in uv.lock, printed ahead of the gate.
-# Report-only — audit_lock.sh exits 0 on every outcome, and the `||` keeps a
+# Report-only — audit-lock.sh exits 0 on every outcome, and the `||` keeps a
 # broken copy from tripping `set -e`, so it can never change the verdict below.
-bash "$PROJECT_ROOT/scripts/audit_lock.sh" ||
-  echo "pre-ship: scripts/audit_lock.sh exited $?; carrying on (report-only, #499)" >&2
+bash "$PROJECT_ROOT/scripts/audit-lock.sh" ||
+  echo "pre-ship: scripts/audit-lock.sh exited $?; carrying on (report-only, #499)" >&2
 
 # exec: the delegate's exit code is what the shipping skill's Iron Law reads.
 exec bash "$DELEGATE" "$@"

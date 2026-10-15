@@ -1,6 +1,6 @@
 """The lock audit reports and never fails (#499).
 
-``scripts/audit_lock.sh`` runs ``uv audit --frozen`` against ``uv.lock``;
+``scripts/audit-lock.sh`` runs ``uv audit --frozen`` against ``uv.lock``;
 ``scripts/pre-ship.sh`` runs it before handing off to the gate. The update
 mechanism itself is Dependabot, monthly and grouped (``.github/dependabot.yml``):
 this report is what shows a disclosure between its runs.
@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).parent.parent / "audit_lock.sh"  # scripts/tests/ → scripts/
+SCRIPT = Path(__file__).parent.parent / "audit-lock.sh"  # scripts/tests/ → scripts/
 
 
 def _run(tmp_path: Path, uv_exit: int, uv_output: str = ""):

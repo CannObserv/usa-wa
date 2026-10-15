@@ -13,7 +13,7 @@
 # --frozen reads uv.lock as committed: the report describes the lock being
 # shipped. `uv audit` is a preview command; uv 0.11 names the feature `audit`
 # (broker's `audit-command` is an unknown flag here and exits 2).
-# Ported from broker's script less its GitHub Actions branches: no workflow here
+# Ported from broker's audit_lock.sh less its GitHub Actions branches: no workflow here
 # runs it. scripts/tests/test_audit_lock.py pins all of it.
 set -u
 

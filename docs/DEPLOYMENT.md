@@ -140,6 +140,14 @@ sudo systemctl restart usa-wa-migrate  # if DB models changed (restart, not star
 sudo systemctl restart usa-wa
 ```
 
+**Where `uv.lock` changes come from (#499).** `.github/dependabot.yml` opens one
+grouped PR a month for the whole lock; the owner lands it in the patching-hosts
+window (`.skills/patching-hosts`) beside the OS run, then deploys it with the block
+above. Between runs `scripts/audit-lock.sh` prints `uv audit --frozen`'s OSV findings
+at the top of every `pre-ship.sh`, report-only: it exits 0 whatever it finds, so a
+disclosure elsewhere never blocks an unrelated ship. An advisory that warrants it
+takes an out-of-cycle `uv lock --upgrade-package <name>` and the same deploy.
+
 `uv sync` here uses `--locked` (not `--frozen`): it additionally asserts
 `uv.lock` is consistent with `pyproject.toml`, catching a committed lock that
 went stale — a deploy-time integrity check worth failing on. Units stay on

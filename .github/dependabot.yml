@@ -3,7 +3,7 @@
 # grouped PR, landed in the patching-hosts window (.skills/patching-hosts,
 # Tue/Wed 16:00-23:30Z) beside the OS run; a merge deploys only via
 # `uv sync --locked` + `systemctl restart usa-wa` (AGENTS.md, Server Lifecycle).
-# Between runs, scripts/audit_lock.sh reports new advisories on every pre-ship.
+# Between runs, scripts/audit-lock.sh reports new advisories on every pre-ship.
 #
 # github-actions is out: the only workflow is context-cadence.yml, which
 # install-cadence.sh regenerates, reverting any bump made in it.

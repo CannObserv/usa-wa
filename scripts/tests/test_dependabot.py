@@ -2,7 +2,7 @@
 
 Owner's decision (2026-10-15): Dependabot monthly, one grouped PR, landed in the
 patching-hosts window (``.skills/patching-hosts``) next to the OS run; the
-report-only ``scripts/audit_lock.sh`` shows a disclosure between runs. A
+report-only ``scripts/audit-lock.sh`` shows a disclosure between runs. A
 mistyped Dependabot config stops producing PRs without erroring anywhere a
 person looks, so each property is pinned here. CannObserv/broker's and
 CannObserv/notifier's ``test_dependabot.py`` are the templates.
