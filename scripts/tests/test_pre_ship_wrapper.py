@@ -39,7 +39,16 @@ STUB = """\
 printf 'TEST_DATABASE_URL=%s\\n' "${TEST_DATABASE_URL:-<unset>}" >"$STUB_LOG"
 printf 'SYSTEM_ONLY=%s\\n' "${SYSTEM_ONLY:-<unset>}" >>"$STUB_LOG"
 printf 'ARGS=%s\\n' "$*" >>"$STUB_LOG"
+[ -n "${ORDER_LOG:-}" ] && echo delegate >>"$ORDER_LOG"
 exit "${STUB_EXIT:-0}"
+"""
+
+# Stands in for scripts/audit_lock.sh (#499), which would reach OSV. Its own
+# contract lives in test_audit_lock.py; here only "runs, first, harmlessly".
+AUDIT_STUB = """\
+#!/usr/bin/env bash
+[ -n "${ORDER_LOG:-}" ] && echo audit >>"$ORDER_LOG"
+exit "${AUDIT_EXIT:-0}"
 """
 
 
@@ -51,6 +60,7 @@ def _scratch_repo(tmp_path: Path, *, with_delegate: bool = True) -> Path:
     wrapper = tmp_path / "scripts" / "pre-ship.sh"
     wrapper.write_bytes(SCRIPT.read_bytes())
     wrapper.chmod(0o755)
+    (tmp_path / "scripts" / "audit_lock.sh").write_text(AUDIT_STUB)
 
     # The value the wrapper must surface to the delegate. Not a real DSN — the
     # stub never connects; only the export path is under test.
@@ -131,6 +141,32 @@ def test_missing_delegate_is_an_actionable_error(tmp_path):
     assert result.returncode == 2
     assert DELEGATE_REL in result.stderr
     assert "submodule update" in result.stderr
+
+
+def test_the_lock_audit_runs_before_the_gate(tmp_path):
+    """#499: the report prints ahead of the gate's output, every ship."""
+    repo = _scratch_repo(tmp_path)
+    order = tmp_path / "order.log"
+
+    result = _run(repo, env_extra={"STUB_LOG": str(tmp_path / "stub.log"), "ORDER_LOG": str(order)})
+
+    assert result.returncode == 0, result.stderr
+    assert order.read_text().split() == ["audit", "delegate"]
+
+
+def test_a_failing_audit_never_changes_the_gates_verdict(tmp_path):
+    """Report-only (#499). audit_lock.sh always exits 0, but a broken or missing
+    one must not stop the gate either: under `set -e` it would, and the exit the
+    Iron Law reads must stay the delegate's."""
+    repo = _scratch_repo(tmp_path)
+    order = tmp_path / "order.log"
+    env = {"STUB_LOG": str(tmp_path / "stub.log"), "ORDER_LOG": str(order), "AUDIT_EXIT": "3"}
+
+    result = _run(repo, env_extra=env)
+
+    assert result.returncode == 0, result.stderr
+    assert order.read_text().split() == ["audit", "delegate"]
+    assert "audit_lock.sh exited 3" in result.stderr
 
 
 def test_real_delegate_path_resolves():
