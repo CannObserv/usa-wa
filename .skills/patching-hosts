@@ -70,7 +70,7 @@ records CannObserv/usa-wa
 
 # The venv's tree (uv.lock) is this repo's to update, through its own deploy.
 # The probe reads a tree's owner from its git origin, but misses this
-# checkout's deploy-key alias remote, git@github-usa-wa:… (filed upstream, #497).
+# checkout's deploy-key alias remote, git@github-usa-wa:… (gregoryfoster/skills#391).
 owner /home/exedev/usa-wa self
 
 # --- exceptions -----------------------------------------------------------
