@@ -205,8 +205,8 @@ sysctl vm.min_free_kbytes
 
 This image masks the apt timers, and `APT::Periodic::Enable` is `0`, so nothing patches the host
 unattended. Posture `scheduled`: a monthly, owner-approved run under the vendored
-`patching-hosts` skill (its `SKILL.md`, "The run"), Tue or Wed 16:00–23:30 UTC. What only the
-owner knows — window, quiet ranges, the backup standing in for a dump, the caller — is the knob
+`patching-hosts` skill (its `SKILL.md`, "The run"), in the knob's window. What only the
+owner knows — the window, quiet ranges, the backup standing in for a dump, the caller — is the knob
 [`.skills/patching-hosts`](../.skills/patching-hosts), pinned by
 `scripts/tests/test_patching_hosts_knob.py`: move a timer without its quiet range and the suite
 fails. Step 0, by hand: #430.
