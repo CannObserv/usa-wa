@@ -126,7 +126,10 @@ def _timer_runs() -> list[tuple[str, int, int]]:
         at = int(hours) * 60 + int(minutes)
         delay = _seconds(_unit_setting(timer, "RandomizedDelaySec") or "0")
         service = timer.with_suffix(".service")
-        timeout = _seconds(_unit_setting(service, "TimeoutStartSec") or "90")
+        timeout = _unit_setting(service, "TimeoutStartSec")
+        # A oneshot's default is infinity: no quiet range can cover an unbounded run.
+        assert timeout, f"{service.name}: a oneshot without TimeoutStartSec= has no bound"
+        timeout = _seconds(timeout)
         latest = at + -(-(delay + timeout) // 60)
         runs.append((timer.name, at - LEAD_MINUTES, latest))
     return runs
