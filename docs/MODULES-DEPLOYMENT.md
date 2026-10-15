@@ -52,7 +52,7 @@ deploy/               — Systemd unit + deployment config. Service table: [DEPL
 scripts/              — the eleven operational shell entrypoints (migrate, dbt-gate, pipeline-nightly, notify-failure, verify-units, assert-main-checkout, assert-venv-integrity, pre-ship, disk-gc, slim-ollama-image, rollover-rehearsal), `context_manifest_drift.py` behind the session hook, `rehearsal_roster.py` (the #135 rehearsal's synthesized partial roster — writes only beside a `.rehearsal` marker), and `scripts/tests/` — the repo-level guards that pin these docs, the systemd units and the workspace registries. CLIs by name: [COMMANDS.md](COMMANDS.md)
 .github/              — one GitHub Actions workflow, the weekly context cadence. It is the only scheduled job not on this VM: [DEPLOYMENT.md](DEPLOYMENT.md) § Scheduled work outside systemd
 .claude/              — Claude Code settings, hooks and the skill symlinks
-.skills/              — the skill knobs (context budgets, the ship gate's path list and advice) and `doctor.sh`
+.skills/              — the skill knobs (context budgets, the ship gate's path list and advice, the `patching-hosts` host knob) and `doctor.sh`
 skills/               — skills discovered by agentskills.io, symlinks into the vendor trees
 skills-vendor/        — the skill submodules themselves
 ```
