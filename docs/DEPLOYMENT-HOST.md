@@ -201,19 +201,34 @@ tr '\0' '\n' < /proc/$(systemctl show earlyoom -p MainPID --value)/cmdline
 sysctl vm.min_free_kbytes
 ```
 
-## OS security updates (#430)
+## OS updates (#497)
 
 This image masks the apt timers, and `APT::Periodic::Enable` is `0`, so nothing patches the host
-unattended. Patching is a manual, approved run (#430). Without a drop-in, apt's
-`needrestart -m u` hook runs in Ubuntu mode and **restarts services by itself**, Postgres and
-`usa-wa` included. `deploy/needrestart.conf.d/usa-wa.conf` sets list-only mode
-(`test_needrestart_dropin.py`). It does not cover `postgresql-16`'s own prerm and postinst,
-which stop and start the cluster on every upgrade of that package, so upgrade that package by
-itself (#430).
+unattended. Posture `scheduled`: a monthly, owner-approved run under the vendored
+`patching-hosts` skill (its `SKILL.md`, "The run"), in the knob's window. What only the
+owner knows — the window, quiet ranges, the backup standing in for a dump, the caller — is the knob
+[`.skills/patching-hosts`](../.skills/patching-hosts), pinned by
+`scripts/tests/test_patching_hosts_knob.py`: move a timer without its quiet range and the suite
+fails. Step 0, by hand: #430.
+
+Two host files, both tracked and tested:
+
+- **needrestart list-only** (`deploy/needrestart.conf.d/usa-wa.conf`,
+  `test_needrestart_dropin.py`). Without it apt's `needrestart -m u` hook runs in Ubuntu mode and
+  **restarts services by itself**, Postgres and `usa-wa` included. It does not cover
+  `postgresql-16`'s own prerm/postinst, which bounce the cluster: the skill holds that package as
+  its own step.
+- **Tailscale scoped** (`deploy/apt-preferences.d/tailscale.pref`, `test_tailscale_apt_pin.py`):
+  the origin is followed in the maintenance lane, so the site sits below Ubuntu and only
+  `tailscale` and its keyring above. Tailscale's own auto-update is off on the node and the
+  tailnet.
 
 ```bash
 sudo install -m 644 deploy/needrestart.conf.d/usa-wa.conf /etc/needrestart/conf.d/
 sudo needrestart -m u -r l -b    # must print "Disabling Ubuntu mode"; restarts nothing
+sudo install -m 644 deploy/apt-preferences.d/tailscale.pref /etc/apt/preferences.d/
+apt-cache policy tailscale       # candidate at 600; the site's release lines at 100
+bash skills/patching-hosts/scripts/read-knob.sh --host "$(hostname)"   # findings: []
 ```
 
 ## Secrets on disk (#434)
