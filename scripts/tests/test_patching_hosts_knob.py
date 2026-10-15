@@ -228,3 +228,15 @@ def test_fwupd_is_declared_purged() -> None:
     on 2026-10-14 (#497, wslcb-licensing-tracker#193's route)."""
     (purged,) = [e for e in _named("exception") if e[0] == "purged:fwupd"]
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", purged[1])
+
+
+def test_migrate_is_the_only_oneshot_that_stays_active() -> None:
+    """The inflight count excludes ``usa-wa-migrate`` alone. A second unit with
+    ``RemainAfterExit=yes`` would read ``active (exited)`` for good, so the
+    count would never reach 0 and every step would refuse."""
+    remain = {
+        unit.name
+        for unit in DEPLOY.glob("usa-wa-*.service")
+        if "RemainAfterExit=yes" in unit.read_text()
+    }
+    assert remain == {"usa-wa-migrate.service"}
