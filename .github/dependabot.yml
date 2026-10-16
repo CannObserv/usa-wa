@@ -1,7 +1,7 @@
 # Moves uv.lock (#499). Nothing else did: #497's probe found 43 OSV advisories
 # in a lock no bot or gate touched. Owner's decision (2026-10-15): monthly, one
-# grouped PR, landed in the patching-hosts window (.skills/patching-hosts,
-# Tue/Wed 16:00-23:30Z) beside the OS run; a merge deploys only via
+# grouped PR, landed in the patching-hosts window (.skills/patching-hosts'
+# `window` lines) beside the OS run; a merge deploys only via
 # `uv sync --locked` + `systemctl restart usa-wa` (AGENTS.md, Server Lifecycle).
 # Between runs, scripts/audit-lock.sh reports new advisories on every pre-ship.
 #
