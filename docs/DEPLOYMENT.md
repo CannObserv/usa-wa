@@ -183,8 +183,7 @@ requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 unit is a root-owned copy of its `deploy/` counterpart, so after editing a unit file
 run `sudo cp deploy/<unit> /etc/systemd/system/` **before** the `daemon-reload` the
 rows below prescribe — `daemon-reload` alone re-reads the stale installed copy and
-silently deploys nothing. Every `deploy/` unit has a row below, each copying before it
-reloads — pinned by `scripts/tests/test_docs_unit_copy_drift.py` (#509).
+silently deploys nothing. Pinned by `scripts/tests/test_docs_unit_copy_drift.py` (#509).
 
 ## Lifecycle reference
 
@@ -202,7 +201,7 @@ reloads — pinned by `scripts/tests/test_docs_unit_copy_drift.py` (#509).
 | After editing `deploy/usa-wa-backup.{service,timer}` | `sudo cp deploy/usa-wa-backup.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-backup.timer`. A sandbox line changed? Prove it with one by-hand run before the next 10:17 ([RECOVERY.md](RECOVERY.md) § The sandbox). A new `LoadCredential=` source must exist first, or the run fails `243/CREDENTIALS` — `/etc/usa-wa/backup-checkin.key` since #455, empty until its monitor exists |
 | Once, after #412 PR F lands on `main` | Its nine canonical-tier units (`usa-wa-{wsl,pdc,sos}-refresh.{service,timer}`, `usa-wa-{pdc,sos}-archive-refresh.service`, `usa-wa-{senate,house}-corroboration.{service,timer}`, `usa-wa-succession-invariants.{service,timer}`, `usa-wa-committee-lineage-invariants.{service,timer}`) are gone from `deploy/`, but their installed copies remain, disabled since PR E and naming deleted modules: `sudo rm` each from `/etc/systemd/system/`, then `sudo systemctl daemon-reload` |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo cp deploy/usa-wa-notify-failure@.service /etc/systemd/system/ && sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
-| After editing `deploy/usa-wa-migrate.service` | `sudo cp deploy/usa-wa-migrate.service /etc/systemd/system/ && sudo systemctl daemon-reload` — it takes effect on the next migrate (row below); restarting it here would run one |
+| After editing `deploy/usa-wa-migrate.service` | `sudo cp deploy/usa-wa-migrate.service /etc/systemd/system/ && sudo systemctl daemon-reload` — lands on the next migrate (row below) |
 | After DB model changes | `sudo systemctl restart usa-wa-migrate` (runs alembic + grants under the owner role), then restart usa-wa — run `uv sync --locked` first if `uv.lock` changed (`migrate.sh` is `--no-sync`). **`restart`, not `start`** — the unit is a `RemainAfterExit` oneshot, so once it's `active (exited)` from an earlier migrate this boot, `start` is a silent no-op (exits 0, applies nothing). |
 | Run the nightly pipeline now (ad-hoc) | `sudo systemctl start usa-wa-pipeline.service` |
 | Run the raw-store integrity sweep now (ad-hoc) | `sudo systemctl start usa-wa-integrity-sweep.service` |
