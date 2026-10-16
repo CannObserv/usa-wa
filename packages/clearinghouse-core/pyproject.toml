@@ -5,7 +5,10 @@ description = "Jurisdiction-agnostic framework primitives for the CannObserv cle
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "sqlalchemy[asyncio]>=2.0,<3",
+    # sqlalchemy[asyncio] spelled out: the extra adds only greenlet, and an
+    # extra makes Dependabot drop the monthly PR (dependabot-core#16431, #499).
+    "sqlalchemy>=2.0,<3",
+    "greenlet>=1,<4",
     "asyncpg>=0.30.0,<1",
     "pydantic-settings>=2.5.0,<3",
     "python-json-logger>=4.0.0,<5",

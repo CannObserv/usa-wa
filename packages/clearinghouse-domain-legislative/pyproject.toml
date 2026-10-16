@@ -6,7 +6,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "clearinghouse-core",
-    "sqlalchemy[asyncio]>=2.0,<3",
+    # sqlalchemy[asyncio] spelled out: the extra adds only greenlet, and an
+    # extra makes Dependabot drop the monthly PR (dependabot-core#16431, #499).
+    "sqlalchemy>=2.0,<3",
+    "greenlet>=1,<4",
 ]
 
 [tool.uv.sources]
