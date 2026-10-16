@@ -196,8 +196,8 @@ uv run ruff format .
 # After committing to main: restart to pick up changes
 sudo systemctl restart usa-wa
 
-# After editing deploy/usa-wa.service: reload then restart
-sudo systemctl daemon-reload && sudo systemctl restart usa-wa
+# After editing deploy/usa-wa.service: copy, reload, restart (the installed unit is a copy)
+sudo cp deploy/usa-wa.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa
 
 # Tail live logs
 sudo journalctl -u usa-wa -f
