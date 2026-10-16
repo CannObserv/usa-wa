@@ -22,6 +22,7 @@ dev = [
     # .pre-commit-config.yaml. Present transitively via pre-commit, but a gate
     # test must not depend on another package's dependency tree staying put.
     "pyyaml>=6.0,<7",
+    # Floor = the fix for pytest 8.4.2's two OSV advisories (#499); keep it.
     "pytest>=9.0.3,<10",
     "pytest-asyncio>=1.0,<2",
     "pytest-cov>=6.0,<7",
