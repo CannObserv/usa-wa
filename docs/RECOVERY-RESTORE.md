@@ -100,8 +100,8 @@ order:
    ```bash
    sudo -u postgres createdb -O usa_wa_owner -E UTF8 --locale=C.UTF-8 -T template0 usa_wa
    ```
-2. `scripts/setup-backup-role.sql`, both key files and `backup.env` (above); the
-   tailnet join (§ The dead-man monitor, step 1) under the same node name, or the
+2. `scripts/setup-backup-role.sql`, both key files and `backup.env` ([RECOVERY.md](RECOVERY.md)
+   § Provisioning); the tailnet join (RECOVERY.md § The dead-man monitor, step 1) under the same node name, or the
    check-ins stop and the monitor says so.
 3. `$R --latest --prefix <old host> --into usa_wa --run-as postgres` — `usa_wa` is new
    and empty here.
@@ -130,12 +130,12 @@ order:
   guards and the venv interpreter: exit 0 with the `GIT_CONFIG_*` lines, branch guard
   exit 1 without.
 - **Provisioned, and create-only by observation (2026-10-01)**: the owner ran the
-  Provisioning block (`co-usa-wa-backup@co-gcs`, bucket in `co-gcs-blobs`' location)
+  Provisioning block ([RECOVERY.md](RECOVERY.md) § Provisioning: `co-usa-wa-backup@co-gcs`, bucket in `co-gcs-blobs`' location)
   and installed the key `0400 root:root`. The probe, as root on the key file: the bucket
   listed, `probe/20261001T181733Z` was created, and both the overwrite and the delete
   answered **403**.
 - **Installed, and the first run by hand (2026-10-01)**: merge `710f882`, `uv sync
-  --locked`, the role script (`t`/`f` as above, `0 0 0`), units copied. The run
+  --locked`, the role script (`t`/`f` as in RECOVERY.md § Install and first run, `0 0 0`), units copied. The run
   succeeded, sandboxed, in 104 s: `db/usa-wa/20261001T205616Z.dump` (13,220,714
   bytes, alembic `746b53a33587`, registry rows 18 / 166 / 3,667 / 5,128 / 553 for
   adjudications / succession / entities / keys / operator events) and the whole raw
