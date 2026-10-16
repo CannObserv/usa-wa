@@ -304,10 +304,20 @@ def test_a_stray_sigterm_still_restarts(name):
 def test_oneshots_still_fail_on_sigterm():
     """A SIGTERM to a timer job is a real interruption, and its alert is wanted (#505).
 
-    Every oneshot runs through `uv run` and carries OnFailure=, so a patch-window
-    or reboot-chain stop mid-run logs 143 and emails the operator. Deliberately
-    kept: extending the serving unit's exemption here is a decision, not a sweep.
+    Every other service is Type=oneshot, and systemd counts no signal as clean
+    for a oneshot: a stop mid-run (patch window, reboot chain) fails it however
+    it is wrapped — `uv run` as exit 143, a bash script or the venv's python as
+    killed by TERM (measured on transient units, 2026-10-16) — and its OnFailure=
+    (every one but the notify handler) emails the operator. Exempting 143 here
+    would silence only the uv-wrapped ones, so the serving unit stays the one
+    exception, by decision.
     """
+    others = {p.name for p in DEPLOY.glob("*.service")} - RESTARTING_SERVICES
+    not_oneshot = {n for n in others if unit_value(DEPLOY / n, "Service", "Type") != "oneshot"}
+    assert not not_oneshot, (
+        f"{sorted(not_oneshot)} not Type=oneshot — a signal can be a clean exit "
+        "there, so this test's premise needs re-deciding"
+    )
     exempted = {
         p.name
         for p in DEPLOY.glob("*.service")

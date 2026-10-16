@@ -84,7 +84,7 @@ not recurse); a dropped alert still leaves the failure in the journal. The
 serving unit (`usa-wa`) restarts in place via `Restart=` and so does not route
 through this one-shot alert. The PM sync sidecar was the second such unit and
 closed that gap itself (#85, in-process email on a failure streak); #314 deleted
-it, so `Restart=` units are back to being covered by systemd state alone. That state reads true since #505: `uv run` reports a clean SIGTERM stop as exit 143, so `usa-wa` declares `SuccessExitStatus=143` (a restart logs `Deactivated successfully`, not `Failed with result 'exit-code'`) and `RestartForceExitStatus=143`, so a SIGTERM from outside systemd still restarts it. The oneshots keep 143 a failure — a timer job stopped mid-run is an interruption worth the email.
+it, so `Restart=` units are back to being covered by systemd state alone. That state reads true since #505: `uv run` reports a clean SIGTERM stop as exit 143, so `usa-wa` declares `SuccessExitStatus=143` (a restart logs `Deactivated successfully`, not `Failed with result 'exit-code'`) and `RestartForceExitStatus=143`, so a SIGTERM from outside systemd still restarts it. A oneshot fails on any SIGTERM however it is wrapped (systemd counts no signal clean for `Type=oneshot`), and that stays — a timer job stopped mid-run is an interruption worth the email.
 
 ## DB role topology (defense-in-depth, issue #22)
 
