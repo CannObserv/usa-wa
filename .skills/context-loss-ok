@@ -120,3 +120,6 @@ docs/COMMANDS-ROSTER.md :: disproven :: per-command DATABASE_URL=... prefix is s
 # CR 14: no "Nightly chain" section exists in any doc (`grep -rln 'Nightly chain' docs/`
 # matched only this line); the rule it cites is in PIPELINE-PUBLICATION.md.
 docs/PIPELINE-CONFORMED-ENTITIES.md :: disproven :: § Nightly chain below) and `persons` /
+# #499 curation: § Rehearsals moved to RECOVERY-RESTORE.md in this change; the
+# line now reads "Record the result under [RECOVERY-RESTORE.md](...) § Rehearsals."
+docs/RECOVERY.md :: retarget :: Record the result under § Rehearsals.

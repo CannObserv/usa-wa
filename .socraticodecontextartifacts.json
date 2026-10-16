@@ -103,7 +103,12 @@
     {
       "name": "socraticode-doc",
       "path": "./docs/SOCRATICODE.md",
-      "description": "Code exploration tool selection \u2014 the generated goal\u2192tool table, prefetch, per-tool notes, graph-health and index-scope guidance (init-socraticode template, between the socraticode-doc markers), plus this repo's own notes below the END marker: the measurements behind the file-dependency graph's repair in SocratiCode 1.13.0 (13 \u2192 1,633 edges, grep-verified) and the engine version floor that remains the one caveat; the background-work trap (graph builds, indexes and watcher updates run inside the server process after the tool call returns, so killing it persists half-finished state silently \u2014 check Last built and indexingStatus, not the headline count); the manifest-coverage drift check (#300); and why the server is pinned rather than installed per launch (#389)."
+      "description": "Code exploration tool selection \u2014 the generated goal\u2192tool table, prefetch, per-tool notes, graph-health and index-scope guidance (init-socraticode template, between the socraticode-doc markers), plus this repo's own notes below the END marker: dated prose out of the code index (#406); a pointer to SOCRATICODE-GRAPH.md for the graph and background-work notes (#299); the manifest-coverage drift check (#300); and why the server is pinned rather than installed per launch (#389)."
+    },
+    {
+      "name": "socraticode-graph",
+      "path": "./docs/SOCRATICODE-GRAPH.md",
+      "description": "Repo-specific SocratiCode notes (#299): the measurements behind the file-dependency graph's repair in SocratiCode 1.13.0 (13 \u2192 1,633 edges, grep-verified) and the engine version floor that remains the one caveat, with the grep fallback for a degraded graph; the background-work trap (graph builds, indexes and watcher updates run inside the server process after the tool call returns, so killing it persists half-finished state silently \u2014 check Last built and indexingStatus, not the headline count)."
     },
     {
       "name": "api",
@@ -128,7 +133,12 @@
     {
       "name": "recovery",
       "path": "./docs/RECOVERY.md",
-      "description": "Backup and recovery runbook (#434): what in Postgres and on disk cannot be rebuilt (the registry, the raw store) and what can; the nightly create-only backup to gs://co-gcs-usa-wa-backup (db/<host>/<stamp>.dump + the raw-store mirror under raw/), its sandbox (dynamic user, peer-auth pg_read_all_data role, key as a systemd credential, guards via GIT_CONFIG safe.directory, .env masked), GCP provisioning for the project owner, install and the create-only probe, the restore (list / fetch + prove / load into an empty database + identity checks / --raw-into) and the replacement-host order, and the rehearsal log."
+      "description": "Backup and recovery runbook (#434): what in Postgres and on disk cannot be rebuilt (the registry, the raw store) and what can; the nightly create-only backup to gs://co-gcs-usa-wa-backup (db/<host>/<stamp>.dump + the raw-store mirror under raw/), its sandbox (dynamic user, peer-auth pg_read_all_data role, key as a systemd credential, guards via GIT_CONFIG safe.directory, .env masked), GCP provisioning for the project owner, install and the create-only probe and the dead-man check-in monitor; the restore and rehearsals are RECOVERY-RESTORE.md."
+    },
+    {
+      "name": "recovery-restore",
+      "path": "./docs/RECOVERY-RESTORE.md",
+      "description": "The restore half of the #434 recovery runbook: python -m usa_wa_api.backup.restore (list / fetch + prove / load into an empty database + identity checks / --raw-into), the in-place restore and the replacement-host order, and the rehearsal log (parsers against real tools, rebuild_latest on production's store, the restore drill)."
     },
     {
       "name": "environment",

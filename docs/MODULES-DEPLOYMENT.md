@@ -32,7 +32,7 @@ and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.m
     src/usa_wa_api/serving/           — the #313 serving tier. A SIBLING of `api/`, not a child
       schema.py       — the disposable `serving` projection, its own MetaData so alembic never sees it
       load.py         — catalog-driven loader — digest + row-count + header + contract verified before a single write, one transaction, replacement not merge
-    src/usa_wa_api/backup/            — **the #434 nightly backup and its restore**. Runbook: [RECOVERY.md](RECOVERY.md)
+    src/usa_wa_api/backup/            — **the #434 nightly backup and its restore**. Runbook: [RECOVERY.md](RECOVERY.md); the restore: [RECOVERY-RESTORE.md](RECOVERY-RESTORE.md)
       gcs.py          — the bucket half both share: create-only `create_object` (412 = `unchanged` only on a matching sha256), the listing preflight, the misplaced-key refusal
       dump.py         — `pg_dump -Fc` as the peer-auth backup role; verified by `pg_restore --list` (registry tables present) and a `--data-only` read-through that counts each table's `COPY` rows
       raw_mirror.py   — the raw store's objects + manifests mirrored under `raw/`, from one manifests-first `scan` (a run landing mid-scan never ships its manifest ahead of its objects); hashed before upload (a corrupted object is never shipped); a file outside the layout fails the run rather than going unshipped unnoticed; `fetch_mirror` brings it back and rebuilds `latest.json`
