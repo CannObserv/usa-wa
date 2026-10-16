@@ -8,6 +8,9 @@
 # direct dependencies only (dependabot-core#14073; 34 of #499's 43 advisories
 # were transitive), so each month's landing runs it on the PR's branch
 # (docs/DEPLOYMENT.md, Deploy convention).
+# No workspace dependency may declare extras: the updater gives `name[extra]`
+# no previous version and discards the whole group, green and silent
+# (dependabot-core#16431; #499's first run, on sqlalchemy[asyncio]).
 #
 # github-actions is out: the only workflow is context-cadence.yml, which
 # install-cadence.sh regenerates, reverting any bump made in it.

@@ -15,11 +15,17 @@ CannObserv/notifier's ``test_dependabot.py`` are the templates.
   ``auto`` resolves to ``widen`` for libraries, unsupported for uv
   (dependabot-core#15290, notifier#33).
 * **The commit prefix is one of AGENTS.md's types.**
+* **No workspace dependency declares extras.** The uv updater gives a
+  ``name[extra]`` requirement no previous version and then discards the whole
+  grouped PR, green and silent (dependabot-core#16431): #499's first run did
+  exactly that on ``sqlalchemy[asyncio]``. Spell the extra's own requirements
+  out instead.
 """
 
 from __future__ import annotations
 
 import re
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -28,6 +34,7 @@ REPO = Path(__file__).resolve().parents[2]
 CONFIG = REPO / ".github" / "dependabot.yml"
 AGENTS = REPO / "AGENTS.md"
 CADENCE = REPO / ".github" / "workflows" / "context-cadence.yml"
+EXTRAS = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*\[")
 
 
 def _config() -> dict:
@@ -90,3 +97,38 @@ def test_the_commit_prefix_is_one_of_agents_md_types():
     types = re.search(r"^Types: (.*)$", AGENTS.read_text(), re.MULTILINE)
     assert types, "AGENTS.md lost its `Types:` line"
     assert _block()["commit-message"]["prefix"] in types.group(1).split(", ")
+
+
+def _requirements(pyproject: Path) -> list[str]:
+    """Every requirement string a pyproject declares: dependencies, optional
+    dependencies and dependency groups (``{include-group}`` tables skipped)."""
+    data = tomllib.loads(pyproject.read_text())
+    project = data.get("project", {})
+    reqs = list(project.get("dependencies", []))
+    for group in project.get("optional-dependencies", {}).values():
+        reqs += group
+    for group in data.get("dependency-groups", {}).values():
+        reqs += [r for r in group if isinstance(r, str)]
+    return reqs
+
+
+def test_no_workspace_dependency_declares_extras():
+    pyprojects = [REPO / "pyproject.toml", *sorted(REPO.glob("packages/*/pyproject.toml"))]
+    assert len(pyprojects) > 1, "found no workspace members - the glob broke"
+    bad = [
+        f"{p.relative_to(REPO)}: {r}"
+        for p in pyprojects
+        for r in _requirements(p)
+        if EXTRAS.match(r)
+    ]
+    assert not bad, (
+        "a dependency with extras makes Dependabot drop the whole monthly PR "
+        "(dependabot-core#16431); declare the extra's requirements directly:\n  " + "\n  ".join(bad)
+    )
+
+
+def test_the_extras_check_sees_an_extra():
+    assert EXTRAS.match("sqlalchemy[asyncio]>=2.0,<3")
+    assert EXTRAS.match("uvicorn [standard]")
+    assert not EXTRAS.match("sqlalchemy>=2.0,<3")
+    assert not EXTRAS.match('pycurl; platform_python_implementation != "PyPy"')
