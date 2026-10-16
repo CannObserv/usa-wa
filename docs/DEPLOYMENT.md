@@ -142,7 +142,8 @@ sudo systemctl restart usa-wa
 
 **Where `uv.lock` changes come from (#499).** `.github/dependabot.yml` opens one
 grouped PR a month; the owner lands it in the patching-hosts window
-(`.skills/patching-hosts`) beside the OS run, then deploys it with the block above.
+(`.skills/patching-hosts`) beside the OS run, then deploys it with the block above
+(`git pull`, `uv sync --locked`, restart).
 That PR moves **direct dependencies only** — the uv updater leaves transitive ones
 alone (dependabot-core#14073), and 34 of #499's 43 advisories were transitive. So
 `scripts/audit-lock.sh` is the signal for those: it prints `uv audit --frozen`'s OSV
@@ -165,7 +166,8 @@ bash scripts/audit-lock.sh    # each package still listed: uv lock --upgrade-pac
 bash scripts/pre-ship.sh      # the PR's only gate
 ```
 
-Then merge, and deploy with the block above.
+Then merge, and deploy with the `git pull` / `uv sync --locked` / restart block at the
+head of this section.
 
 `uv sync` here uses `--locked` (not `--frozen`): it additionally asserts
 `uv.lock` is consistent with `pyproject.toml`, catching a committed lock that
