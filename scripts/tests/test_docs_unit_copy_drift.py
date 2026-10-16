@@ -64,10 +64,14 @@ def instructions(text: str) -> list[tuple[int, str, str]]:
 
 
 def copies_before_reload(spec: str, action: str) -> bool:
-    """Whether ``action`` copies ``deploy/<spec>`` into place before it reloads."""
+    """Whether ``action`` copies ``deploy/<spec>`` into place, then reloads.
+
+    Both halves: without the copy the reload re-reads the stale unit, and without
+    the reload systemd keeps running the one it already loaded.
+    """
     copy = action.find(f"sudo cp deploy/{spec} /etc/systemd/system/")
-    reload = action.find("daemon-reload")
-    return copy != -1 and (reload == -1 or copy < reload)
+    reload = action.find("daemon-reload", copy)
+    return copy != -1 and reload != -1
 
 
 ALL_INSTRUCTIONS = [
@@ -93,8 +97,8 @@ def test_every_after_editing_instruction_copies_before_it_reloads(case):
     doc, line, spec, action = case
     assert copies_before_reload(spec, action), (
         f"{doc.relative_to(REPO)}:{line}: after editing deploy/{spec}, the instruction must "
-        f"start `sudo cp deploy/{spec} /etc/systemd/system/ &&` — the installed unit is a "
-        "copy, so daemon-reload alone re-reads the stale one and deploys nothing"
+        f"start `sudo cp deploy/{spec} /etc/systemd/system/ && sudo systemctl daemon-reload` — "
+        "the installed unit is a copy, and systemd runs only what it has reloaded"
     )
 
 
@@ -133,6 +137,12 @@ def test_deployment_doc_names_this_guard():
         (
             "a.service",
             "sudo systemctl daemon-reload && sudo cp deploy/a.service /etc/systemd/system/",
+            False,
+        ),
+        # A copy systemd never reloads deploys nothing either: the old unit stays loaded.
+        (
+            "a.service",
+            "sudo cp deploy/a.service /etc/systemd/system/ && sudo systemctl restart a",
             False,
         ),
         # Copying a different unit than the one edited doesn't count.
