@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Audit uv.lock against OSV and report what it finds. Never fail (#499).
 #
-# Dependabot is the update mechanism (.github/dependabot.yml: monthly, one
-# grouped PR, landed in the patching-hosts window). This report is what shows a
-# disclosure between its runs; scripts/pre-ship.sh runs it before every ship.
+# Dependabot moves the direct dependencies (.github/dependabot.yml: monthly, one
+# grouped PR, landed in the patching-hosts window), and only those: its uv
+# updater leaves transitive ones alone (dependabot-core#14073). This report is
+# what shows a disclosure between its runs and in whatever it can't move;
+# scripts/pre-ship.sh runs it before every ship.
 # It is report-only on purpose. A gate that failed on a finding would block
 # every unrelated ship on someone else's disclosure date (CannObserv/broker#86,
 # #79). So every exit is 0:
@@ -26,7 +28,7 @@ printf '%s\n' "$out"
 
 case $rc in
 0) ;;
-1) echo "WARNING: uv.lock advisories: uv audit found advisories in uv.lock (listed above). Report-only; bump with uv lock --upgrade-package <name>, or let the monthly Dependabot PR carry it (#499)." >&2 ;;
+1) echo "WARNING: uv.lock advisories: uv audit found advisories in uv.lock (listed above). Report-only; bump each with uv lock --upgrade-package <name>. The monthly Dependabot PR moves direct dependencies only (dependabot-core#14073), so a transitive one waits for this (#499)." >&2 ;;
 *) echo "WARNING: uv audit did not run: uv audit exited $rc; the lock was not audited (output above)." >&2 ;;
 esac
 exit 0

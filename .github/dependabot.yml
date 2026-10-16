@@ -4,6 +4,10 @@
 # `window` lines) beside the OS run; a merge deploys only via
 # `uv sync --locked` + `systemctl restart usa-wa` (AGENTS.md, Server Lifecycle).
 # Between runs, scripts/audit-lock.sh reports new advisories on every pre-ship.
+# It is also the only signal for transitive packages: the uv updater moves
+# direct dependencies only (dependabot-core#14073; 34 of #499's 43 advisories
+# were transitive), so each month's landing runs it on the PR's branch
+# (docs/DEPLOYMENT.md, Deploy convention).
 #
 # github-actions is out: the only workflow is context-cadence.yml, which
 # install-cadence.sh regenerates, reverting any bump made in it.
