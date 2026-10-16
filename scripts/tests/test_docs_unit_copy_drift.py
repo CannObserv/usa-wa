@@ -21,18 +21,30 @@ import re
 from pathlib import Path
 
 import pytest
+from doc_check_lists import tracked
 from systemd_units import DEPLOY
 
 REPO = DEPLOY.parent
 DEPLOYMENT_DOC = REPO / "docs" / "DEPLOYMENT.md"
-#: Operator docs that give deploy instructions: the repo root's and ``docs/``'s own,
-#: not ``docs/plans`` or ``docs/specs``, whose commands are dated records.
-OPERATOR_DOCS = sorted([*REPO.glob("*.md"), *(REPO / "docs").glob("*.md")])
 
 # "After editing `deploy/usa-wa-pipeline.{service,timer}`" — backticked in a table
 # row, bare in a code-block comment ("# After editing deploy/usa-wa.service: …").
 AFTER_EDITING_RE = re.compile(r"After editing `?deploy/(?P<spec>[\w@.{},-]+?)`?(?=[\s:|`]|$)")
 BRACE_RE = re.compile(r"^(?P<stem>[^{}]+)\{(?P<alts>[^{}]+)\}$")
+
+
+def operator_docs(paths: list[str]) -> list[str]:
+    """The tracked docs that give deploy instructions: the repo root's and ``docs/``'s own.
+
+    Tracked, so an untracked scratch note can't fail the suite on one checkout only;
+    not ``docs/plans`` or ``docs/specs``, whose commands are dated records.
+    """
+    return sorted(
+        path
+        for path in paths
+        if path.endswith(".md")
+        and ("/" not in path or path.count("/") == 1 and path.startswith("docs/"))
+    )
 
 
 def expand(spec: str) -> list[str]:
@@ -76,7 +88,7 @@ def copies_before_reload(spec: str, action: str) -> bool:
 
 ALL_INSTRUCTIONS = [
     (doc, line, spec, action)
-    for doc in OPERATOR_DOCS
+    for doc in (REPO / path for path in operator_docs(tracked()))
     for line, spec, action in instructions(doc.read_text())
 ]
 
@@ -170,6 +182,18 @@ def test_instructions_reads_a_table_row_and_a_code_block_comment():
         (1, "a.{service,timer}", " | `sudo cp …` |"),
         (3, "b.service", "sudo systemctl daemon-reload"),
     ]
+
+
+def test_operator_docs_keeps_root_and_docs_markdown_only():
+    paths = [
+        "README.md",
+        "docs/DEPLOYMENT.md",
+        "docs/plans/p.md",
+        "docs/specs/s.md",
+        "skills/x/SKILL.md",
+        "docs/notes.txt",
+    ]
+    assert operator_docs(paths) == ["README.md", "docs/DEPLOYMENT.md"]
 
 
 def test_expand():
