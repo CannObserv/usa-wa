@@ -26,6 +26,7 @@ from systemd_units import DEPLOY
 
 REPO = DEPLOY.parent
 DEPLOYMENT_DOC = REPO / "docs" / "DEPLOYMENT.md"
+LIFECYCLE_HEADING = "## Lifecycle reference"
 
 # "After editing `deploy/usa-wa-pipeline.{service,timer}`" — backticked in a table
 # row, bare in a code-block comment ("# After editing deploy/usa-wa.service: …").
@@ -45,6 +46,23 @@ def operator_docs(paths: list[str]) -> list[str]:
         if path.endswith(".md")
         and ("/" not in path or path.count("/") == 1 and path.startswith("docs/"))
     )
+
+
+def lifecycle_section(text: str) -> str:
+    """DEPLOYMENT.md's § Lifecycle reference, up to the next ``## `` heading.
+
+    The coverage guard reads only this table, so an "After editing" mention in
+    prose elsewhere can't stand in for a missing row.
+    """
+    lines = text.splitlines()
+    starts = [i for i, line in enumerate(lines) if line.strip() == LIFECYCLE_HEADING]
+    assert len(starts) == 1, f"DEPLOYMENT.md: {len(starts)} {LIFECYCLE_HEADING!r} headings, want 1"
+    section = []
+    for line in lines[starts[0] + 1 :]:
+        if line.startswith("## "):
+            break
+        section.append(line)
+    return "\n".join(section)
 
 
 def expand(spec: str) -> list[str]:
@@ -124,7 +142,9 @@ def test_every_after_editing_instruction_names_shipped_units(case):
 def test_the_lifecycle_table_covers_every_shipped_unit():
     shipped = {p.name for pattern in ("*.service", "*.timer") for p in DEPLOY.glob(pattern)}
     covered = {
-        name for _, spec, _ in instructions(DEPLOYMENT_DOC.read_text()) for name in expand(spec)
+        name
+        for _, spec, _ in instructions(lifecycle_section(DEPLOYMENT_DOC.read_text()))
+        for name in expand(spec)
     }
     assert shipped - covered == set(), (
         "docs/DEPLOYMENT.md § Lifecycle reference has no `After editing` row for "
@@ -194,6 +214,21 @@ def test_operator_docs_keeps_root_and_docs_markdown_only():
         "docs/notes.txt",
     ]
     assert operator_docs(paths) == ["README.md", "docs/DEPLOYMENT.md"]
+
+
+def test_lifecycle_section_stops_at_the_next_heading():
+    text = (
+        "## Lifecycle reference\n"
+        "| After editing `deploy/a.service` | … |\n"
+        "## Validating unit edits\n"
+        "After editing `deploy/b.service`, see above.\n"
+    )
+    assert [spec for _, spec, _ in instructions(lifecycle_section(text))] == ["a.service"]
+
+
+def test_lifecycle_section_refuses_a_missing_heading():
+    with pytest.raises(AssertionError, match="0 '## Lifecycle reference' headings"):
+        lifecycle_section("## Renamed\n| After editing `deploy/a.service` | … |\n")
 
 
 def test_expand():
