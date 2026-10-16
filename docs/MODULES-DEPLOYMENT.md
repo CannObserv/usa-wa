@@ -32,7 +32,7 @@ and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.m
     src/usa_wa_api/serving/           — the #313 serving tier. A SIBLING of `api/`, not a child
       schema.py       — the disposable `serving` projection, its own MetaData so alembic never sees it
       load.py         — catalog-driven loader — digest + row-count + header + contract verified before a single write, one transaction, replacement not merge
-    src/usa_wa_api/backup/            — **the #434 nightly backup and its restore**. Runbook: [RECOVERY.md](RECOVERY.md)
+    src/usa_wa_api/backup/            — **the #434 nightly backup and its restore**. Runbook: [RECOVERY.md](RECOVERY.md); the restore: [RECOVERY-RESTORE.md](RECOVERY-RESTORE.md)
       gcs.py          — the bucket half both share: create-only `create_object` (412 = `unchanged` only on a matching sha256), the listing preflight, the misplaced-key refusal
       dump.py         — `pg_dump -Fc` as the peer-auth backup role; verified by `pg_restore --list` (registry tables present) and a `--data-only` read-through that counts each table's `COPY` rows
       raw_mirror.py   — the raw store's objects + manifests mirrored under `raw/`, from one manifests-first `scan` (a run landing mid-scan never ships its manifest ahead of its objects); hashed before upload (a corrupted object is never shipped); a file outside the layout fails the run rather than going unshipped unnoticed; `fetch_mirror` brings it back and rebuilds `latest.json`
@@ -49,8 +49,8 @@ docs/plans/           — Per-phase implementation plans
 docs/research/        — Discovery outputs (Archiver/Watcher contracts, multi-state IA delta)
 docs/                 — Reference docs (COMMANDS, SKILLS)
 deploy/               — Systemd unit + deployment config. Service table: [DEPLOYMENT.md](DEPLOYMENT.md)
-scripts/              — the eleven operational shell entrypoints (migrate, dbt-gate, pipeline-nightly, notify-failure, verify-units, assert-main-checkout, assert-venv-integrity, pre-ship, disk-gc, slim-ollama-image, rollover-rehearsal), `context_manifest_drift.py` behind the session hook, `rehearsal_roster.py` (the #135 rehearsal's synthesized partial roster — writes only beside a `.rehearsal` marker), and `scripts/tests/` — the repo-level guards that pin these docs, the systemd units and the workspace registries. CLIs by name: [COMMANDS.md](COMMANDS.md)
-.github/              — one GitHub Actions workflow, the weekly context cadence. It is the only scheduled job not on this VM: [DEPLOYMENT.md](DEPLOYMENT.md) § Scheduled work outside systemd
+scripts/              — the twelve operational shell entrypoints (migrate, dbt-gate, pipeline-nightly, notify-failure, verify-units, assert-main-checkout, assert-venv-integrity, pre-ship, audit-lock, disk-gc, slim-ollama-image, rollover-rehearsal), `context_manifest_drift.py` behind the session hook, `rehearsal_roster.py` (the #135 rehearsal's synthesized partial roster — writes only beside a `.rehearsal` marker), and `scripts/tests/` — the repo-level guards that pin these docs, the systemd units and the workspace registries. CLIs by name: [COMMANDS.md](COMMANDS.md)
+.github/              — one GitHub Actions workflow, the weekly context cadence. It is the only scheduled job not on this VM: [DEPLOYMENT.md](DEPLOYMENT.md) § Scheduled work outside systemd. Also `dependabot.yml`, the monthly grouped `uv.lock` PR (#499): [DEPLOYMENT.md](DEPLOYMENT.md) § Deploy convention
 .claude/              — Claude Code settings, hooks and the skill symlinks
 .skills/              — the skill knobs (context budgets, the ship gate's path list and advice, the `patching-hosts` host knob) and `doctor.sh`
 skills/               — skills discovered by agentskills.io, symlinks into the vendor trees

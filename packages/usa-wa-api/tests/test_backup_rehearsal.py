@@ -8,7 +8,7 @@ and a committed handful of rows gives the counts and the crosswalk something to 
 
 What it does not do is load a dump into a second database — the test role cannot
 create one. That half is the restore drill, run by hand on the host
-(docs/RECOVERY.md § Rehearsals).
+(docs/RECOVERY-RESTORE.md § Rehearsals).
 """
 
 from __future__ import annotations

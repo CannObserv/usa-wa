@@ -5,7 +5,7 @@ roles and the lifecycle table. These are the ways the shared host breaks units t
 themselves correct — a feature branch left checked out (#87), a worktree restamping the
 shared venv (#279), memory exhaustion (#389), a full disk (#394), apt restarting services
 mid-patch (#430) — and what guards each. Losing the host itself is
-[RECOVERY.md](RECOVERY.md)'s: the nightly backup to GCS and the restore (#434).
+[RECOVERY.md](RECOVERY.md)'s: the nightly backup to GCS, and the restore in [RECOVERY-RESTORE.md](RECOVERY-RESTORE.md) (#434).
 The disk-GC commands came here from [`COMMANDS.md`](COMMANDS.md).
 
 ## Main-only checkout (issue #87)

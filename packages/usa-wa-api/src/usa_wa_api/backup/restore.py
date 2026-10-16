@@ -1,7 +1,7 @@
 """Bring a #434 backup back: the database from a dump, or the raw store from its mirror.
 
 Run by hand, as root — it reads the root-only key — and every step refuses rather
-than guesses. docs/RECOVERY.md is the runbook. Built on CannObserv/watcher's
+than guesses. docs/RECOVERY-RESTORE.md is the runbook. Built on CannObserv/watcher's
 ``src/ops/restore.py``.
 
 **The database.** *Find* a dump (by key, or the newest name under a host's prefix —

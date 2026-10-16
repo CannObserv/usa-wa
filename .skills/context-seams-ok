@@ -160,3 +160,20 @@ docs/PIPELINE-CONFORMED-ENTITIES.md :: engine as a Python model) landed next —
 # A past-tense record of what the doc said when the #389 hole was found; retargeting it
 # would falsify the history it reports.
 deploy/system.slice.d/10-usa-wa-memory.conf :: # comment and docs/DEPLOYMENT.md both said it was protected. A protection that
+
+# --- #499 round: the RECOVERY and SOCRATICODE splits, every seam verified ----
+# The annexes point back at their parents, and the parents' pointers name what
+# moved; each was read against the moved text. Headings follow the repo's
+# provenance convention above.
+docs/RECOVERY-RESTORE.md :: The restore half of [RECOVERY.md](RECOVERY.md) (#434)
+docs/RECOVERY-RESTORE.md :: its sandbox, provisioning and dead-man monitor stay in RECOVERY.md.
+docs/RECOVERY.md :: Record the result under [RECOVERY-RESTORE.md](RECOVERY-RESTORE.md#rehearsals) § Rehearsals.
+docs/RECOVERY.md :: The restore procedure — in place, or onto a replacement host — and the record of every
+docs/RECOVERY.md :: rehearsal: [RECOVERY-RESTORE.md](RECOVERY-RESTORE.md).
+docs/DEPLOYMENT-HOST.md :: and the restore in [RECOVERY-RESTORE.md](RECOVERY-RESTORE.md) (#434).
+docs/MODULES-DEPLOYMENT.md :: the restore: [RECOVERY-RESTORE.md](RECOVERY-RESTORE.md)
+docs/SOCRATICODE-GRAPH.md :: Repo-authored notes split out of [SOCRATICODE.md](SOCRATICODE.md)'s § Repo-specific notes:
+docs/SOCRATICODE-GRAPH.md :: § Graph health's yield check, stay in SOCRATICODE.md.
+docs/SOCRATICODE-GRAPH.md :: The file-dependency graph works here (#299)
+docs/SOCRATICODE-GRAPH.md :: Background work outlives the tool call (#299)
+docs/SOCRATICODE.md :: The graph and background work (#299)

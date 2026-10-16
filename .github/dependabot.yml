@@ -1,0 +1,34 @@
+# Moves uv.lock (#499). Nothing else did: #497's probe found 43 OSV advisories
+# in a lock no bot or gate touched. Owner's decision (2026-10-15): monthly, one
+# grouped PR, landed in the patching-hosts window (.skills/patching-hosts'
+# `window` lines) beside the OS run; a merge deploys only via
+# `uv sync --locked` + `systemctl restart usa-wa` (AGENTS.md, Server Lifecycle).
+# Between runs, scripts/audit-lock.sh reports new advisories on every pre-ship.
+# It is also the only signal for transitive packages: the uv updater moves
+# direct dependencies only (dependabot-core#14073; 34 of #499's 43 advisories
+# were transitive), so each month's landing runs it on the PR's branch
+# (docs/DEPLOYMENT.md, Deploy convention).
+#
+# github-actions is out: the only workflow is context-cadence.yml, which
+# install-cadence.sh regenerates, reverting any bump made in it.
+# Guarded by scripts/tests/test_dependabot.py: a mistyped config stops
+# producing PRs without erroring anywhere a person looks.
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/" # the workspace root: one uv.lock for every member
+    schedule:
+      interval: "monthly"
+    # The members are packages with a build backend, so the default `auto`
+    # resolves to `widen`, which uv does not support (dependabot-core#15290;
+    # CannObserv/notifier#33). This one rewrites a specifier only when the new
+    # version falls outside it, e.g. past a `<N` cap.
+    versioning-strategy: increase-if-necessary
+    groups:
+      # One PR a month, reviewed and landed as one window step.
+      all-dependencies:
+        patterns:
+          - "*"
+    # The PR's commit lands on main as-is: "chore: bump the all-dependencies group ...".
+    commit-message:
+      prefix: "chore"

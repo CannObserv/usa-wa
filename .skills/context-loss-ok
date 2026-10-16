@@ -120,3 +120,12 @@ docs/COMMANDS-ROSTER.md :: disproven :: per-command DATABASE_URL=... prefix is s
 # CR 14: no "Nightly chain" section exists in any doc (`grep -rln 'Nightly chain' docs/`
 # matched only this line); the rule it cites is in PIPELINE-PUBLICATION.md.
 docs/PIPELINE-CONFORMED-ENTITIES.md :: disproven :: § Nightly chain below) and `persons` /
+# #499 curation: § Rehearsals moved to RECOVERY-RESTORE.md in this change; the
+# line now reads "Record the result under [RECOVERY-RESTORE.md](...) § Rehearsals."
+docs/RECOVERY.md :: retarget :: Record the result under § Rehearsals.
+# CR 7: moved verbatim into RECOVERY-RESTORE.md, these pointed "above" / at a §
+# that stayed in RECOVERY.md; each now names RECOVERY.md and its section.
+docs/RECOVERY.md :: retarget :: 2. `scripts/setup-backup-role.sql`, both key files and `backup.env` (above); the
+docs/RECOVERY.md :: retarget :: tailnet join (§ The dead-man monitor, step 1) under the same node name, or the
+docs/RECOVERY.md :: retarget :: Provisioning block (`co-usa-wa-backup@co-gcs`, bucket in `co-gcs-blobs`' location)
+docs/RECOVERY.md :: retarget :: --locked`, the role script (`t`/`f` as above, `0 0 0`), units copied. The run
