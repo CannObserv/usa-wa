@@ -54,7 +54,7 @@ Pinned by [`scripts/tests/test_hook_registration_gate.py`](../scripts/tests/test
 
 | Skill | What it does |
 |---|---|
-| `coordinating-epics` | The #414 burn-down: check-ins start with `scripts/scan.sh`; epic-body edits go only through `scripts/epic-edit.sh`. `scan.sh` needs `refs/remotes/origin/HEAD` (`git remote set-head origin -a`) or `--ref origin/main`, else it skips the commit range with only a warning ([gregoryfoster/skills#411](https://github.com/gregoryfoster/skills/issues/411)). Problems go upstream as issues, never into the vendored copy. |
+| `coordinating-epics` | Operator-paced epic burn-down (#414 runs on it): check-ins start with `scripts/scan.sh`; epic-body edits go only through `scripts/epic-edit.sh`. `scan.sh` needs `refs/remotes/origin/HEAD` (`git remote set-head origin -a`) or `--ref origin/main`, else it skips the commit range with only a warning ([gregoryfoster/skills#411](https://github.com/gregoryfoster/skills/issues/411)). Problems go upstream as issues, never into the vendored copy. |
 | `curating-context` | Curate the agent-context surface (`AGENTS.md` + the docs it links) against a token budget, verifying facts before removing anything. Triggers: `curate context`, `context budget`, `trim AGENTS.md`. Also installs the write guard — see [§ Context budget](#context-budget). |
 | `enforcing-architecture` | Graduate an accepted architecture finding into an executable fitness function (import-linter / module-size gate / OpenAPI drift guard). Triggers: `add a fitness function`, `enforce this contract`, `lock this rule`. |
 | `init-project-fastapi` | Bootstrap a new FastAPI service (this project's origin). |
