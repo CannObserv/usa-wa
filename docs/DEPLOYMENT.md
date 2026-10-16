@@ -84,7 +84,7 @@ not recurse); a dropped alert still leaves the failure in the journal. The
 serving unit (`usa-wa`) restarts in place via `Restart=` and so does not route
 through this one-shot alert. The PM sync sidecar was the second such unit and
 closed that gap itself (#85, in-process email on a failure streak); #314 deleted
-it, so `Restart=` units are back to being covered by systemd state alone.
+it, so `Restart=` units are back to being covered by systemd state alone. That state reads true since #505: `uv run` reports a clean SIGTERM stop as exit 143, so `usa-wa` declares `SuccessExitStatus=143` (a restart logs `Deactivated successfully`, not `Failed with result 'exit-code'`) and `RestartForceExitStatus=143`, so a SIGTERM from outside systemd still restarts it. The oneshots keep 143 a failure — a timer job stopped mid-run is an interruption worth the email.
 
 ## DB role topology (defense-in-depth, issue #22)
 
@@ -192,7 +192,7 @@ silently deploys nothing.
 | Code committed to main | `sudo systemctl restart usa-wa` (run `uv sync --locked` first if `uv.lock` changed — units are `--no-sync`; see convention above) |
 | Testing a worktree/branch | `uv run uvicorn ... --port 8001 --reload` |
 | Debugging the live service | `sudo journalctl -u usa-wa -f` |
-| After editing `deploy/usa-wa.service` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa` |
+| After editing `deploy/usa-wa.service` | `sudo cp deploy/usa-wa.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa` |
 | After editing `deploy/usa-wa-pipeline.{service,timer}` | `sudo cp deploy/usa-wa-pipeline.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-pipeline.timer` |
 | After editing `deploy/usa-wa-integrity-sweep.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-integrity-sweep.timer` |
 | After editing `deploy/usa-wa-roster-pdf-recheck.{service,timer}` | `sudo systemctl daemon-reload && sudo systemctl restart usa-wa-roster-pdf-recheck.timer` |
