@@ -151,6 +151,22 @@ so a disclosure elsewhere never blocks an unrelated ship), and each advised pack
 it lists takes `uv lock --upgrade-package <name>` — on the month's PR, or
 out-of-cycle for an advisory that warrants it, with the same deploy.
 
+**Landing the month's PR.** No CI runs on it, and the uv updater has open bugs on
+this layout (a virtual root over `packages/*`), so it is gated by hand, in a worktree —
+never the prod checkout (#87):
+
+```bash
+git fetch origin && gh pr list --author app/dependabot   # its branch name
+bash .claude/skills/using-git-worktrees/scripts/worktree-create.sh <branch>
+# in the printed worktree:
+uv sync --locked && git submodule update --init --recursive
+#   red here = a member's pyproject.toml rewritten without a relock (dependabot-core#15786)
+bash scripts/audit-lock.sh    # each package still listed: uv lock --upgrade-package <name>, commit, push
+bash scripts/pre-ship.sh      # the PR's only gate
+```
+
+Then merge, and deploy with the block above.
+
 `uv sync` here uses `--locked` (not `--frozen`): it additionally asserts
 `uv.lock` is consistent with `pyproject.toml`, catching a committed lock that
 went stale — a deploy-time integrity check worth failing on. Units stay on
