@@ -1,0 +1,35 @@
+version: 2
+
+seeds:
+  # The named seat overlaps the occupancy gate accepts (#360 part A). Each row is
+  # one unordered pair of span_keys, stored lo < hi, with the roster evidence
+  # that it is not a defect this build can repair. Read by
+  # tests/assignments_seat_occupancy.sql (excused) and
+  # tests/assignments_seat_occupancy_stale.sql (no longer overlapping).
+  - name: accepted_seat_overlaps
+    config:
+      column_types:
+        span_key_lo: varchar
+        span_key_hi: varchar
+        category: varchar
+        reason: varchar
+    columns:
+      - name: span_key_lo
+        data_tests: [not_null]
+      - name: span_key_hi
+        data_tests: [not_null]
+      - name: category
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values:
+                  - substitute
+                  - basis_inferred
+                  - election_only
+                  - coarse_date
+                  - merged_tenure
+                  - undated
+                  - never_served
+      - name: reason
+        data_tests: [not_null]

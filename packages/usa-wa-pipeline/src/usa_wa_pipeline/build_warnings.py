@@ -5,7 +5,8 @@
 A dbt test at ``severity: warn`` never changes ``dbt build``'s exit code, so a warning
 reached only the journal. Two warnings carry real news: ``assignments_chamber_vacancy``
 (a chamber below 49/98, which ``succession-invariants`` emailed about until PR E
-disabled it) and the seat-occupancy ratchet's "ratchet me down". This stage reads the
+disabled it) and a stale accepted seat overlap (#360 part A: a listed pair that no longer
+overlaps, to be removed from the list). This stage reads the
 build's ``run_results.json`` and fails on any node whose status is not ``pass`` or
 ``success``.
 
