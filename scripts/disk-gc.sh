@@ -237,6 +237,9 @@ withhold_reason() {
     # Errors fail closed (#512). An unreadable subdir, or a tree vanishing
     # mid-walk, used to read as "not recent" unless a readable entry happened to
     # match first. `find` exits non-zero after any error, even past `-quit`.
+    # The one false `unchecked`: an entry removed after its parent was visited
+    # but before its own stat (npm clearing temp files, a session dropping its
+    # `.in_use` marker). Withheld and warned for that run, never pruned.
     local cutoff found
     [ "$GRACE_MINUTES" -le 0 ] && return 0
     cutoff=$((NOW - GRACE_MINUTES * 60))
