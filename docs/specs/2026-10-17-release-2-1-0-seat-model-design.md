@@ -65,9 +65,15 @@ way. These options were weighed:
 |---|---|---|---|
 | `role_key` | string | never | the role this period describes; joins `roles.role_key` |
 | `valid_from` | date | never | first day of the period: a biennium floor |
-| `valid_to` | date | open period only | last day: a biennium ceiling; `null` = through the present |
+| `valid_to` | date | open period only | last day, **inclusive**: a biennium ceiling; `null` = through the present |
 | `max_holders` | integer | unlimited roles | the most principals the role seats at once; `null` = no limit |
 | `max_holders_basis` | string | never | `kind`: the seat kind's rule (one per Senate seat or House Position; no limit for party or committee membership). `roster`: counted from the roster's bare multi-row listing |
+
+**Two date conventions, stated in each field's description** (power-map review, seq 3). A period's
+`valid_to` is the last day *inside* it, and periods tile with `next.valid_from = prev.valid_to + 1 day`
+(Dec 31 → Jan 1), so `t` is in a period iff `valid_from ≤ t ≤ coalesce(valid_to, ∞)`. An assignment's
+`valid_to` is a **handoff date**: a dated successor may open on that same day, so the occupancy
+predicate (D7) reads it as exclusive. The two differ on purpose, and the descriptions say so.
 
 **Dense, across every role.** Each role's periods tile from the floor of its earliest published
 tenure to an open last period, with no gaps or overlaps. Party and committee roles get one open
@@ -299,8 +305,16 @@ source of the 1889 counts, through D1.
 
 **What PM reads to apply the same predicate:** `role_periods` (`role_key`, `valid_from`, `valid_to`,
 `max_holders`) and `assignments` (`role_key`, `membership_type`, `valid_from`, `valid_to`, plus the two
-interval columns for the tiers). With those, PM can drop `role_types.occupancy='single'` for the
-roles we publish.
+interval columns for the tiers). PM **keeps** `role_types.occupancy` as its jurisdiction-wide
+vocabulary and composes the two: capacity at `t` is `role_periods.max_holders` where a period covers
+`t`, else the type default (`single` → 1, `shared` → no limit). That fallback also covers PM's legacy
+and admin-edited rows outside our periods (accepted limit 4). No list of kinds has to stay in step
+on either side (power-map review, seq 3).
+
+**PM applies the may tier only**: it stores outer bounds and nothing else. So the like-for-like
+cross-check is our **may-tier pair list** against PM's, and the may-tier test must **list its pairs**
+(span_key pairs, through dbt `store_failures`), not just count them. PM admin overlays (Robinson's
+truncation, power-map#639) can make the sets differ legitimately.
 
 **Expected movement** in the 35-pair residue (#489's confirmed set):
 
@@ -369,6 +383,12 @@ modelled, but only these are populated:**
   editing.** Do the same for `ONTOLOGY.md` (§ 1 vocabularies, § 2 basis, and § 5 step 4, which gains
   `membership_type` as the precedent for a closed enum column) and `PIPELINE-PUBLICATION.md` (D8).
   `DEPLOYMENT.md` sits at about 9,920 / 10,000 and needs no edit here.
+- **Announce the release date to power-map ahead of time.** Both `persons` and `assignments` move
+  `contract_hash`, so PM's puller refuses them until a one-line re-pin PR merges. That stops every PM
+  apply (#535 inputs-behind) and turns their unit red. PM can't pre-pin, because a pin to the new hash
+  refuses today's versions. So they keep the re-pin PR ready, and fill it from the refusal log line,
+  which carries both hashes. Their merge is gated on their operator. PM's count stays 55 on release
+  night until its side ships (power-map review, seq 3).
 - **Gates, red first (TDD):**
   - the D6 invariants and the D1 tiling tests: key, contiguity, one open period per role,
     `max_holders ≥ 1`;
@@ -381,9 +401,15 @@ modelled, but only these are populated:**
 
 `roles` is PM's matching surface and is **unchanged**: the same 312 keys and the same columns. PM
 gains one subscription (`role_periods`), five `assignments` columns and one `persons` column. Its
-ratchet loses 23 pairs (20 multi-member, 3 substitutes), so 56 → 33 before #360 part A and the
-basis-aware clip lower it further. The review ask is drafted separately and **not posted**: it waits
-for the owner's consent to a cross-repo post.
+ratchet loses 23 pairs (20 multi-member, 3 substitutes): **55 → 32** once PM's side ships, and lower
+after #360 part A and the basis-aware clip. PM's baseline is 55, not #489's 56: power-map#639
+(Robinson) landed 2026-10-11 [PM claim, seq 3].
+
+**Reviewed live 2026-10-17** by the power-map agent (Mayfly; answers at server ts
+2026-10-17T00:34:05Z, recorded on #501). The shape is accepted. PM-side work (pin `role_periods`, a
+capacity table, `membership_type` on `role_assignments`, the audit on D7 with the type-default
+fallback, the release-night re-pin) goes on one power-map issue that their agent files, gated on their
+operator.
 
 ## Accepted limits
 
@@ -439,8 +465,9 @@ the new roles (President of the Senate; the Senate Rules chair), a source for th
 and a decision on whether chairs are roles or `membership_type` values. Probably roles: a chair is a
 different slot, not a different way of holding the member slot.
 
-**For #489 / power-map:** after 2.1.0, PM's ratchet should read 33 (32 + its own #639 row) before
-part A's drain. A new pair on a night our gate is green still means the predicates have diverged.
+**For #489 / power-map:** after 2.1.0 and PM's side, PM's ratchet should read 32 before part A's
+drain. Compare our **may-tier pair list** with theirs (D7). A pair on one side only means the
+predicates diverged, or a PM admin overlay differs.
 
 **For #501 phase 3 (the build):**
 - Annotation windows (D6a) are the largest single item.
