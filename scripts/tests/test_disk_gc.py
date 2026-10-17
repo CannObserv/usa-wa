@@ -501,7 +501,7 @@ def test_a_tree_the_window_cannot_read_is_withheld(host):
         assert any(str(tree) in w and "could not be checked" in w for w in data["warnings"])
 
         human = run_gc(host, DISK_GC_GRACE_MINUTES=60, DISK_GC_NOW=_two_hours_on())
-        assert "unchecked" in human.stdout
+        assert f"{tree} (unchecked)" in human.stdout
     finally:
         unreadable.chmod(0o755)
 
