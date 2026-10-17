@@ -9,8 +9,9 @@
 -- macro normalises the same way), with a category from a closed vocabulary
 -- (the seed's `accepted_values`) and the roster evidence for it. Adjudicated
 -- against the roster PDF on #360, 2026-10-17: every residue the clip declines
--- (`seat_clipping`'s `unclipped` reasons) and that no operator event can date
--- without inventing a boundary:
+-- (`seat_clipping`'s `unclipped` reasons) and that no operator event dates: the
+-- roster states no usable day, or (`election_only`) only an election, which the
+-- #226 rule declines as a seating. That last is policy, not missing evidence:
 --
 --   substitute       a military substitute under a principal on leave — a true
 --                    overlap; #501 publishes it as `membership_type=substitute`
