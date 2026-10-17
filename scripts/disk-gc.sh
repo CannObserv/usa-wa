@@ -100,6 +100,21 @@ for setting in WARN_BYTES FAIL_BYTES GRACE_MINUTES NOW; do
             ;;
     esac
 done
+# The window's cutoff is `NOW - GRACE*60` (#512 CR 2), and digits alone do not
+# keep that from wrapping past int64; a wrap that lands the cutoff after now reads
+# every tree settled, i.e. the window silently off. 9 and 12 digits (1900 years
+# of minutes; epoch seconds to the year 33658) cannot wrap. Then normalised to
+# plain decimal: bash arithmetic reads `060` as octal 48 — a shorter window than
+# configured — and `09` as an error, and `060` is not a JSON number either.
+for bound in GRACE_MINUTES:9 NOW:12; do
+    setting=${bound%:*}
+    value=${!setting}
+    [ "${#value}" -le "${bound#*:}" ] || {
+        echo "disk-gc: DISK_GC_$setting must be at most ${bound#*:} digits, got '$value'" >&2
+        exit 2
+    }
+    printf -v "$setting" '%d' "$((10#$value))"
+done
 
 # `find` is how the grace window is enforced; without it withhold_reason would
 # return "not recent" for everything and the window would silently not exist.

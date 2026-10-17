@@ -395,6 +395,30 @@ def test_bad_configuration_refuses_to_run(host, setting):
     assert result.stdout == ""
 
 
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [("DISK_GC_GRACE_MINUTES", "9" * 10), ("DISK_GC_NOW", "9" * 13)],
+)
+def test_a_value_the_window_arithmetic_would_wrap_refuses_to_run(host, setting, value):
+    """#512 CR 2. Digits alone are not enough: `NOW - GRACE*60` wraps past
+    int64, and a wrap that lands the cutoff after now reads every tree settled —
+    the window off, silently. Bounded, so it cannot wrap."""
+    result = run_gc(host, "--json", **{setting: value})
+    assert result.returncode == 2
+    assert setting in result.stderr
+
+
+def test_a_leading_zero_grace_is_minutes_not_octal(host):
+    """#512 CR 2. Bash arithmetic reads `060` as octal 48. A tree 50 minutes old
+    must be withheld under a 60-minute window however the 60 is written."""
+    tree = _fill(host["npx"] / "eeeeeeeeeeeeeeee")
+    data = report(
+        host, "--prune", DISK_GC_GRACE_MINUTES="060", DISK_GC_NOW=int(time.time()) + 50 * 60
+    )
+    assert tree.exists()
+    assert [c["reason"] for c in data["withheld"]] == ["recent"]
+
+
 def test_a_bad_grace_value_cannot_prune(host):
     """The consequence the refusal exists to prevent."""
     tree = _fill(host["npx"] / "aaaaaaaaaaaaaaaa")

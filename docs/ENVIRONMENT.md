@@ -61,7 +61,9 @@ wrong direction to fail in.
   `unchecked`, with a warning, never treated as settled.
 - `DISK_GC_NOW` — the epoch-seconds clock the window is measured against;
   default now. Test-only: ctime cannot be backdated, so the suite moves the
-  clock forward to prove the window expires.
+  clock forward to prove the window expires. It and `DISK_GC_GRACE_MINUTES` are
+  capped at 12 and 9 digits so the cutoff arithmetic cannot wrap, and read as
+  decimal (`060` is 60, not octal 48).
 - `DISK_GC_WARN_BYTES` / `DISK_GC_FAIL_BYTES` — free-space thresholds; defaults
   2 GiB / 1 GiB. Below the fail threshold the run exits 1 into the
   `OnFailure=` alert chain (#49). Sized so the floor sits above one worktree's
