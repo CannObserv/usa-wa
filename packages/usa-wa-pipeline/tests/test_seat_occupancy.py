@@ -162,8 +162,12 @@ def test_the_list_is_stored_normalised() -> None:
 
 
 def test_each_entry_names_two_spans_on_one_seat() -> None:
-    """A span_key's second part is its role_key. An entry pairing two seats can
-    never match an overlap, which only ever joins one role_key to itself."""
+    """A published span_key is ``entity|role_key|span_kind|discriminator|biennium``.
+    A truncated key fails here by name rather than later as stale, and an entry
+    pairing two seats can never match an overlap, which only ever joins one
+    role_key to itself."""
+    keys = [k for r in _seed() for k in (r["span_key_lo"], r["span_key_hi"])]
+    assert [k for k in keys if len(k.split("|")) != 5] == []
     mismatched = [
         r for r in _seed() if r["span_key_lo"].split("|")[1] != r["span_key_hi"].split("|")[1]
     ]
