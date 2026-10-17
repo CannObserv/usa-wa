@@ -116,8 +116,9 @@ for bound in GRACE_MINUTES:9 NOW:12; do
     printf -v "$setting" '%d' "$((10#$value))"
 done
 
-# `find` is how the grace window is enforced; without it withhold_reason would
-# return "not recent" for everything and the window would silently not exist.
+# `find` is how the grace window is enforced. Without it withhold_reason fails
+# closed — every tree `unchecked`, one warning each, nothing reclaimed (#512) —
+# so this check is for the operator: one clear refusal instead of that page.
 command -v find >/dev/null 2>&1 || {
     echo "disk-gc: find not found — the grace window cannot be enforced" >&2
     exit 2
