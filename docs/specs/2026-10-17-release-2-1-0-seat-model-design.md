@@ -1,8 +1,8 @@
 # Release 2.1.0: seat model, boundary basis and intervals, own names
 
 - **Date:** 2026-10-17
-- **Status:** draft. Waiting on power-map review of the shape (§ Effect on power-map) and on the
-  owner's answers to § Open questions. Nothing here is built.
+- **Status:** owner decisions recorded 2026-10-17 (Q1–Q6, all as recommended; § Owner decisions).
+  Waiting on power-map review of the shape (§ Effect on power-map). Nothing here is built.
 - **Issues:** usa-wa#501 (this release), #384, #369, #362 (absorbs #230 and #479 as shapes), #360
   (increment 2). Decisions: #384, #369, #362 and #360, each the 2026-10-13 owner comment linked from
   #501.
@@ -83,7 +83,7 @@ capacity 1. This is conservative: ambiguity resolves toward policing, which is t
 reading. Every other chamber-seat period is `max_holders = 1`, `basis = kind`. Today exactly five
 district-years qualify, all in 1889: LD-2 ×3, LD-5 ×3, LD-8 ×2, LD-18 ×3, LD-19 ×5.
 
-**Served: no** (open question Q5). `org_lineage` is published and unserved. `verify_contract` binds
+**Served: no** (Q5, decided). `org_lineage` is published and unserved. `verify_contract` binds
 only `SERVING_TABLES`, so a publish-only dataset adds no lockstep obligation.
 
 ### D2. The seat label is `roles.qualifier`; no new column
@@ -342,7 +342,7 @@ null on every other row. Guards:
 
 ## Population in 2.1.0
 
-This follows the brief's recommendation, pending the owner's confirmation (Q1). **Every shape is
+This follows the brief's recommendation, confirmed by the owner 2026-10-17 (Q1). **Every shape is
 modelled, but only these are populated:**
 
 | Shape | Populated | Rows |
@@ -360,11 +360,11 @@ modelled, but only these are populated:**
 - **One lockstep deploy.** Datapackage fields and `serving.*` columns land together for `persons`
   and `assignments` (`verify_contract` refuses the whole serving load otherwise). `role_periods`
   joins `PUBLISHED_DATASETS` with its first `ContractRelease` and `min_rows=300`; it is unserved
-  unless Q5 says otherwise.
+  per Q5.
 - **Carry-forward.** Each dataset gets its new fields only when it next mints, so the catalog can
   legitimately mix versions for one night. All three mint on the release night, because their
   contracts change.
-- **API.** Unless Q5 says otherwise, expose `name_own` on `PersonSummary` and the five assignment
+- **API.** Per Q5, expose `name_own` on `PersonSummary` and the five assignment
   columns on `AssignmentSummary`, with `docs/API.md` notes. **Measure API.md's token budget before
   editing.** Do the same for `ONTOLOGY.md` (§ 1 vocabularies, § 2 basis, and § 5 step 4, which gains
   `membership_type` as the precedent for a closed enum column) and `PIPELINE-PUBLICATION.md` (D8).
@@ -406,16 +406,16 @@ for the owner's consent to a cross-repo post.
    district-year outside 1889 is bare [measured], but the build should treat a
    `strip_tenure_notes` parenthetical as an annotation.
 
-## Open questions for the owner
+## Owner decisions (2026-10-17)
 
-| # | Question | Recommendation |
+| # | Question | Decided |
 |---|---|---|
-| Q1 | Population scope: every shape modelled; populate only the 1889 capacity, the substitutes and `name_own`; #230 and #479 as their own children | adopt (brief's recommendation; now 3 substitutes) |
-| Q2 | Capacity in a new dataset `role_periods` rather than on `roles` or `assignments` (D1); the name | approve `role_periods` |
-| Q3 | `district_plan`: an all-null column now, or the column with its first population | with its first population (D3) |
-| Q4 | Term-start seatings: `observed` now, or a fifth value `term` | `observed`; `term` later as a minor (D6) |
-| Q5 | Serve `role_periods`? Expose the new columns in `/api/v1`? | `role_periods` publish-only; expose `name_own` and the five assignment columns |
-| Q6 | Annotation windows in the 2.1.0 deploy, or right after it (no contract change either way) | in it, unless the build PR is too large to review |
+| Q1 | Population scope: every shape modelled; populate only the 1889 capacity, the substitutes and `name_own`; #230 and #479 as their own children | **agreed:** adopt (brief's recommendation; now 3 substitutes) |
+| Q2 | Capacity in a new dataset `role_periods` rather than on `roles` or `assignments` (D1); the name | **agreed:** approve `role_periods` |
+| Q3 | `district_plan`: an all-null column now, or the column with its first population | **agreed:** with its first population (D3) |
+| Q4 | Term-start seatings: `observed` now, or a fifth value `term` | **agreed:** `observed`; `term` later as a minor (D6) |
+| Q5 | Serve `role_periods`? Expose the new columns in `/api/v1`? | **agreed:** `role_periods` publish-only; expose `name_own` and the five assignment columns |
+| Q6 | Annotation windows in the 2.1.0 deploy, or right after it (no contract change either way) | **agreed:** in it, unless the build PR is too large to review |
 
 ## Notes for later issues
 
