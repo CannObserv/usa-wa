@@ -55,7 +55,13 @@ wrong direction to fail in.
   process, because the process that will run out of it does not exist yet. With
   ~457 MB `_npx` installs happening at session start (#389) and the timer firing
   daily at 05:45, a session starting a minute earlier would otherwise have its
-  half-written install deleted under it.
+  half-written install deleted under it. "Touched" is mtime **or ctime** (#512):
+  VS Code's extractor restores archive mtimes, so a just-landed CLI reads weeks
+  old by mtime alone. A tree `find` cannot fully walk is withheld as
+  `unchecked`, with a warning, never treated as settled.
+- `DISK_GC_NOW` — the epoch-seconds clock the window is measured against;
+  default now. Test-only: ctime cannot be backdated, so the suite moves the
+  clock forward to prove the window expires.
 - `DISK_GC_WARN_BYTES` / `DISK_GC_FAIL_BYTES` — free-space thresholds; defaults
   2 GiB / 1 GiB. Below the fail threshold the run exits 1 into the
   `OnFailure=` alert chain (#49). Sized so the floor sits above one worktree's

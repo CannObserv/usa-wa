@@ -286,7 +286,10 @@ unreadable spec exempts nothing; superseded pins and `@latest` stay prunable.
 
 A `DISK_GC_GRACE_MINUTES` window (default 60) covers the one case liveness
 cannot: a tree still being installed is named by no process yet, because the
-process that will run out of it does not exist. Set it to `0` to disable.
+process that will run out of it does not exist. Set it to `0` to disable. It
+reads mtime and ctime (#512), since VS Code restores archive mtimes, and holds a
+tree it cannot walk as `withheld` (JSON `reason: unchecked`, plus a warning)
+rather than as settled.
 
 **What it never prunes** — repo data. `data/datasets/`, `raw/`, the dbt logs and
 the duckdb are measured and reported; their retention contract is
