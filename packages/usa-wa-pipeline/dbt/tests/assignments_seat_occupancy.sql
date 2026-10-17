@@ -1,148 +1,45 @@
--- A seat holds ONE person at a time (#359). Two distinct entities whose tenures
--- overlap on the same seat is either bad upstream data or a span the builder
--- failed to clip — both publishable today, because nothing else checks it.
+-- A seat holds ONE person at a time (#359): every overlap `seat_overlap_pairs()`
+-- finds is an error unless the named list accepts that exact pair (#360 part A).
+-- The predicate, and why each clause of it is spelled the way it is, lives in
+-- `macros/seat_overlap_pairs.sql`.
 --
--- Nothing else does, despite appearances: `assignments_key` tests span IDENTITY
--- (one tenure start per entity), which two different holders of one seat pass
--- cleanly, and the daily `succession-invariants` gate scopes to `is_active`
--- rows — the CURRENT cohort only. History has never been gated, and the tier
--- that gate reads retires in #314.
+-- THE LIST, `seeds/accepted_seat_overlaps.csv`, replaced a count baseline of
+-- 35. A count could mask one new conflict behind one repaired elsewhere; a name
+-- cannot. Each entry is one unordered span_key pair, stored `lo < hi` (the
+-- macro normalises the same way), with a category from a closed vocabulary
+-- (the seed's `accepted_values`) and the roster evidence for it. Adjudicated
+-- against the roster PDF on #360, 2026-10-17: every residue the clip declines
+-- (`seat_clipping`'s `unclipped` reasons) and that no operator event can date
+-- without inventing a boundary:
 --
--- Scoped to `seat:*` roles via span_kind. Party membership and committee seats
--- are legitimately multi-holder, so the constraint is stated by KIND rather
--- than by an exception list that would rot. One caveat if House coverage ever
--- deepens past 1965: pre-1965 House seats were fungible at-large, two per
--- district with no Position (usa-wa#101), so a position-less `seat:house:ld-N`
--- would legitimately carry two concurrent holders and must be excluded here.
--- Every `chamber-house` span today carries `position-N`, so none exist yet.
+--   substitute       a military substitute under a principal on leave — a true
+--                    overlap; #501 publishes it as `membership_type=substitute`
+--   basis_inferred   a real dated event the clip reads as quantized because it
+--                    lies on a biennium edge; #501 makes the basis explicit
+--   election_only    the successor is dated only by an election, which is not
+--                    a seating (#226: the ballot date would open the span early)
+--   coarse_date      the only stated boundary is month or year precision
+--                    (#501's annotation windows, D6a)
+--   merged_tenure    one span is two tenures merged around the other (#267)
+--   undated          the successor's start is undated in the roster
+--   never_served     a span for someone the roster says never served
 --
--- A shared boundary date is a handoff, not an overlap: a span ending the day
--- its successor begins is how a mid-term succession is spelled, and counting it
--- would bury the real conflicts under hundreds of clean transitions. Spelled
--- `is distinct from` rather than `<>`: an open span's `valid_to` is NULL, and
--- `NOT (false OR NULL)` is NULL, which SQL drops — so the plain form made the
--- gate BLIND to every conflict involving a currently-serving member, the live
--- ones that matter most. Caught by `test_an_open_span_still_conflicts`.
+-- The 1889 multi-member Senate is not on the list: the macro's roster exclusion
+-- removes it, and #501's `role_periods` retires that exclusion.
 --
--- An open span (`valid_to is null`) means "still serving", so it overlaps
--- anything that starts after it. Spelled as an explicit null branch rather than
--- `coalesce(valid_to, date '9999-12-31')`, because the sentinel is a smell: a
--- real date standing in for "no date" is one comparison away from being read
--- as one.
+-- An entry stops matching when its pair stops overlapping, or when either span
+-- re-keys (a start re-dated across a biennium, or a person merge re-pointing the
+-- entity). `assignments_seat_occupancy_stale` reports it by name; remove it.
 --
--- MULTI-MEMBER DISTRICTS are excluded, because they are not conflicts (#360).
--- Washington's 1889 legislature seated multi-member senate districts — 35
--- senators across 24 districts, LD-19 alone carrying five — so `seat:senate:ld-N`
--- collapses genuinely distinct seats into one role_key and this gate would read
--- five lawful senators as a five-way fight.
---
--- The roster draws the distinction itself, which is what makes capacity
--- checkable rather than guessed: of 156 district-years with more than one senate
--- row, 151 carry succession annotations ("Resigned January 13, 1997", "Deceased
--- Aug. 9, 1971") and 5 are bare — all 1889. An annotated extra row is a
--- SUCCESSOR within one seat; a bare extra row is a SEAT.
---
--- The reading is deliberately conservative: ANY annotation in a district-year
--- means capacity 1. Treating a partly-annotated year as multi-member would
--- license exactly the conflict this gate exists to catch, so ambiguity resolves
--- toward policing rather than excusing.
---
--- NOT keyed on the roster's `order` column, which looks like a seat index and is
--- not: it is alphabetical by surname within a district-year, and 101 of 417
--- people change order between bienniums. Keying on it would mint seat identities
--- that never existed, make ordinary succession look like seat-hopping, and move
--- historical `role_key` values — the key a subscriber matches a seat on.
---
--- BASELINE 35 — the corpus is not clean, and `error` would wedge the nightly
--- chain on day one. What remains after multi-member districts are excluded and
--- counterpart clipping resolves the dated handoffs: every pair here is one the
--- #360 rule DECLINES to resolve.
---
--- The refusal reasons are reported by the rule itself, in
--- `seat_overlaps_unclipped` (`clearinghouse_domain_legislative.seat_clipping`).
--- Measured 2026-09-10, PRE-exclusion, which is why they total more than the 35
--- rows this gate lists — the counter and the gate count different sets, and
--- `assignment_rows` says why:
---
---   39  neither side dated  — both edges biennium-derived, so there is no stated
---                             boundary to clip either one to. ~20 of these are
---                             the 1889 multi-member Senate, which this gate
---                             excludes and the rule cannot see (usa-wa#362)
---    8  nested tenure       — the successor sits wholly inside the predecessor,
---                             whose row is therefore two tenures merged
---                             (usa-wa#267); clipping either side discards one.
---                             Two are NOT defects: Jon Wyss (LD-6, 2005) and
---                             Marlo Braun (LD-20, 2017) are military substitutes
---                             serving under a principal on leave — a true
---                             overlap the model cannot express yet (usa-wa#362)
---    4  crosses a biennium  — the roster listed the successor BEFORE the
---                             predecessor's dated exit; the sources contradict
---                             each other, and the clip would move valid_from out
---                             of the biennium its own source_id is keyed on
---    1  both sides dated    — two stated dates that still overlap: bad upstream
---                             data, the #358 shape, for case-by-case adjudication
---    1  degenerate          — two holders opening on the very same day, so any
---                             clip would leave one of them no duration at all
---
--- This test exists to stop the count GROWING while that is worked, which is the
--- guard #358 showed was absent.
---
--- The ratchet, in dbt's own semantics rather than a hand-rolled one:
---   >BASELINE  error — a new conflict; the thing this test exists to catch
---   !=BASELINE warn  — including FEWER: the baseline is stale, ratchet it down
--- so a fix that removes a conflict is as loud as a regression that adds one.
---
--- The baseline is mode-aware, and that is load-bearing rather than tidy. The
--- hermetic build materializes conformed models EMPTY on purpose, so its correct
--- expectation is 0 — with a flat 91 the gate warned `Got 0 results` on every
--- pre-commit and every CI run. That noise costs the ratchet its whole point:
--- the day the real count drops below the baseline, "ratchet me down" would
--- arrive looking exactly like the warning everyone had learned to scroll past.
--- Alert
--- fatigue is how #49 alerting dies, and a gate that cries wolf in the inner
--- loop is the fastest route to it.
---
--- Known weakness, stated rather than papered over: a count baseline can mask
--- one new conflict behind one repaired elsewhere. Acceptable while the set is
--- being actively drained in #360; if that stalls, the upgrade is a named-pair
--- baseline in the idiom of the retired `parity_wsl.ACCEPTED`.
-{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 35 %}
-{{ config(severity='error', error_if='>' ~ baseline, warn_if='!=' ~ baseline) }}
-select
-    a.role_key,
-    a.entity_id as entity_a,
-    a.valid_from as from_a,
-    a.valid_to as to_a,
-    b.entity_id as entity_b,
-    b.valid_from as from_b,
-    b.valid_to as to_b
-from {{ ref('assignments') }} a
-join {{ ref('assignments') }} b
-    on a.role_key = b.role_key
-    and a.entity_id < b.entity_id
-where a.span_kind in ('chamber-senate', 'chamber-house')
-  and b.span_kind in ('chamber-senate', 'chamber-house')
-  and (b.valid_to is null or a.valid_from <= b.valid_to)
-  and (a.valid_to is null or b.valid_from <= a.valid_to)
-  and a.valid_to is distinct from b.valid_from
-  and b.valid_to is distinct from a.valid_from
-  and not exists (
-      select 1
-      from {{ ref('stg_roster_members') }} r
-      where r.chamber = regexp_extract(a.role_key, 'seat:(\w+):', 1)
-        and cast(r.district as varchar) = regexp_extract(a.role_key, 'ld-(\d+)', 1)
-      group by r.chamber, r.district, r.year
-      -- `year` is a grouping key, so min(r.year) below is identity on it — the
-      -- aggregate is only there to be legal in HAVING (CR 128)
-      having count(*) > 1
-         and count(r.annotation) = 0
-         -- the multi-member biennium must cover the overlap, not merely exist
-         and make_date(min(r.year) + 1, 12, 31) >= greatest(a.valid_from, b.valid_from)
-         and (
-             (a.valid_to is null and b.valid_to is null)
-             or make_date(min(r.year), 1, 1) <= least(
-                 coalesce(a.valid_to, b.valid_to),
-                 coalesce(b.valid_to, a.valid_to)
-             )
-         )
-  )
+-- Recording an operator event that resolves a listed pair: remove the entry in
+-- the same change, or the stale check warns. Adding a pair: only with its
+-- evidence, on its issue — the list is the adjudication, not a mute button.
+{{ config(severity='error') }}
+select o.*
+from ({{ seat_overlap_pairs() }}) o
+where not exists (
+    select 1
+    from {{ ref('accepted_seat_overlaps') }} x
+    where x.span_key_lo = o.span_key_lo
+      and x.span_key_hi = o.span_key_hi
+)

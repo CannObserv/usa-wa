@@ -36,7 +36,9 @@ the weekly integrity sweep covers — its only provenance since #412 PR F droppe
 # the span family that owns that seat kind. seat_kind/seat_discriminator name the seat the same
 # way the pipeline keys it: chamber-senate + LD, chamber-house + ld-{n}-position-{p},
 # committee + the WSL committee id. Validates kind/reason/seat shape AND that member_id
-# is a registered person key (usa_wa_legislature:<id> in registry.entity_keys), and a
+# is a registered person key (usa_wa_legislature:<id>, or a pre-1991 roster member's
+# usa_wa_legislature_roster:<fold>:<year>, #360, in registry.entity_keys; pass either bare,
+# e.g. --member-id morrismccarty:1891), and a
 # committee seat's id a registered committee org (the #445 check) — a typo would be a
 # silent no-op overlay.
 # App-role DML (writes registry.operator_events, and the attestation body — its only

@@ -20,6 +20,8 @@ packages/usa-wa-pipeline/
     models/matching/     — cross-source link proposals feeding the registrar (#308)
     models/conformed/    — registry-joined products with stable ULIDs, plus the
                            structurally-keyed roles dimension (#309)
+    seeds/, macros/      — curated test inputs and shared test SQL: the occupancy
+                           gate's accepted pairs and predicate (#360)
 ```
 
 Layer rules are the spec's: staging never joins across sources and never sees a ULID;
@@ -216,22 +218,18 @@ tests span *identity* (one tenure start per entity), which two different holders
 of one seat pass cleanly, and the retired `succession-invariants` unit scoped to
 `is_active` rows — the current cohort only, never history.
 
-It ships **baselined at 35** (#360), via dbt's own thresholds:
-
-```
-{% set baseline = 0 if env_var('USA_WA_PIPELINE_HERMETIC', '0') == '1' else 35 %}
-{{ config(severity='error', error_if='>' ~ baseline, warn_if='!=' ~ baseline) }}
-```
-
-`>baseline` errors on a new conflict; `!=baseline` warns on *fewer* too, so
-repairing one is as loud as introducing one and the baseline announces its own
-staleness. Drain to zero, then drop the thresholds for a plain `error`.
-
-The baseline is **mode-aware on purpose**: the hermetic build materializes
-conformed models empty, so its correct expectation is 0. A flat 91 made the gate
-warn `Got 0 results` on every pre-commit and every CI run — noise that would
-have cost the ratchet its point, since the day the real count drops the "ratchet
-me down" warning would look exactly like the one everyone had learned to ignore.
+The predicate lives once, in `dbt/macros/seat_overlap_pairs.sql`. Since #360
+part A the gate is a plain `error` on any pair not named in
+`dbt/seeds/accepted_seat_overlaps.csv`: one unordered span_key pair per row
+(`lo < hi`), with a category from a closed vocabulary and the roster evidence.
+The list replaced a count baseline of 35, which could mask one new conflict
+behind one repaired elsewhere. `assignments_seat_occupancy_stale.sql` warns, by
+name, on every entry that no longer overlaps, including a span re-keyed by a
+re-dating across a biennium or a person merge. `build_warnings` fails the
+stage on that warning, so it alerts every night until the entry is removed
+(the #452 shape). It skips the hermetic build, where `assignments` is empty.
+An operator event that resolves a listed pair removes the entry in the same
+change.
 
 A companion test, `assignments_seat_kinds_covered.sql`, fails if any `seat:*`
 role carries a `span_kind` the occupancy gate does not cover. The gate is scoped
