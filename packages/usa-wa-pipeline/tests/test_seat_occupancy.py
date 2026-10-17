@@ -5,8 +5,8 @@ against synthetic rows, never by restating it here. A test that retypes the SQL
 it checks is two literals with a comment claiming they agree — the defect CR 117
 caught one level up, and the reason #358's phantom could have returned unnoticed.
 
-Three files ship it (#360 part A): the predicate itself, a macro
-(``dbt/macros/seat_overlap_pairs.sql``) that both tests call so neither holds a
+Three files ship it (#360 part A): the macro holding the predicate
+(``dbt/macros/seat_overlap_pairs.sql``), which both tests call so neither holds a
 copy; the gate (``assignments_seat_occupancy.sql``), which errors on any pair the
 named list (``dbt/seeds/accepted_seat_overlaps.csv``) does not accept; and the
 stale check (``assignments_seat_occupancy_stale.sql``), which warns on any listed
