@@ -249,9 +249,36 @@ async def test_register_cli_reports_the_minted_entity(db_session) -> None:
             survivor=None,
             key=_NEW_ROSTER_KEY,
             to_entity=None,
+            distinct_person=False,
         ),
         require_session=lambda: db_session,
     )
     result = await _adjudicate_job(ctx)
     view = await registered_view(db_session, KIND_PERSON)
     assert result.counters == {"action": "register", "entity": view[_NEW_ROSTER_KEY]}
+
+
+async def test_register_refuses_a_fold_registered_under_another_year(db_session) -> None:
+    """CR 1: a roster key is ``<fold>:<first year>``, so a parse change that surfaces an
+    earlier row re-keys a known person. Minting would publish a duplicate — move instead."""
+    a = await apply_decision(
+        db_session,
+        KIND_PERSON,
+        decide(frozenset({"usa_wa_legislature_roster:wcraugust:1951"}), {}),
+        registered_by="test",
+    )
+    with pytest.raises(ValueError, match="wcraugust:1951"):
+        await adjudicate_register(
+            db_session,
+            KIND_PERSON,
+            natural_key="usa_wa_legislature_roster:wcraugust:1943",
+            note="re-keyed",
+        )
+    entity = await adjudicate_register(
+        db_session,
+        KIND_PERSON,
+        natural_key="usa_wa_legislature_roster:wcraugust:1943",
+        note="a namesake, adjudicated distinct",
+        distinct_person=True,
+    )
+    assert entity != a
