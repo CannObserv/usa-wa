@@ -6,6 +6,7 @@ import pytest
 from sqlalchemy import select
 
 from clearinghouse_core.registry import (
+    KIND_ORG,
     KIND_PERSON,
     RegistryAdjudication,
     RegistryKey,
@@ -232,9 +233,9 @@ async def test_register_mints_one_entity_for_an_unregistered_key(db_session) -> 
 async def test_register_refuses_a_registered_key(db_session) -> None:
     """A bound key is re-pointed with move, never re-minted — a second entity would be a
     published duplicate the registry has no delete for."""
-    await _two_entities(db_session)
+    await adjudicate_register(db_session, KIND_PERSON, natural_key=_NEW_ROSTER_KEY, note="once")
     with pytest.raises(ValueError, match="already registered"):
-        await adjudicate_register(db_session, KIND_PERSON, natural_key="roster:x:1901", note="dup")
+        await adjudicate_register(db_session, KIND_PERSON, natural_key=_NEW_ROSTER_KEY, note="dup")
 
 
 async def test_register_cli_reports_the_minted_entity(db_session) -> None:
@@ -282,3 +283,23 @@ async def test_register_refuses_a_fold_registered_under_another_year(db_session)
         distinct_person=True,
     )
     assert entity != a
+
+
+@pytest.mark.parametrize(
+    ("kind", "key"),
+    [
+        pytest.param(KIND_PERSON, "usa_wa_legislature:12345", id="wsl-key-is-the-registrars"),
+        pytest.param(KIND_PERSON, "usa_wa_legislature_roster:marjoriebhappy", id="no-year"),
+        pytest.param(KIND_PERSON, "usa_wa_legislature_roster:Marjorie B Happy:1959", id="unfolded"),
+        pytest.param(KIND_PERSON, "usa_wa_legislature_roster:drewhansen:2023", id="wsl-era-year"),
+        pytest.param(KIND_ORG, "usa_wa_legislature_roster:marjoriebhappy:1959", id="org-kind"),
+    ],
+)
+async def test_register_refuses_any_key_but_a_pre_floor_roster_person(
+    db_session, kind, key
+) -> None:
+    """CR 9: ``persons`` publishes one row per live entity, so a mistyped or out-of-scope key
+    would publish a nameless person the registry cannot delete. register exists for the one
+    key shape the registrar declines — a minted pre-1991 roster person — and nothing else."""
+    with pytest.raises(ValueError, match="register mints only"):
+        await adjudicate_register(db_session, kind, natural_key=key, note="n")

@@ -24,18 +24,30 @@ decision is exactly what the trail exists to prevent.
 from __future__ import annotations
 
 import argparse
+import re
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.registry import RegistryAdjudication, RegistryEntity, RegistryKey
+from clearinghouse_core.registry import (
+    KIND_PERSON,
+    RegistryAdjudication,
+    RegistryEntity,
+    RegistryKey,
+)
+from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
+from usa_wa_adapter_legislature.roster_pdf.identity import ROSTER_IDENTITY_FLOOR
 
 logger = get_logger(__name__)
 
 #: Stable ledger identity (#178).
 JOB_SLUG = "registry-adjudicate"
+
+#: The one key shape ``register`` accepts (CR 9): a minted pre-1991 roster person,
+#: ``<source>:<identity fold>:<first roster year>`` — the key the registrar declines.
+_REGISTRABLE_KEY = re.compile(rf"^{re.escape(ROSTER_SOURCE_SLUG)}:[a-z0-9]+:(?P<year>\d{{4}})$")
 
 
 async def _require_entity(session: AsyncSession, kind: str, entity_id: str) -> RegistryEntity:
@@ -208,7 +220,17 @@ async def adjudicate_register(
     That shape is refused too, naming the bound keys — it is a ``move`` — unless
     ``distinct_person`` records that a human judged the namesake a different
     person (the ``IDENTITY_SPLITS`` shape).
+
+    Only that key shape is accepted (CR 9): ``persons`` publishes one row per live
+    entity, so minting for a mistyped or out-of-scope key — a WSL id is the
+    registrar's, an org needs no human — would publish a nameless row with no delete.
     """
+    match = _REGISTRABLE_KEY.match(natural_key)
+    if kind != KIND_PERSON or match is None or int(match["year"]) >= ROSTER_IDENTITY_FLOOR:
+        raise ValueError(
+            f"register mints only a pre-{ROSTER_IDENTITY_FLOOR} roster person "
+            f"({KIND_PERSON} key {ROSTER_SOURCE_SLUG}:<fold>:<year>), not {kind} {natural_key!r}"
+        )
     bound = await _bound_key(session, kind, natural_key)
     if bound is not None:
         raise ValueError(
