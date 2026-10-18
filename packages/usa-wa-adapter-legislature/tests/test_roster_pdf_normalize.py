@@ -486,8 +486,8 @@ def _group(records, district: int, chamber: str, year: int) -> list[tuple[str, s
             "house",
             1987,
             [
-                ("Linda A. Smith", "Resigned December 4, 1987; Elected to the Senate)"),
-                ("Stan Butterfield", "Appointed January 6, 1988 to serve unexpired term)"),
+                ("Linda A. Smith", "Resigned December 4, 1987; Elected to the Senate"),
+                ("Stan Butterfield", "Appointed January 6, 1988 to serve unexpired term"),
                 ("Joe Tanner", "Resigned December 12, 1986; Appointed to the Senate)"),
                 ("David Cooper", "Appointed December 12, 1986 to serve unexpired term)"),
             ],
