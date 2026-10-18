@@ -317,6 +317,9 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
 
 async def _adjudicate_job(ctx: JobContext) -> JobResult:
     session = ctx.require_session()
+    if ctx.args.distinct_person and ctx.args.verb != "register":
+        # A flag a verb ignores reads as if it took effect (CR 11).
+        raise SystemExit("--distinct-person applies only to register")
     if ctx.args.verb == "merge":
         if not (ctx.args.loser and ctx.args.survivor):
             raise SystemExit("merge needs --loser and --survivor")

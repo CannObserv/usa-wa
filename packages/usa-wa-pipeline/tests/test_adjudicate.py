@@ -190,6 +190,7 @@ async def test_unmerge_cli_reports_the_inventory(db_session, monkeypatch) -> Non
             survivor=None,
             key=None,
             to_entity=None,
+            distinct_person=False,
         ),
         require_session=lambda: db_session,
     )
@@ -303,3 +304,24 @@ async def test_register_refuses_any_key_but_a_pre_floor_roster_person(
     key shape the registrar declines — a minted pre-1991 roster person — and nothing else."""
     with pytest.raises(ValueError, match="register mints only"):
         await adjudicate_register(db_session, kind, natural_key=key, note="n")
+
+
+@pytest.mark.parametrize("verb", ["merge", "move", "unmerge"])
+async def test_distinct_person_is_refused_outside_register(db_session, verb) -> None:
+    """CR 11: a flag a verb ignores reads as if it took effect."""
+    ctx = SimpleNamespace(
+        args=SimpleNamespace(
+            verb=verb,
+            kind=KIND_PERSON,
+            note="n",
+            entity=None,
+            loser=None,
+            survivor=None,
+            key=None,
+            to_entity=None,
+            distinct_person=True,
+        ),
+        require_session=lambda: db_session,
+    )
+    with pytest.raises(SystemExit, match="--distinct-person"):
+        await _adjudicate_job(ctx)
