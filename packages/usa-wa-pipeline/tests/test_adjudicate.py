@@ -1,4 +1,4 @@
-"""The adjudication CLI's core (#308): merge + move, each leaving a record."""
+"""The adjudication CLI's core (#308): merge, move, unmerge, register (#514) — each recorded."""
 
 from types import SimpleNamespace
 
@@ -8,6 +8,7 @@ from sqlalchemy import select
 from clearinghouse_core.registry import (
     KIND_PERSON,
     RegistryAdjudication,
+    RegistryKey,
     apply_decision,
     decide,
     registered_view,
@@ -16,6 +17,7 @@ from usa_wa_pipeline.adjudicate import (
     _adjudicate_job,
     adjudicate_merge,
     adjudicate_move,
+    adjudicate_register,
     adjudicate_unmerge,
 )
 
@@ -193,3 +195,63 @@ async def test_unmerge_cli_reports_the_inventory(db_session, monkeypatch) -> Non
     result = await _adjudicate_job(ctx)
     assert result.counters["action"] == "unmerge"
     assert result.counters["keys_moved_away"] == ["roster:x:1901"]
+
+
+# ---------------------------------------------------------------------------
+# #514 — register: the one path that mints an entity for a key the registrar won't
+
+
+_NEW_ROSTER_KEY = "usa_wa_legislature_roster:marjoriebhappy:1959"
+
+
+async def test_register_mints_one_entity_for_an_unregistered_key(db_session) -> None:
+    """A roster key is pair-only (the registrar never mints one), so a parser fix that
+    surfaces a new roster-only person needs a recorded human decision to bind it."""
+    entity = await adjudicate_register(
+        db_session, KIND_PERSON, natural_key=_NEW_ROSTER_KEY, note="roster p.34, #514"
+    )
+    view = await registered_view(db_session, KIND_PERSON)
+    assert view[_NEW_ROSTER_KEY] == entity
+    row = (
+        await db_session.execute(
+            select(RegistryAdjudication).where(RegistryAdjudication.action == "register")
+        )
+    ).scalar_one()
+    assert str(row.target_entity_id) == entity
+    assert row.subject_entity_id is None
+    assert row.natural_key == _NEW_ROSTER_KEY
+    assert "#514" in row.note
+    key = (
+        await db_session.execute(
+            select(RegistryKey).where(RegistryKey.natural_key == _NEW_ROSTER_KEY)
+        )
+    ).scalar_one()
+    assert key.registered_by == f"adjudication:{row.id}"
+
+
+async def test_register_refuses_a_registered_key(db_session) -> None:
+    """A bound key is re-pointed with move, never re-minted — a second entity would be a
+    published duplicate the registry has no delete for."""
+    await _two_entities(db_session)
+    with pytest.raises(ValueError, match="already registered"):
+        await adjudicate_register(db_session, KIND_PERSON, natural_key="roster:x:1901", note="dup")
+
+
+async def test_register_cli_reports_the_minted_entity(db_session) -> None:
+    """The operator needs the new ULID (a seed row names the span_key it starts)."""
+    ctx = SimpleNamespace(
+        args=SimpleNamespace(
+            verb="register",
+            kind=KIND_PERSON,
+            note="roster p.34",
+            entity=None,
+            loser=None,
+            survivor=None,
+            key=_NEW_ROSTER_KEY,
+            to_entity=None,
+        ),
+        require_session=lambda: db_session,
+    )
+    result = await _adjudicate_job(ctx)
+    view = await registered_view(db_session, KIND_PERSON)
+    assert result.counters == {"action": "register", "entity": view[_NEW_ROSTER_KEY]}

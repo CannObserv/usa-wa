@@ -1,4 +1,4 @@
-"""Identity adjudication CLI (#308): the only path that merges or moves.
+"""Identity adjudication CLI (#308): the only path that merges, moves or registers.
 
     python -m usa_wa_pipeline.adjudicate merge --kind person \
         --loser <ULID> --survivor <ULID> --note "…"
@@ -6,16 +6,19 @@
         --key <natural-key> --to <ULID> --note "…"
     python -m usa_wa_pipeline.adjudicate unmerge --kind person \
         --entity <ULID> --note "…"
+    python -m usa_wa_pipeline.adjudicate register --kind person \
+        --key <natural-key> --note "…"
 
 Corrections are always adjudications (sticky registry, spec § tradeoffs): a
 merge sets the loser's ``merged_into`` tombstone — the signal the published
-crosswalk carries and PM's mapping layer follows — and a move re-points one
-natural key. Every action writes a ``registry.adjudications`` row with its
-note; there is no delete (a wrong adjudication is corrected by another
-adjudication, so the trail stays whole — a wrong merge specifically by
-``unmerge``, never by a reverse merge, which would cycle the tombstones).
-``--note`` is mandatory: an unexplained identity decision is exactly what the
-trail exists to prevent.
+crosswalk carries and PM's mapping layer follows — a move re-points one
+natural key, and a register (#514) mints one entity for a key the registrar
+deliberately never mints (a new roster-only person). Every action writes a
+``registry.adjudications`` row with its note; there is no delete (a wrong
+adjudication is corrected by another adjudication, so the trail stays whole —
+a wrong merge specifically by ``unmerge``, never by a reverse merge, which
+would cycle the tombstones). ``--note`` is mandatory: an unexplained identity
+decision is exactly what the trail exists to prevent.
 """
 
 from __future__ import annotations
@@ -27,7 +30,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.registry import RegistryAdjudication, RegistryEntity, RegistryKey
+from clearinghouse_core.registry import (
+    RegistryAdjudication,
+    RegistryEntity,
+    RegistryKey,
+    registered_view,
+)
 
 logger = get_logger(__name__)
 
@@ -183,13 +191,59 @@ async def adjudicate_move(
     logger.info("registry_move", extra={"kind": kind, "natural_key": natural_key, "to": to_entity})
 
 
+async def adjudicate_register(
+    session: AsyncSession, kind: str, *, natural_key: str, note: str
+) -> str:
+    """Mint one entity for one unregistered key and record the decision (#514).
+
+    The registrar never mints a roster key: it is built from a name, so a parser
+    or fold change would publish a duplicate (``registrar.load_sponsor_keys``).
+    A parser fix that surfaces a genuinely new roster-only person therefore
+    leaves it unregistered — ``registry_coverage`` names it nightly — and this is
+    the human decision that binds it. A key already bound is refused: re-pointing
+    is :func:`adjudicate_move`, and a second entity could never be deleted.
+    """
+    view = await registered_view(session, kind, resolve_merges=False)
+    if natural_key in view:
+        raise ValueError(
+            f"{kind} key {natural_key!r} is already registered to {view[natural_key]} — "
+            "re-point it with the move verb"
+        )
+    entity = RegistryEntity(kind=kind)
+    session.add(entity)
+    await session.flush()
+    adjudication = RegistryAdjudication(
+        kind=kind,
+        action="register",
+        target_entity_id=str(entity.id),
+        natural_key=natural_key,
+        note=note,
+    )
+    session.add(adjudication)
+    await session.flush()
+    session.add(
+        RegistryKey(
+            kind=kind,
+            natural_key=natural_key,
+            entity_id=str(entity.id),
+            registered_by=f"adjudication:{adjudication.id}",
+        )
+    )
+    await session.flush()
+    logger.info(
+        "registry_register",
+        extra={"kind": kind, "natural_key": natural_key, "entity": str(entity.id)},
+    )
+    return str(entity.id)
+
+
 def _add_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("verb", choices=["merge", "move", "unmerge"])
+    parser.add_argument("verb", choices=["merge", "move", "unmerge", "register"])
     parser.add_argument("--kind", required=True, choices=["person", "org"])
     parser.add_argument("--note", required=True, help="Why — recorded on the adjudication row.")
     parser.add_argument("--loser", help="merge: the entity to tombstone.")
     parser.add_argument("--survivor", help="merge: the entity that lives on.")
-    parser.add_argument("--key", help="move: the natural key to re-point.")
+    parser.add_argument("--key", help="move: the natural key to re-point; register: to mint.")
     parser.add_argument("--to", dest="to_entity", help="move: the destination entity.")
     parser.add_argument("--entity", help="unmerge: the tombstoned entity to revive.")
 
@@ -215,6 +269,14 @@ async def _adjudicate_job(ctx: JobContext) -> JobResult:
         # The inventory must reach the operator through the interface they use,
         # not only the structured log (CR 51).
         return JobResult.ok({"action": "unmerge", "keys_moved_away": moved_away})
+    elif ctx.args.verb == "register":
+        if not ctx.args.key:
+            raise SystemExit("register needs --key")
+        entity = await adjudicate_register(
+            session, ctx.args.kind, natural_key=ctx.args.key, note=ctx.args.note
+        )
+        # The operator needs the ULID — a seed row names the span_key it starts.
+        return JobResult.ok({"action": "register", "entity": entity})
     else:
         if not (ctx.args.key and ctx.args.to_entity):
             raise SystemExit("move needs --key and --to")
@@ -235,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
         _adjudicate_job,
         argv=argv,
         prog="python -m usa_wa_pipeline.adjudicate",
-        description="Merge/unmerge entities or move a key, with a recorded note (#308).",
+        description="Merge/unmerge entities, move or register a key, with a recorded note (#308).",
         extra_args=_add_args,
     )
 
