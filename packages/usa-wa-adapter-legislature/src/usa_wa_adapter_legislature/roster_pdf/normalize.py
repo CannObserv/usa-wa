@@ -144,7 +144,8 @@ def _successor_awaiting_annotation(buffer: str) -> bool:
     Prose and a closing-parenthesis tail are a predecessor's wrapped annotation, never a name.
     Era-block fragments the column split strands (``Spokane``) are name-shaped too; they are
     told apart by what follows, which :func:`_parse_column` checks (a successor's next line
-    opens its own parenthetical or leader).
+    opens its own parenthetical or leader). One that ends a column has no next line there, so
+    it is reported in ``unparsed`` rather than dropped — 0 such lines in the 2025 edition.
     """
     if _PROSE.match(buffer) or buffer.count("(") != buffer.count(")"):
         return False
