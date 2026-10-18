@@ -18,6 +18,7 @@ from usa_wa_adapter_legislature.roster_pdf.extraction import extract_pages
 from usa_wa_adapter_legislature.roster_pdf.normalize import (
     PARTY_TOKENS,
     PageWords,
+    Word,
     _has_undeclared_party_tail,
     _split_annotation,
     parse_district_pages,
@@ -430,3 +431,151 @@ def test_footer_band_still_excludes_the_printed_footer(d10_records) -> None:
         for fragment in ("Members of the Legislature, 2025", "Bold years", "- 39 -"):
             assert fragment not in r.name
             assert fragment not in (r.annotation or "")
+
+
+# ---------------------------------------------------------------------------
+# #514 — a successor whose annotation wraps below its name must not merge into its predecessor
+
+
+FIXTURE_MERGED = Path(__file__).parent / "fixtures" / "roster_pdf_merged_successors.pdf"
+
+
+@pytest.fixture(scope="module")
+def merged_records():
+    """PDF pages 26, 34, 37, 39, 69 and 81 (revision 2025-06-05). On five of them a year-less
+    successor row's annotation is vertically centred on its name, so the name line carries no
+    party token and no parenthesis. It read as furniture: the name was dropped and the
+    successor's ``(Appointed …`` and leader glued onto the predecessor's annotation. Page 37
+    carries the furniture the fix must still drop (an era-block ``Spokane`` fragment)."""
+    return parse_district_pages_reporting(extract_pages(FIXTURE_MERGED.read_bytes())).records
+
+
+def _group(records, district: int, chamber: str, year: int) -> list[tuple[str, str | None]]:
+    rows = [r for r in records if (r.district, r.chamber, r.year) == (district, chamber, year)]
+    return [(r.name, r.annotation) for r in sorted(rows, key=lambda r: r.order)]
+
+
+@pytest.mark.parametrize(
+    ("district", "chamber", "year", "expected"),
+    [
+        pytest.param(
+            8,
+            "senate",
+            1947,
+            [
+                (
+                    "J. H. Robertson",
+                    "Resigned August 24, 1949; Appointed Employment Security Commissioner)",
+                ),
+                ("W. C. Raugust", "Appointed August 25, 1949 to serve 1950 Ex. S.)"),
+            ],
+            id="ld8-raugust",
+        ),
+        pytest.param(
+            6,
+            "senate",
+            1959,
+            [
+                ("John H. Happy", "(Deceased June 21, 1962)"),
+                ("Mrs. Marjorie B. Happy", "Appointed 1962 to serve unexpired term)"),
+            ],
+            id="ld6-marjorie-happy",
+        ),
+        pytest.param(
+            18,
+            "house",
+            1987,
+            [
+                ("Linda A. Smith", "Resigned December 4, 1987; Elected to the Senate)"),
+                ("Stan Butterfield", "Appointed January 6, 1988 to serve unexpired term)"),
+                ("Joe Tanner", "Resigned December 12, 1986; Appointed to the Senate)"),
+                ("David Cooper", "Appointed December 12, 1986 to serve unexpired term)"),
+            ],
+            id="ld18-cooper",
+        ),
+        pytest.param(
+            23,
+            "senate",
+            2021,
+            [
+                (
+                    "Christine Rolfes",
+                    "Resigned August 15, 2023, Appointed to Kitsap County Commission)",
+                ),
+                (
+                    "Drew Hansen",
+                    "Appointed August 23, 2023; Sworn in Aug. 28, 2023 to serve unexpired term)",
+                ),
+            ],
+            id="ld23-hansen",
+        ),
+        pytest.param(
+            3,
+            "senate",
+            1977,
+            [
+                ("James E. Keefe", "Deceased June 15, 1979"),
+                ("Katherine Reid", "Appointed August 13, 1979"),
+                (
+                    "Margaret (Mrs. Joseph E.) Hurley",
+                    "Elected Nov. 6, 1979; Sworn in Nov. 28, 1979 to serve unexpired term",
+                ),
+            ],
+            id="ld3-hurley",
+        ),
+    ],
+)
+def test_wrapped_successor_parses_as_its_own_row(
+    merged_records, district, chamber, year, expected
+) -> None:
+    """Each successor is its own row, and its predecessor keeps only its own clause (#514).
+
+    The successor's appointment date in the predecessor's annotation is what the roster
+    backfill read as the predecessor's seating — J. H. Robertson's phantom 1949-50 span."""
+    assert _group(merged_records, district, chamber, year) == expected
+
+
+def test_no_annotation_carries_a_second_rows_clause(merged_records) -> None:
+    """The merge's signature — two parentheticals joined, or a party token mid-annotation."""
+    for r in merged_records:
+        assert ") (" not in (r.annotation or ""), r
+        assert " R " not in (r.annotation or "") and " D " not in (r.annotation or ""), r
+
+
+def test_era_block_fragment_is_still_dropped(merged_records) -> None:
+    """A county name the column split strands (``Spokane``, PDF p.37) is name-shaped but is
+    followed by a year-led row, not by its own parenthetical — it stays furniture (#514)."""
+    ld7_house_1891 = _group(merged_records, 7, "house", 1891)
+    assert ld7_house_1891 == [("Joseph W. Arrasmith", None), ("O. E. Young", None)]
+    assert not [r for r in merged_records if r.name.startswith(("Spokane", "Yakima"))]
+
+
+def _synthetic_page(lines: list[tuple[float, float, str]]) -> PageWords:
+    """One page of hand-placed lines (``top``, ``x0``, text), one word per token."""
+    words = [
+        Word(text="Senate", x0=72.0, x1=100.0, top=60.0),  # running header: the chamber
+        Word(text="DISTRICT", x0=260.0, x1=320.0, top=90.0),
+        Word(text="NO. 7", x0=325.0, x1=360.0, top=90.0),
+    ]
+    for top, x0, text in lines:
+        for i, token in enumerate(text.split()):
+            words.append(Word(text=token, x0=x0 + 6.0 * i, x1=x0 + 6.0 * i + 5.0, top=top))
+    return PageWords(page_number=1, width=612.0, words=words)
+
+
+def test_fragment_before_a_yearless_row_does_not_prefix_its_name() -> None:
+    """The guard is what follows the held line, not whether a year follows (#514): a stranded
+    fragment above a year-less successor row must not become part of that member's name."""
+    page = _synthetic_page(
+        [
+            (200.0, 81.0, "1891 Joseph W. Arrasmith ........ R"),
+            (212.0, 136.8, "Spokane"),
+            (224.0, 118.8, "O. E. Young ........ R"),
+        ]
+    )
+    report = parse_district_pages_reporting([page])
+    assert [(r.year, r.order, r.name) for r in report.records] == [
+        (1891, 1, "Joseph W. Arrasmith"),
+        (1891, 2, "O. E. Young"),
+    ]
+    assert report.unparsed == ()
