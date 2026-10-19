@@ -33,7 +33,9 @@
 # - a PROBE failure is counted — observational, runs after publish.
 #   registry_coverage (#412 PR B) gates the registry's coverage of the build, and
 #   must run AFTER the registrar: a first-seen identity is unregistered until it
-#   does. parity_citations gates that every published entity stays citable. The
+#   does. parity_citations gates that every published entity stays citable.
+#   chamber_move_departures (#518) flags a member-wide `departed` dated at a
+#   move to the other chamber, against a named allowlist. The
 #   canonical-oracle probes (parity_wsl, _pdc, _registry, _spans) retired with
 #   the canonical refreshes in #412 PR E.
 # Any counted failure exits 1 at the end so OnFailure= emails the operator.
@@ -224,7 +226,8 @@ if ! skipped usa_wa_pipeline.coverage_seed \
   failures=$((failures + 1))
 fi
 
-for probe in usa_wa_pipeline.registry_coverage usa_wa_pipeline.parity_citations; do
+for probe in usa_wa_pipeline.registry_coverage usa_wa_pipeline.parity_citations \
+    usa_wa_pipeline.chamber_move_departures; do
   if ! run_stage "$probe" $UV python -m "$probe" --db "$DB"; then
     echo "pipeline-nightly: probe failed: $probe" >&2
     failures=$((failures + 1))
