@@ -209,6 +209,13 @@ exeuntu's `container-overrides.conf` sets `LogTarget=console`, and the first
 `test_log_target_dropin.py` pins its hash, its one setting, and that `zz-` sorts
 after exeuntu's file. Re-copy it from provisioner rather than editing it here.
 
+**Still `console` after the reload? Look for a runtime override, not a bad file.**
+`systemd-analyze set-log-target` pins PID1's target through every `daemon-reload`
+until the next boot — #520's first install met exactly this, left by a 2026-10-16
+read. `sudo journalctl _PID=1 | grep 'Setting log target'` shows when it was set;
+`sudo kill -s RTMIN+26 1` (systemd(1): restore the configured target) clears it, then
+reload again. So never use `set-log-target` here, not even for a one-off read.
+
 The fourth, the SocratiCode pin, is a per-host `npm install` and is not a repo
 artifact — [docs/SOCRATICODE.md § The server is pinned](SOCRATICODE.md#the-server-is-pinned-not-installed-per-launch-389).
 
