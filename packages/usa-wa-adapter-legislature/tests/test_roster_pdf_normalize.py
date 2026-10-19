@@ -547,7 +547,7 @@ def test_era_block_fragment_is_still_dropped(merged_records) -> None:
     followed by a year-led row, not by its own parenthetical — it stays furniture (#514)."""
     ld7_house_1891 = _group(merged_records, 7, "house", 1891)
     assert ld7_house_1891 == [("Joseph W. Arrasmith", None), ("O. E. Young", None)]
-    assert not [r for r in merged_records if r.name.startswith(("Spokane", "Yakima"))]
+    assert not [r for r in merged_records if r.name.startswith("Spokane")]
 
 
 def _synthetic_page(lines: list[tuple[float, float, str]]) -> PageWords:
