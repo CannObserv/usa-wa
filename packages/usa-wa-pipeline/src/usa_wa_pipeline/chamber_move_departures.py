@@ -25,6 +25,12 @@ sworn in mid-January, so a move at a term boundary recorded as a ``departed`` on
 Jan 14 would otherwise fall outside the outgoing term and be missed, while
 closing the new span two weeks after its Jan 1 floor.
 
+**Known false-positive shapes**, none on today's events: a mid-biennium mover
+who genuinely leaves later in the same biennium (sponsor windows are
+biennium-grain), and a term-boundary mover who genuinely leaves in that
+January (the grace overlaps the two terms). A real departure in either shape
+goes in :data:`ACCEPTED`, as a mid-term successor's early-keyed row does.
+
 **Identity.** A roster row carries a printed name, so it is keyed as the
 registry keys it, ``<fold>:<first-session-year>`` with the resolver's aliases
 and splits applied. Roster and WSL keys then meet at the person registry's live
