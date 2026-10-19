@@ -210,84 +210,21 @@ heartbeat, per-dataset schema versions, tiers, the CSV dialect:
 
 ## Assignment gates (#359, #360, #363)
 
-Historical seat occupancy over conformed `assignments`: the gate, the clipping that
-drained it, and the duration check beside it.
+Historical seat occupancy over conformed `assignments`, and the duration check
+beside it.
 
-### Seat occupancy is gated (#359)
+### Seat occupancy is gated (#359, #501)
 
-`dbt/tests/assignments_seat_occupancy.sql` asserts that no two entities hold one
-`seat:*` role over overlapping validity. Nothing else did: `assignments_key`
-tests span *identity* (one tenure start per entity), which two different holders
-of one seat pass cleanly, and the retired `succession-invariants` unit scoped to
-`is_active` rows — the current cohort only, never history.
-
-The predicate lives once, in `dbt/macros/seat_overlap_pairs.sql`. Since #360
-part A the gate is a plain `error` on any pair not named in
-`dbt/seeds/accepted_seat_overlaps.csv`: one unordered span_key pair per row
-(`lo < hi`), with a category from a closed vocabulary and the roster evidence.
-The list replaced a count baseline of 35, which could mask one new conflict
-behind one repaired elsewhere. `assignments_seat_occupancy_stale.sql` warns, by
-name, on every entry that no longer overlaps, including a span re-keyed by a
-re-dating across a biennium or a person merge. `build_warnings` fails the
-stage on that warning, so it alerts every night until the entry is removed
-(the #452 shape). It skips the hermetic build, where `assignments` is empty.
-An operator event that resolves a listed pair removes the entry in the same
-change.
-
-A companion test, `assignments_seat_kinds_covered.sql`, fails if any `seat:*`
-role carries a `span_kind` the occupancy gate does not cover. The gate is scoped
-by an allow-list, and an allow-list narrows silently — a new seat family would
-be ungated with every test still green, which is how `succession-invariants`
-came to check only the current cohort without anyone noticing.
-
-### Counterpart clipping (#360)
-
-The gate first measured 91 overlaps. None were matching failures — every pair is
-two genuinely different people — and none were regressions: they predate the
-replatform, and no tier had ever checked historical occupancy.
-
-They are quantization artifacts. The operator overlay applies a dated boundary
-to **the span the event names**; the counterpart on the other side of the handoff
-keeps its biennium-derived edge, and the two overlap across the gap between them.
-`clearinghouse_domain_legislative.seat_clipping` closes that gap: where exactly
-one side of an overlap carries a dated boundary, the other side's *quantized*
-edge yields to it — a date the roster states is better evidence than a biennium
-the builder derived.
-
-Quantization is measured against **the span's own biennium**, never a Jan-1 /
-Dec-31 pattern: a span whose `valid_from` equals its `start_biennium` floor was
-put there by the builder, one that differs was dated by an event. Pattern
-matching would read a genuine December 31 resignation as a ceiling and clip a
-real boundary away.
-
-It runs in `assignment_rows`, over the **union** of every span family, for two
-reasons. One Senate seat's two holders routinely come from different builders —
-a WSL-joined incumbent and a minted pre-1991 successor — so a per-family clip is
-blind across exactly the seam the handoff crosses. And that join is the single
-door every publication path goes through, so no caller can skip the invariant.
-
-Boundaries move; **no row is dropped, added or reordered**, and no `is_active`
-flips. A clipped edge is **derived**, and is never read back as a stated date by
-a later pair on the same seat: clipping one holder's start onto a predecessor's
-dated exit and then treating that new start as evidence cascades one clip into
-the next, and collapsed Donn Charnley's LD-44 tenure to a single day in the first
-cut. No clip may leave a span without duration — `assignments_span_duration`
-(#363) asserts that independently, for the whole table.
-
-The rule refuses more than it applies, and the refusals are the interesting part
-— each is a different kind of unknown rather than a backlog of the same one. The
-counts are on the baseline comment in the gate; the shapes are: **neither side
-dated** (no stated boundary to clip to), **merged return** (the successor is nested
-inside the predecessor, whose row is therefore two tenures — usa-wa#267 — so
-clipping either side discards one of them; it needs a split), **crosses a biennium** (the roster
-listed the successor *before* the predecessor's dated exit — the sources
-contradict each other), and **both sides dated** (two stated dates that still
-overlap: the #358 shape, for adjudication).
-
-**The member axis (#282)** runs first: a member's dated seating into a new seat
-closes their old seat's quantized ceiling (Holmquist's 2006 House-to-Senate
-move), never an open one. Declined member overlaps are
-`assignments_one_seat_per_member`'s to report. Rationale: the module docstring.
+`dbt/tests/assignments_seat_occupancy.sql` asserts that no seat holds more
+principals than `role_periods` allows, in two tiers on the boundary intervals
+(#501 D7). The **certain** tier errors unless `dbt/seeds/accepted_seat_overlaps.csv`
+names the pair; `assignments_seat_occupancy_may` lists every outer-bound pair for
+the power-map cross-check and is informational in `build_warnings`;
+`assignments_seat_occupancy_stale` warns by name on a listed pair no longer
+certain. `assignments_seat_kinds_covered.sql` fails if a `seat:*` role carries a
+`span_kind` the gate does not cover — an allow-list narrows silently. The
+predicate, the tiers, capacity and the counterpart clipping that drains the gate:
+[`PIPELINE-CONFORMED.md` § Seat occupancy and clipping](PIPELINE-CONFORMED.md#seat-occupancy-and-clipping-359-360-501).
 
 ### A tenure has duration (#363)
 
@@ -308,12 +245,6 @@ check that would have caught it without anyone triaging #360.
 Short is not empty. Washington seats military substitutes for days at a time — Jon
 Wyss held LD-6 for two days in 2005 while Brad Benson was on military leave — so
 the gate asserts duration, never a minimum (#362).
-
-Party and committee roles are excluded by `span_kind` rather than by an
-exception list — they are legitimately multi-holder. One caveat if House
-coverage deepens past 1965: pre-1965 House seats were at-large, two per district
-with no Position, so a position-less `seat:house:ld-N` would legitimately carry
-two holders.
 
 ### Ported from the canonical tier (#412)
 

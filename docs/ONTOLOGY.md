@@ -24,6 +24,7 @@ versioned datasets, reads nothing back, and Power Map (PM) is one subscriber.
 | `organizations` | any non-person body, discriminated by `org_type` | registry ULID |
 | `roles` | a *named slot within* an organization — a template, not an occupancy | structural `role_key`, plus a registry ULID |
 | `assignments` | person × role × period — the binding in time | structural `span_key`; no ULID of its own |
+| `role_periods` | a role's capacity over time — how many principals it seats, and when (#501) | `(role_key, valid_from)` |
 | `person_crosswalk` / `org_crosswalk` | every natural key, the entity it binds to, and the `merged_into` tombstone | `natural_key` |
 | `org_lineage` | operator-attested committee succession edges (§3) | the edge `(subject, slug, linked)` |
 | `citations` | entity → the wire that attests it (internal tier) | `(entity_type, entity_id, source, resource_id)` |
@@ -45,12 +46,25 @@ would change the meaning of:
   `committee`, Joint/`Other` bodies as `other`.
 - `roles.role_type` — `state_senator | state_representative | party_member | committee_member`,
   gated; so are `assignments.span_kind` and `org_lineage.slug`.
+- `assignments.start_basis` / `end_basis` — `dated | derived | observed | open` (§2);
+  `assignments.membership_type` — `principal | substitute | ex_officio | acting`;
+  `role_periods.max_holders_basis` — `kind | roster`. All gated, and published as the
+  datapackage's `constraints.enum`, which makes them contract (#501 D8).
 
 **Role keys are structural** (`conformed/roles.py`, `role_for_span`). A Senate seat is
 `seat:senate:ld-N` (one per LD, `qualifier` null); a House seat is `seat:house:ld-N:position-P`
 (`qualifier` `Position 1|2`); a party slot `party-role:<slug>`; a committee seat
 `committee-member-role:<committee id>`. Identical on every run, and what a subscriber matches a
-seat on.
+seat on. `qualifier` is the seat label (Popolo's `Post` label, #362), never invented where the
+source has none.
+
+**A role has no time axis, so its capacity is its own dataset** (#362, #501 D1). One key spans
+every districting plan — `seat:senate:ld-19` seated five in 1889 and one since — so how many
+principals it holds lives in `role_periods`: dense periods per held role, `max_holders` null for no
+limit (party, committee). A period's `valid_to` is its last day, inclusive; an assignment's is a
+handoff date. Only a `principal` counts against `max_holders`: `membership_type` says how a tenure
+holds its role, and a military substitute serving while the principal is on leave is a second
+person in the seat, not a second holder of it.
 
 ### Lifecycle
 
@@ -155,6 +169,26 @@ so their span stays ghost-open; an appointee's span starts at the biennium floor
 appointment date. No wire supplies the intra-biennium date. That gap is filled by attestation, not
 by a finer-grained table — and where an attested boundary leaves its counterpart's quantized edge
 overlapping it, `seat_clipping` yields the quantized edge to the stated date (#360).
+
+### Boundary basis and interval (#369, #360 increment 2; #501 D6)
+
+Quantization is honest only if it is said. Each edge of a span carries its **basis** — where its
+date came from — set by the writer that put it there, never read back off the date (a dated event
+can land exactly on a biennium edge):
+
+| Basis | Means |
+|---|---|
+| `dated` | a source states this tenure's date: an operator event, or a parsed roster window |
+| `derived` | a rule moved the edge onto another tenure's boundary — the clip, a chamber move, a split's return. An inference, so nothing reads it back as evidence |
+| `observed` | the biennium edge of the first or last attestation, and nothing narrower |
+| `open` | the tenure is still running (an end only) |
+
+The **interval** says how precisely the edge is known: `[valid_from, valid_from_latest]` holds the
+true start, `[valid_to_earliest, valid_to]` the true end. Exact for a dated day; the attested
+biennium, clamped by the other edge, otherwise. The occupancy gate has two tiers on it: inner
+bounds that overlap are a *certain* overlap; outer bounds alone, a *may*. The intervals are
+relative to what is attested, not guaranteed: an undated successor keyed to a term-start listing
+(Kennett, 1963-64) can start after its observed interval.
 
 Because every span is recomputed nightly, a span the archive stops asserting is simply absent from
 the next version. The Postgres tier needed a sweep (`close_stale_spans`) and tombstones for that;
@@ -272,6 +306,10 @@ a `role_for_span` branch (its role key), a family in `conformed.spans` that owns
 **4. Is it a scalar attribute of an existing entity?** → a **column** on that conformed dataset,
 with a new `ContractRelease` in `publish.PUBLISHED_DATASETS` (additive = minor). Precedent:
 `organizations.active` (#428, 1.1.0), whose meaning later narrowed under a minor bump (#447, 1.2.0).
+A closed vocabulary is a column too, declared three times and pinned together: the Layer 2
+constant, the dbt `accepted_values`, and the datapackage's `constraints.enum` (a `FieldDoc` in
+`publish.py`) — precedent `assignments.membership_type` (#501, 1.8.0). A value that varies over time
+on one key is not a column on a template: it is a periodised dataset, as `role_periods` is.
 
 **5. Otherwise — is it a genuinely new entity with its own identity and lifecycle?** → a
 **dataset**: a staging model per source, a registry kind if it needs a stable ULID across

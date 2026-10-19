@@ -28,7 +28,8 @@ publication probe. The nightly systemd chain (`scripts/pipeline-nightly.sh`,
 (`registry_coverage`, `parity_citations`, then `chamber_move_departures`, #518); any counted failure exits 1 so `OnFailure=` emails
 the operator, with each failed stage's summary line restated last (#331). `build_warnings`
 (#412 PR E) fails the run on any dbt `warn`, which `dbt build` alone exits 0 on, except one
-named in `ACCEPTED_WARNINGS` for the rollover window (#452);
+named in `ACCEPTED_WARNINGS` for the rollover window (#452) or in `INFORMATIONAL_NODES` — the
+occupancy may tier, a listing that is never empty (#501), counted and never failing;
 `coverage_seed` reconciles each adapter's declared coverage claims into `/sources` (#180).
 `USA_WA_JOB_LEDGER=0` outside a rehearsal is counted too: it blinds `/health/jobs` (#135).
 `PIPELINE_NIGHTLY_REHEARSAL` runs the same chain against scratch roots with the registrar,
@@ -41,7 +42,7 @@ tier is published rather than inferred:
 | Tier | Datasets | Contract |
 |---|---|---|
 | `staging` | `stg_*` | The triage/lineage surface — one row per wire, source coordinates attached |
-| `conformed` | `persons`, `organizations`, `roles`, `assignments`, `org_lineage`, the crosswalks | The subscriber contract; schema-stable, semver'd |
+| `conformed` | `persons`, `organizations`, `roles`, `assignments`, `role_periods`, `org_lineage`, the crosswalks | The subscriber contract; schema-stable, semver'd |
 | `internal` | `citations` | Published bytes, no stability promise; its columns follow the API, not consumers |
 
 A fourth tier, `cutover`, held one dataset — `pm_anchors`, the PM crosswalk
@@ -111,10 +112,22 @@ disagree on purpose: the catalog says what the parents are now, the datapackage
 what that version was built from.
 
 The gate is enforced one way — a contract change requires a bump — and not as an
-"if and only if". The published fields are `{name, type}` with no descriptions,
-so a semantics-only change (a column re-derived, its meaning shifted, its type
-unmoved) has no fingerprint to move; demanding the iff would forbid the honest
-major. A bump with no shape change is allowed, and re-mints.
+"if and only if". A semantics-only change (a column re-derived, its meaning
+shifted, its type unmoved) has no fingerprint to move; demanding the iff would
+forbid the honest major. A bump with no shape change is allowed, and re-mints.
+
+**Fields carry their meaning** (#501 D8). A `PublishedDataset` declares a
+`FieldDoc` per column: a Frictionless `description`, and for a closed vocabulary
+its `constraints.enum`. The description is prose and stays **out** of the
+fingerprint, so documenting a dataset moves no hash — but it reaches the wire only
+when the dataset next mints, since an unchanged one keeps its version dir. The
+enum is contract, and enters the fingerprint **only where declared**: no
+undocumented dataset's hash moved, and a later change to a declared enum does
+move it. Declared enums: `assignments.start_basis` / `end_basis` /
+`membership_type` and `role_periods.max_holders_basis`, each pinned to its Python
+constant and its dbt `accepted_values` by `test_published_contracts.py`. An enum
+on a standing column (`roles.role_type`) would move a hash no bump accompanies,
+which the publisher refuses — so it stays prose there.
 
 **`contract_hash` ships beside `schema_version`** in both the datapackage and
 the catalog entry. It answers the question a consumer actually asks — "is this
