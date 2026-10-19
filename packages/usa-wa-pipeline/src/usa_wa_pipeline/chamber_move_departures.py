@@ -274,13 +274,13 @@ def run_probe(
 ) -> JobResult:
     """Find the hits and gate them against ``accepted``. Pure: the job does the reads."""
     departures = [e for e in events if e.kind == KIND_DEPARTED]
-    for empty, reason in (
-        (not staging["roster"], "empty_roster_rows"),
-        (not staging["sponsors"], "empty_sponsors"),
-        (not departures, "no_departures"),
+    for empty, reason, event in (
+        (not staging["roster"], "empty_roster_rows", "chamber_move_departures_empty_roster_rows"),
+        (not staging["sponsors"], "empty_sponsors", "chamber_move_departures_empty_sponsors"),
+        (not departures, "no_departures", "chamber_move_departures_no_departures"),
     ):
         if empty:
-            logger.warning(f"chamber_move_departures_{reason}")
+            logger.warning(event)
             return JobResult.degraded({reason: True})
 
     windows = evidence_windows(staging["roster"], staging["sponsors"])
