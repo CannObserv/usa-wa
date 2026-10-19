@@ -255,7 +255,7 @@ bash skills/patching-hosts/scripts/read-knob.sh --host "$(hostname)"   # finding
 **After a run that upgrades `systemd`,** which re-executes PID1, read
 `systemd-analyze get-log-target`: a re-exec with the #520 drop-in in place is
 unmeasured (CannObserv/provisioner#67). `journal-or-kmsg` is the pass; `console`
-is a finding for provisioner#62.
+is a finding: reopen provisioner#62 with the reading.
 
 ## Secrets on disk (#434)
 
