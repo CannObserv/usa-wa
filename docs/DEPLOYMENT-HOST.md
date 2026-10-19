@@ -188,6 +188,27 @@ journald's default 10% of the filesystem (~2.5 G here) and had drifted to 695 M
 before #394. The cap is why `usa-wa-disk-gc.service` does not vacuum the journal
 and therefore needs no privilege.
 
+A sixth landed with #520 — PID1's log target, so systemd's own `Started` /
+`Failed with result` / `Deactivated successfully` lines stay in `journalctl -u`:
+
+```bash
+# daemon-reload re-reads every unit too, so before touching /etc: each copy matches (silent), no nightly in flight
+for f in deploy/*.service deploy/*.timer; do diff -q "$f" /etc/systemd/system/; done
+diff -q deploy/system.slice.d/10-usa-wa-memory.conf /etc/systemd/system/system.slice.d/
+systemctl is-active usa-wa-pipeline.service     # inactive or failed — never active/activating
+sudo install -D -m 0644 deploy/system.conf.d/zz-cannobserv-log-target.conf /etc/systemd/system.conf.d/zz-cannobserv-log-target.conf
+sudo systemctl daemon-reload
+systemd-analyze get-log-target                  # journal-or-kmsg
+# revert: sudo rm /etc/systemd/system.conf.d/zz-cannobserv-log-target.conf && sudo systemctl daemon-reload
+```
+
+exeuntu's `container-overrides.conf` sets `LogTarget=console`, and the first
+`daemon-reload` after boot applies it: until the next boot PID1 writes only to
+`hvc0`. The file is CannObserv/provisioner#62's, byte for byte from its image at
+`d2bdd36` — the `#62` in its comment is provisioner's issue, not ours — and
+`test_log_target_dropin.py` pins its hash, its one setting, and that `zz-` sorts
+after exeuntu's file. Re-copy it from provisioner rather than editing it here.
+
 The fourth, the SocratiCode pin, is a per-host `npm install` and is not a repo
 artifact — [docs/SOCRATICODE.md § The server is pinned](SOCRATICODE.md#the-server-is-pinned-not-installed-per-launch-389).
 
@@ -230,6 +251,11 @@ sudo install -m 644 deploy/apt-preferences.d/tailscale.pref /etc/apt/preferences
 apt-cache policy tailscale       # candidate at 600; the site's release lines at 100
 bash skills/patching-hosts/scripts/read-knob.sh --host "$(hostname)"   # findings: []
 ```
+
+**After a run that upgrades `systemd`,** which re-executes PID1, read
+`systemd-analyze get-log-target`: a re-exec with the #520 drop-in in place is
+unmeasured (CannObserv/provisioner#67). `journal-or-kmsg` is the pass; `console`
+is a finding: reopen provisioner#62 with the reading.
 
 ## Secrets on disk (#434)
 
