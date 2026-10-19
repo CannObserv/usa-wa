@@ -166,7 +166,8 @@ NULL) degrades the job, named in `malformed_sponsor_ids`. **WSL keys only**
 (decided 2026-09-23): a roster key (`usa_wa_legislature_roster:<fold>:<year>`)
 is built by us from a name, so a parser or fold change would mint a published
 duplicate — it stays pair-only, and drift surfaces as an unregistered span in
-`registry-coverage`, for adjudication. A PDC id is a crosswalk key on a WSL person, never a standalone
+`registry-coverage`, for adjudication: `move` onto the existing person, or
+`register` a genuinely new one (#514). A PDC id is a crosswalk key on a WSL person, never a standalone
 one. Like a new seat or committee, a new legislator publishes one build after
 the one that first stages them (`dbt build → registrar → publish`);
 `registry-coverage` re-reads the registry after the registrar, so that lag never
@@ -175,8 +176,10 @@ trips it.
 ```bash
 # Nightly: cluster proposed_links and apply the decision table (dry-run first)
 uv run python -m usa_wa_pipeline.registrar --db data/pipeline.duckdb [--dry-run]
-# Human corrections (merge/move), each with a mandatory recorded note
+# Human corrections (merge/move/register), each with a mandatory recorded note
 uv run python -m usa_wa_pipeline.adjudicate merge --kind person --loser <ULID> --survivor <ULID> --note "…"
+# A new roster-only person (the registrar never mints a roster key); prints the ULID
+uv run python -m usa_wa_pipeline.adjudicate register --kind person --key <reported key> --note "…"
 # A WRONG merge is corrected by unmerge (a reverse merge is refused — it would
 # cycle the tombstones and drop both entities from conformed). Two steps, in
 # THIS order (`move` refuses a tombstoned destination, so the revive comes

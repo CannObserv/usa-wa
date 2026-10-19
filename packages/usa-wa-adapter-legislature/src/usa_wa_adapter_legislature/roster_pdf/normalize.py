@@ -116,12 +116,40 @@ def _row_awaiting_leader(buffer: str) -> bool:
     the old silent drop — the corpus's one particle name carries its leader inline and never
     reaches this path, and the seat-gap sweep is the detector if a future edition changes that
     (CR #79).
+
+    A **year-less** buffer qualifies too, under :func:`_successor_awaiting_annotation` (#514).
     """
     match = _LEADING_YEAR.match(buffer)
     if match is None:
-        return False
-    tokens = match.group("rest").split()
+        return _successor_awaiting_annotation(buffer)
+    return _name_shaped(match.group("rest"))
+
+
+def _name_shaped(text: str) -> bool:
+    """Every token opens with an uppercase letter, a quote or a parenthesis (see above)."""
+    tokens = text.split()
     return bool(tokens) and all(t[0].isupper() or t[0] in "“”\"'(" for t in tokens)
+
+
+def _successor_awaiting_annotation(buffer: str) -> bool:
+    """A year-less successor row whose own annotation and leader wrap below its name (#514).
+
+    A mid-term successor is listed under its predecessor's year with no year of its own, and
+    when its annotation wraps the source vertically centres it on the name: the name line
+    carries neither a party token nor an opening parenthesis, and its ``(Appointed …`` opens on
+    the next line. Read as furniture, the name was dropped and the successor's annotation and
+    leader glued onto the predecessor — W. C. Raugust's 1949 appointment published as J. H.
+    Robertson's seating, and Marjorie B. Happy absent from the roster entirely.
+
+    Prose and a closing-parenthesis tail are a predecessor's wrapped annotation, never a name.
+    Era-block fragments the column split strands (``Spokane``) are name-shaped too; they are
+    told apart by what follows, which :func:`_parse_column` checks (a successor's next line
+    opens its own parenthetical or leader). One that ends a column has no next line there, so
+    it is reported in ``unparsed`` rather than dropped — 0 such lines in the 2025 edition.
+    """
+    if _PROSE.match(buffer) or buffer.count("(") != buffer.count(")"):
+        return False
+    return _name_shaped(buffer)
 
 
 #: The centred chamber banners that open a district's Senate and House blocks. A district's two
@@ -412,6 +440,12 @@ def _parse_column(
         text = _text(line)
         if not text:
             continue
+        if _successor_awaiting_annotation(buffer) and not text.startswith(("(", ".")):
+            # The held name-shaped line was not a successor row: its next line opens neither
+            # its own parenthetical nor its leader, so it is furniture (an era-block fragment
+            # the column split stranded). Drop it, as before #514, and read this line afresh.
+            buffer = ""
+            carried = 0
         if not buffer:
             buffer_top = line_top
         buffer = f"{buffer} {text}".strip() if buffer else text

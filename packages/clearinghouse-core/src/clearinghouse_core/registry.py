@@ -101,7 +101,7 @@ class RegistryKey(Base):
 
 
 class RegistryAdjudication(Base):
-    """A human identity decision — the only path that moves or merges.
+    """A human identity decision — the only path that moves, merges or registers (#514).
 
     Written by :mod:`usa_wa_pipeline.adjudicate`.
     """
@@ -111,7 +111,7 @@ class RegistryAdjudication(Base):
 
     id: Mapped[_PyULID] = mapped_column(ULID(), primary_key=True, default=_new_ulid)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
-    action: Mapped[str] = mapped_column(String(16), nullable=False)  # merge | unmerge | move
+    action: Mapped[str] = mapped_column(String(16), nullable=False)  # merge|unmerge|move|register
     # FK-backed (#302 CR): the only ledger that moves identity must not be
     # able to reference an entity that does not exist (entities are never
     # deleted, so the constraint costs nothing)

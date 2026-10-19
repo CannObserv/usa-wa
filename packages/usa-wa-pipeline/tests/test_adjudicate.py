@@ -1,4 +1,4 @@
-"""The adjudication CLI's core (#308): merge + move, each leaving a record."""
+"""The adjudication CLI's core (#308): merge, move, unmerge, register (#514) — each recorded."""
 
 from types import SimpleNamespace
 
@@ -6,8 +6,10 @@ import pytest
 from sqlalchemy import select
 
 from clearinghouse_core.registry import (
+    KIND_ORG,
     KIND_PERSON,
     RegistryAdjudication,
+    RegistryKey,
     apply_decision,
     decide,
     registered_view,
@@ -16,6 +18,7 @@ from usa_wa_pipeline.adjudicate import (
     _adjudicate_job,
     adjudicate_merge,
     adjudicate_move,
+    adjudicate_register,
     adjudicate_unmerge,
 )
 
@@ -187,9 +190,138 @@ async def test_unmerge_cli_reports_the_inventory(db_session, monkeypatch) -> Non
             survivor=None,
             key=None,
             to_entity=None,
+            distinct_person=False,
         ),
         require_session=lambda: db_session,
     )
     result = await _adjudicate_job(ctx)
     assert result.counters["action"] == "unmerge"
     assert result.counters["keys_moved_away"] == ["roster:x:1901"]
+
+
+# ---------------------------------------------------------------------------
+# #514 — register: the one path that mints an entity for a key the registrar won't
+
+
+_NEW_ROSTER_KEY = "usa_wa_legislature_roster:marjoriebhappy:1959"
+
+
+async def test_register_mints_one_entity_for_an_unregistered_key(db_session) -> None:
+    """A roster key is pair-only (the registrar never mints one), so a parser fix that
+    surfaces a new roster-only person needs a recorded human decision to bind it."""
+    entity = await adjudicate_register(
+        db_session, KIND_PERSON, natural_key=_NEW_ROSTER_KEY, note="roster p.34, #514"
+    )
+    view = await registered_view(db_session, KIND_PERSON)
+    assert view[_NEW_ROSTER_KEY] == entity
+    row = (
+        await db_session.execute(
+            select(RegistryAdjudication).where(RegistryAdjudication.action == "register")
+        )
+    ).scalar_one()
+    assert str(row.target_entity_id) == entity
+    assert row.subject_entity_id is None
+    assert row.natural_key == _NEW_ROSTER_KEY
+    assert "#514" in row.note
+    key = (
+        await db_session.execute(
+            select(RegistryKey).where(RegistryKey.natural_key == _NEW_ROSTER_KEY)
+        )
+    ).scalar_one()
+    assert key.registered_by == f"adjudication:{row.id}"
+
+
+async def test_register_refuses_a_registered_key(db_session) -> None:
+    """A bound key is re-pointed with move, never re-minted — a second entity would be a
+    published duplicate the registry has no delete for."""
+    await adjudicate_register(db_session, KIND_PERSON, natural_key=_NEW_ROSTER_KEY, note="once")
+    with pytest.raises(ValueError, match="already registered"):
+        await adjudicate_register(db_session, KIND_PERSON, natural_key=_NEW_ROSTER_KEY, note="dup")
+
+
+async def test_register_cli_reports_the_minted_entity(db_session) -> None:
+    """The operator needs the new ULID (a seed row names the span_key it starts)."""
+    ctx = SimpleNamespace(
+        args=SimpleNamespace(
+            verb="register",
+            kind=KIND_PERSON,
+            note="roster p.34",
+            entity=None,
+            loser=None,
+            survivor=None,
+            key=_NEW_ROSTER_KEY,
+            to_entity=None,
+            distinct_person=False,
+        ),
+        require_session=lambda: db_session,
+    )
+    result = await _adjudicate_job(ctx)
+    view = await registered_view(db_session, KIND_PERSON)
+    assert result.counters == {"action": "register", "entity": view[_NEW_ROSTER_KEY]}
+
+
+async def test_register_refuses_a_fold_registered_under_another_year(db_session) -> None:
+    """CR 1: a roster key is ``<fold>:<first year>``, so a parse change that surfaces an
+    earlier row re-keys a known person. Minting would publish a duplicate — move instead."""
+    a = await apply_decision(
+        db_session,
+        KIND_PERSON,
+        decide(frozenset({"usa_wa_legislature_roster:wcraugust:1951"}), {}),
+        registered_by="test",
+    )
+    with pytest.raises(ValueError, match="wcraugust:1951"):
+        await adjudicate_register(
+            db_session,
+            KIND_PERSON,
+            natural_key="usa_wa_legislature_roster:wcraugust:1943",
+            note="re-keyed",
+        )
+    entity = await adjudicate_register(
+        db_session,
+        KIND_PERSON,
+        natural_key="usa_wa_legislature_roster:wcraugust:1943",
+        note="a namesake, adjudicated distinct",
+        distinct_person=True,
+    )
+    assert entity != a
+
+
+@pytest.mark.parametrize(
+    ("kind", "key"),
+    [
+        pytest.param(KIND_PERSON, "usa_wa_legislature:12345", id="wsl-key-is-the-registrars"),
+        pytest.param(KIND_PERSON, "usa_wa_legislature_roster:marjoriebhappy", id="no-year"),
+        pytest.param(KIND_PERSON, "usa_wa_legislature_roster:Marjorie B Happy:1959", id="unfolded"),
+        pytest.param(KIND_PERSON, "usa_wa_legislature_roster:drewhansen:2023", id="wsl-era-year"),
+        pytest.param(KIND_ORG, "usa_wa_legislature_roster:marjoriebhappy:1959", id="org-kind"),
+    ],
+)
+async def test_register_refuses_any_key_but_a_pre_floor_roster_person(
+    db_session, kind, key
+) -> None:
+    """CR 9: ``persons`` publishes one row per live entity, so a mistyped or out-of-scope key
+    would publish a nameless person the registry cannot delete. register exists for the one
+    key shape the registrar declines — a minted pre-1991 roster person — and nothing else."""
+    with pytest.raises(ValueError, match="register mints only"):
+        await adjudicate_register(db_session, kind, natural_key=key, note="n")
+
+
+@pytest.mark.parametrize("verb", ["merge", "move", "unmerge"])
+async def test_distinct_person_is_refused_outside_register(db_session, verb) -> None:
+    """CR 11: a flag a verb ignores reads as if it took effect."""
+    ctx = SimpleNamespace(
+        args=SimpleNamespace(
+            verb=verb,
+            kind=KIND_PERSON,
+            note="n",
+            entity=None,
+            loser=None,
+            survivor=None,
+            key=None,
+            to_entity=None,
+            distinct_person=True,
+        ),
+        require_session=lambda: db_session,
+    )
+    with pytest.raises(SystemExit, match="--distinct-person"):
+        await _adjudicate_job(ctx)
