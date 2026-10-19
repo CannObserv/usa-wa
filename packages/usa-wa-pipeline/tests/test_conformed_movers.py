@@ -53,6 +53,12 @@ def _vacated_house(member_id: str = "18265", on: date = SEATED_SENATE, seat: str
     return SuccessionEvent(member_id, "vacated", on, KIND_HOUSE, seat)
 
 
+def _implied(event: SuccessionEvent) -> SuccessionEvent:
+    """``event`` as the carry implies it: its date is another tenure's boundary, so every
+    edge it closes is ``derived`` (usa-wa#501 correction 6)."""
+    return replace(event, basis="derived")
+
+
 def _seated_house(member_id: str, on: date, seat: str = SEAT) -> SuccessionEvent:
     return SuccessionEvent(member_id, "seated", on, KIND_HOUSE, seat)
 
@@ -131,7 +137,7 @@ def test_the_house_tenure_carries_into_the_move_biennium_and_closes_on_the_move(
     it continues (one span, its key unchanged), and closed by an implied vacate."""
     observations, implied = carry_mover_house_tenures([_prior_observation()], [MOVE], [])
     assert Observation("18265", KIND_HOUSE, SEAT, MOVE_BIENNIUM) in observations
-    assert implied == [_vacated_house()]
+    assert implied == [_implied(_vacated_house())]
 
 
 def test_a_successors_earlier_seating_ends_the_house_tenure() -> None:
@@ -141,14 +147,14 @@ def test_a_successors_earlier_seating_ends_the_house_tenure() -> None:
     a one-day both-dated overlap the #360 clip must decline."""
     successor = _seated_house("17373", date(2020, 5, 12))
     _, implied = carry_mover_house_tenures([_prior_observation()], [MOVE], [successor])
-    assert implied == [_vacated_house(on=date(2020, 5, 12))]
+    assert implied == [_implied(_vacated_house(on=date(2020, 5, 12)))]
 
 
 def test_a_successor_seated_on_the_floor_does_not_end_the_tenure() -> None:
     """A seating on the biennium's first day is a fresh term, not a mid-term vacancy."""
     successor = _seated_house("17373", date(2019, 1, 1))
     _, implied = carry_mover_house_tenures([_prior_observation()], [MOVE], [successor])
-    assert implied == [_vacated_house()]
+    assert implied == [_implied(_vacated_house())]
 
 
 def test_an_explicit_vacate_needs_no_implied_one() -> None:
@@ -181,7 +187,7 @@ def test_the_ballot_seat_wins_over_the_prior_seat() -> None:
     move = replace(MOVE, ballot_seat="ld-38-position-2")
     observations, implied = carry_mover_house_tenures([_prior_observation()], [move], [])
     assert Observation("18265", KIND_HOUSE, "ld-38-position-2", MOVE_BIENNIUM) in observations
-    assert implied == [_vacated_house(seat="ld-38-position-2")]
+    assert implied == [_implied(_vacated_house(seat="ld-38-position-2"))]
 
 
 def test_a_ballot_positioned_mover_needs_no_prior_seat() -> None:
@@ -189,7 +195,7 @@ def test_a_ballot_positioned_mover_needs_no_prior_seat() -> None:
     move = replace(MOVE, ballot_seat=SEAT)
     observations, implied = carry_mover_house_tenures([], [move], [])
     assert observations == [Observation("18265", KIND_HOUSE, SEAT, MOVE_BIENNIUM)]
-    assert implied == [_vacated_house()]
+    assert implied == [_implied(_vacated_house())]
 
 
 def test_no_prior_seat_is_assumed_across_a_redistricting_era(caplog) -> None:
@@ -230,7 +236,7 @@ def test_a_successors_seating_names_the_seat_of_an_unpositioned_mover() -> None:
     rodne = _seated_house("9710", date(2004, 1, 20), seat=RODNE_SEAT)
     observations, implied = carry_mover_house_tenures([], [PFLUG], [rodne])
     assert observations == [Observation("3479", KIND_HOUSE, RODNE_SEAT, "2003-04")]
-    assert implied == [_pflug_vacated()]
+    assert implied == [_implied(_pflug_vacated())]
 
 
 def test_the_carried_log_names_what_positioned_the_seat(caplog) -> None:
@@ -246,7 +252,7 @@ def test_a_successor_seated_before_the_move_still_dates_the_end() -> None:
     """The successor names the seat AND, seated first, proves the vacancy came first."""
     early = _seated_house("9710", date(2004, 1, 2), seat=RODNE_SEAT)
     _, implied = carry_mover_house_tenures([], [PFLUG], [early])
-    assert implied == [_pflug_vacated(on=date(2004, 1, 2))]
+    assert implied == [_implied(_pflug_vacated(on=date(2004, 1, 2)))]
 
 
 def test_a_seating_elsewhere_names_no_seat() -> None:
@@ -373,6 +379,23 @@ AGENCIES = {
     (MOVE_BIENNIUM, "36500"): "Joint",
     (PRIOR, "8221"): "House",
 }
+
+
+def test_an_implied_vacate_is_derived() -> None:
+    """The member's Senate seating dates their House exit only by inference: one member,
+    one seat. A stated date would let the clip read it back as evidence (#501 D6)."""
+    _, implied = carry_mover_house_tenures([_prior_observation()], [MOVE], [])
+    assert [e.basis for e in implied] == ["derived"]
+
+
+def test_a_mover_redated_committee_is_derived_on_both_edges() -> None:
+    house = _committee(
+        "12167", start="2015-16", end=MOVE_BIENNIUM, frm=date(2015, 1, 1), to=date(2020, 12, 31)
+    )
+    senate = _committee("456", start=MOVE_BIENNIUM, end="2025-26", frm=date(2019, 1, 1), to=None)
+    [closed, opened] = date_mover_committees([house, senate], [MOVE], AGENCIES, house_spans=[])
+    assert (closed.start_basis, closed.end_basis) == ("observed", "derived")
+    assert (opened.start_basis, opened.end_basis) == ("derived", "open")
 
 
 def test_house_committees_end_and_senate_committees_begin_on_the_move() -> None:

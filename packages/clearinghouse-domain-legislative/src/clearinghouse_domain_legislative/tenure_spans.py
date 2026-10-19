@@ -44,8 +44,19 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import date
 
+from clearinghouse_domain_legislative.boundary_basis import (
+    BASIS_DATED,
+    BASIS_OBSERVED,
+    BASIS_OPEN,
+    BOUNDARY_BASES,
+    START_BASES,
+)
+from clearinghouse_domain_legislative.membership_types import (
+    MEMBERSHIP_PRINCIPAL,
+    MEMBERSHIP_TYPES,
+)
 from clearinghouse_domain_legislative.span_kinds import KIND_PARTY
-from clearinghouse_domain_legislative.terms import parse_biennium
+from clearinghouse_domain_legislative.terms import biennium_start_date, parse_biennium
 
 
 @dataclass(frozen=True)
@@ -62,7 +73,16 @@ class Observation:
 @dataclass(frozen=True)
 class TenureSpan:
     """A merged, contiguous tenure with resolved validity bounds. ``valid_to`` is ``None``
-    (and ``is_active`` True) when the span reaches the current biennium."""
+    (and ``is_active`` True) when the span reaches the current biennium.
+
+    **Each edge carries its basis** (usa-wa#501 D6, :mod:`.boundary_basis`): the writer
+    that puts an edge somewhere says where its date came from. The defaults are the
+    builder's own — an observed start, and an end that is observed or, with no
+    ``valid_to``, open — so a writer that MOVES an edge must restate its basis; a
+    ``replace`` that opens a closed span without doing so is refused here, at the
+    write. ``membership_type`` (#501 D5) says how the tenure holds its role; only a
+    principal counts toward a seat's capacity.
+    """
 
     member_id: str
     kind: str
@@ -72,12 +92,68 @@ class TenureSpan:
     valid_from: date
     valid_to: date | None
     is_active: bool
+    start_basis: str = BASIS_OBSERVED
+    #: ``None`` only as a constructor default: resolved to ``open`` or ``observed``.
+    end_basis: str | None = None
+    membership_type: str = MEMBERSHIP_PRINCIPAL
+
+    def __post_init__(self) -> None:
+        if self.end_basis is None:
+            default = BASIS_OPEN if self.valid_to is None else BASIS_OBSERVED
+            object.__setattr__(self, "end_basis", default)
+        if self.start_basis not in START_BASES:
+            raise ValueError(f"start_basis {self.start_basis!r} is not one of {START_BASES}")
+        if self.end_basis not in BOUNDARY_BASES:
+            raise ValueError(f"end_basis {self.end_basis!r} is not one of {BOUNDARY_BASES}")
+        if (self.end_basis == BASIS_OPEN) != (self.valid_to is None):
+            raise ValueError(
+                f"end_basis {self.end_basis!r} with valid_to {self.valid_to}: an end is "
+                "open exactly when valid_to is null"
+            )
+        if self.membership_type not in MEMBERSHIP_TYPES:
+            raise ValueError(
+                f"membership_type {self.membership_type!r} is not one of {MEMBERSHIP_TYPES}"
+            )
+
+    @property
+    def valid_from_latest(self) -> date:
+        """The latest the true start can be: ``[valid_from, valid_from_latest]`` holds it.
+
+        Exact for a dated day. An observed start was first attested somewhere in its
+        start biennium, and a derived one (moved onto another tenure's boundary) is no
+        earlier than the moved date; either way the bound is that biennium's last day,
+        clamped by the span's own end (#501 D6)."""
+        if self.start_basis == BASIS_DATED:
+            return self.valid_from
+        ceiling = biennium_end_date(self.start_biennium)
+        bound = ceiling if self.valid_to is None else min(ceiling, self.valid_to)
+        return max(self.valid_from, bound)
+
+    @property
+    def valid_to_earliest(self) -> date | None:
+        """The earliest the true end can be: ``[valid_to_earliest, valid_to]`` holds it;
+        ``None`` while the tenure is open.
+
+        The mirror of :attr:`valid_from_latest`: exact for a dated day, else the end
+        biennium's first day, clamped by the span's own start — and, for a derived end,
+        never later than the moved date itself."""
+        if self.valid_to is None:
+            return None
+        if self.end_basis == BASIS_DATED:
+            return self.valid_to
+        floor = max(biennium_start_date(self.end_biennium), self.valid_from)
+        return min(self.valid_to, floor)
 
     @property
     def source_id(self) -> str:
         """Deterministic Assignment ``source_id`` — keyed on the tenure start so re-runs are
         idempotent (an extending span keeps its id; a post-gap tenure gets a new one)."""
         return f"{self.member_id}:{self.kind}:{self.discriminator}:{self.start_biennium}"
+
+
+def biennium_end_date(label: str) -> date:
+    """December 31 of ``label``'s second year — the ceiling a closed span sits on."""
+    return date(parse_biennium(label)[1], 12, 31)
 
 
 def _consecutive_runs(ordered: list[str]) -> list[list[str]]:
@@ -121,8 +197,10 @@ def build_tenure_spans(
                     start_biennium=start,
                     end_biennium=end,
                     valid_from=date(parse_biennium(start)[0], 1, 1),
-                    valid_to=None if reaches_current else date(parse_biennium(end)[1], 12, 31),
+                    valid_to=None if reaches_current else biennium_end_date(end),
                     is_active=reaches_current,
+                    start_basis=BASIS_OBSERVED,
+                    end_basis=BASIS_OPEN if reaches_current else BASIS_OBSERVED,
                 )
             )
     spans.sort(key=lambda s: (s.member_id, s.kind, s.discriminator, s.start_biennium))
@@ -219,14 +297,19 @@ def _extend(run: TenureSpan, later: TenureSpan) -> TenureSpan:
 
     ``valid_from`` and ``start_biennium`` are the run's, untouched by ``replace``
     — taken together, which is what keys the merged span on its earliest-dated
-    start without misdating it.
+    start without misdating it. So is ``start_basis``; the end's basis is the
+    basis of whichever side supplied the end (usa-wa#501 D6).
     """
     is_active = run.is_active or later.is_active
+    if is_active:
+        valid_to, end_basis = None, BASIS_OPEN
+    else:
+        last = max((run, later), key=lambda s: s.valid_to or date.max)
+        valid_to, end_basis = last.valid_to, last.end_basis
     return replace(
         run,
         end_biennium=max(run.end_biennium, later.end_biennium, key=lambda b: parse_biennium(b)[0]),
-        valid_to=None
-        if is_active
-        else max(filter(None, (run.valid_to, later.valid_to)), default=None),
+        valid_to=valid_to,
         is_active=is_active,
+        end_basis=end_basis,
     )

@@ -5,6 +5,9 @@ from datetime import date
 import pytest
 
 from clearinghouse_domain_legislative.seat_clipping import (
+    UNCLIPPED_MULTI_HOLDER_PERIOD,
+    UNCLIPPED_NEITHER_DATED,
+    CapacityPeriod,
     clip_seat_counterparts,
     clip_seat_families,
 )
@@ -14,10 +17,35 @@ from clearinghouse_domain_legislative.span_kinds import (
     KIND_PARTY,
     KIND_SENATE,
 )
-from clearinghouse_domain_legislative.tenure_spans import TenureSpan
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan, biennium_end_date
+from clearinghouse_domain_legislative.terms import biennium_start_date
 
 
-def _span(member, *, start, end, frm, to, kind=KIND_SENATE, disc="4", active=False):
+def _span(
+    member,
+    *,
+    start,
+    end,
+    frm,
+    to,
+    kind=KIND_SENATE,
+    disc="4",
+    active=False,
+    start_basis=None,
+    end_basis=None,
+    membership_type="principal",
+):
+    """A span whose basis, unless stated, is what its geometry would have said before
+    #501: an edge off its own biennium edge was dated by an event. That reading is the
+    fixture's convenience only — the clip reads the basis, and the cases in
+    :class:`TestBasisNotGeometry` state one that disagrees with the geometry."""
+    if start_basis is None:
+        start_basis = "observed" if frm == biennium_start_date(start) else "dated"
+    if end_basis is None:
+        if to is None:
+            end_basis = "open"
+        else:
+            end_basis = "observed" if to == biennium_end_date(end) else "dated"
     return TenureSpan(
         member_id=member,
         kind=kind,
@@ -27,6 +55,9 @@ def _span(member, *, start, end, frm, to, kind=KIND_SENATE, disc="4", active=Fal
         valid_from=frm,
         valid_to=to,
         is_active=active,
+        start_basis=start_basis,
+        end_basis=end_basis,
+        membership_type=membership_type,
     )
 
 
@@ -566,3 +597,144 @@ class TestMemberMove:
         )
         out, _ = clip_seat_counterparts([house, other]).spans
         assert out.valid_to == date(2006, 12, 31)
+
+
+class TestBasisNotGeometry:
+    """usa-wa#501 D4: "stated" reads the span's basis, never its date's geometry."""
+
+    def test_a_dated_seating_on_the_floor_is_stated(self):
+        """Pair #3, LD-15: Woodall's real `seated 1957-01-01` lands on his biennium's
+        floor. Read geometrically it was quantized, and the pair sat in `neither_dated`
+        (#501 correction 5); read by basis, Flanagan closes at it."""
+        flanagan = _span(
+            "flanagan", start="1943-44", end="1957-58", frm=date(1943, 1, 1), to=date(1958, 12, 31)
+        )
+        woodall = _span(
+            "woodall",
+            start="1957-58",
+            end="1957-58",
+            frm=date(1957, 1, 1),
+            to=date(1958, 12, 31),
+            start_basis="dated",
+        )
+        result = clip_seat_counterparts([flanagan, woodall])
+        out = _by_member(result)
+        assert out["flanagan"].valid_to == date(1957, 1, 1)
+        assert out["flanagan"].end_basis == "derived"
+        assert result.unclipped == ()
+
+    def test_a_derived_start_off_its_floor_is_no_evidence(self):
+        pred = _span(
+            "a", start="1897-98", end="1897-98", frm=date(1897, 1, 1), to=date(1898, 12, 31)
+        )
+        succ = _span(
+            "b",
+            start="1897-98",
+            end="1903-04",
+            frm=date(1897, 8, 25),
+            to=date(1904, 12, 31),
+            start_basis="derived",
+        )
+        result = clip_seat_counterparts([pred, succ])
+        assert [u.reason for u in result.unclipped] == [UNCLIPPED_NEITHER_DATED]
+
+    def test_a_clipped_edge_is_derived(self):
+        pred = _span(
+            "houghton", start="1897-98", end="1897-98", frm=date(1897, 1, 1), to=date(1897, 8, 25)
+        )
+        succ = _span(
+            "crow", start="1897-98", end="1903-04", frm=date(1897, 1, 1), to=date(1904, 12, 31)
+        )
+        out = _by_member(clip_seat_counterparts([pred, succ]))
+        assert (out["crow"].start_basis, out["houghton"].end_basis) == ("derived", "dated")
+
+
+def _five_holders_1889():
+    """LD-19's 1889 Senate: five lawful holders of one role_key, one of them dated."""
+    spans = [
+        _span(m, start="1889-90", end="1889-90", frm=date(1889, 1, 1), to=date(1890, 12, 31))
+        for m in ("jones", "kinnear", "guilfoil", "wood")
+    ]
+    spans.append(
+        _span(
+            "rinehart", start="1889-90", end="1889-90", frm=date(1889, 3, 1), to=date(1890, 12, 31)
+        )
+    )
+    return spans
+
+
+class TestCapacity:
+    """usa-wa#501 D4: a seat that lawfully holds more than one principal is not a
+    succession for the clip to resolve (#362's latent bug, closed by construction)."""
+
+    CAPACITY = {
+        (KIND_SENATE, "4"): (
+            CapacityPeriod(date(1889, 1, 1), date(1890, 12, 31), 5),
+            CapacityPeriod(date(1891, 1, 1), None, 1),
+        )
+    }
+
+    def test_without_capacity_the_dated_holder_clips_the_others(self):
+        """Today's behaviour, and the hazard: the dated 1889 start rewrites four
+        co-senators into predecessors."""
+        result = clip_seat_counterparts(_five_holders_1889())
+        assert any(s.valid_to == date(1889, 3, 1) for s in result.spans)
+
+    def test_a_multi_holder_period_declines_the_pair(self):
+        spans = _five_holders_1889()
+        result = clip_seat_counterparts(spans, capacity=self.CAPACITY)
+        assert list(result.spans) == spans
+        # every pair of the five, C(5,2) — the dated one and the quantized alike
+        reasons = {u.reason for u in result.unclipped}
+        assert reasons == {UNCLIPPED_MULTI_HOLDER_PERIOD}
+        assert len(result.unclipped) == 10
+
+    def test_a_single_holder_period_still_clips(self):
+        pred = _span(
+            "a", start="1891-92", end="1891-92", frm=date(1891, 1, 1), to=date(1891, 8, 25)
+        )
+        succ = _span(
+            "b", start="1891-92", end="1893-94", frm=date(1891, 1, 1), to=date(1894, 12, 31)
+        )
+        out = _by_member(clip_seat_counterparts([pred, succ], capacity=self.CAPACITY))
+        assert out["b"].valid_from == date(1891, 8, 25)
+
+    def test_a_seat_missing_from_capacity_holds_one(self):
+        pred = _span(
+            "a", start="1897-98", end="1897-98", frm=date(1897, 1, 1), to=date(1897, 8, 25)
+        )
+        succ = _span(
+            "b", start="1897-98", end="1903-04", frm=date(1897, 1, 1), to=date(1904, 12, 31)
+        )
+        other = {(KIND_SENATE, "19"): (CapacityPeriod(date(1889, 1, 1), None, 5),)}
+        out = _by_member(clip_seat_counterparts([pred, succ], capacity=other))
+        assert out["b"].valid_from == date(1897, 8, 25)
+
+    def test_families_pass_capacity_through(self):
+        spans = _five_holders_1889()
+        out, unclipped = clip_seat_families({"x": spans}, capacity=self.CAPACITY)
+        assert out["x"] == spans
+        assert len(unclipped) == 10
+
+
+class TestMembership:
+    """usa-wa#501 D4/D5: a non-principal is invisible to the seat axis."""
+
+    def test_a_substitute_is_never_a_counterpart(self):
+        """Lela Kreidler served LD-22 1991-01-14 → 04-18 while Mike Kreidler was on
+        military leave. Both edges are dated and his are not: without the membership,
+        the clip would close his tenure at her seating."""
+        principal = _span(
+            "mike", start="1985-86", end="1991-92", frm=date(1985, 1, 1), to=date(1992, 12, 31)
+        )
+        substitute = _span(
+            "lela",
+            start="1991-92",
+            end="1991-92",
+            frm=date(1991, 1, 14),
+            to=date(1991, 4, 18),
+            membership_type="substitute",
+        )
+        result = clip_seat_counterparts([principal, substitute])
+        assert list(result.spans) == [principal, substitute]
+        assert result.unclipped == ()

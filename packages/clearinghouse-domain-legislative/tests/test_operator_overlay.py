@@ -1,5 +1,6 @@
 """Operator-succession overlay (#107) — pure, the LD5 Ramos/Hunt golden cases."""
 
+from dataclasses import replace
 from datetime import date
 
 from clearinghouse_domain_legislative.operator_overlay import (
@@ -1097,3 +1098,111 @@ def test_log_departure_misses_reports_each_unapplied_departure_once(caplog):
         ("operator_departed_already_closed", "2"),
         ("operator_departed_no_open_span", "3"),
     ]
+
+
+# usa-wa#501 D6 — every boundary the overlay writes states its basis. A seating or a
+# departure is a date a source states (`dated`); a split's return is another span's start
+# (`derived`); a mover's synthesized House tenure opens on its biennium floor (`observed`).
+
+
+def test_a_departure_dates_the_end_it_closes():
+    spans = [_span("29091", "chamber-senate", "5"), _span("29091", "party", "democratic")]
+    events = [SuccessionEvent("29091", "departed", date(2025, 4, 19))]
+    out = apply_operator_events(
+        spans, events, current_biennium=CURRENT, owned_kinds={"party", "chamber-senate"}
+    )
+    assert {(s.kind, s.start_basis, s.end_basis) for s in out} == {
+        ("chamber-senate", "observed", "dated"),
+        ("party", "observed", "dated"),
+    }
+
+
+def test_a_vacate_dates_the_end_it_closes():
+    spans = [_span("1", "chamber-senate", "5")]
+    events = [SuccessionEvent("1", "vacated", date(2025, 6, 3), "chamber-senate", "5")]
+    (span,) = apply_operator_events(
+        spans, events, current_biennium=CURRENT, owned_kinds={"chamber-senate"}
+    )
+    assert (span.end_basis, span.valid_to_earliest) == ("dated", date(2025, 6, 3))
+
+
+def test_a_derived_event_closes_a_derived_end():
+    """#490's implied vacates are another tenure's boundary — the member's Senate seating,
+    or a successor's — so the end they close is an inference, not a stated date
+    (#501 correction 6)."""
+    spans = [_span("1", "chamber-house", "ld-1-position-1")]
+    events = [
+        SuccessionEvent(
+            "1", "vacated", date(2025, 6, 3), "chamber-house", "ld-1-position-1", basis="derived"
+        )
+    ]
+    (span,) = apply_operator_events(
+        spans, events, current_biennium=CURRENT, owned_kinds={"chamber-house"}
+    )
+    assert (span.valid_to, span.end_basis) == (date(2025, 6, 3), "derived")
+
+
+def test_a_seating_on_the_biennium_floor_is_still_dated():
+    """Woodall, LD-15: `seated 1957-01-01` is a real seating that lands on the floor. The
+    clip used to read it as quantized; the basis now says what it is (#501 correction 5)."""
+    spans = [_span("w", "chamber-senate", "15", start="1957-58", frm=date(1957, 1, 1))]
+    events = [SuccessionEvent("w", "seated", date(1957, 1, 1), "chamber-senate", "15")]
+    (span,) = apply_operator_events(
+        spans, events, current_biennium=CURRENT, owned_kinds={"chamber-senate"}
+    )
+    assert (span.valid_from, span.start_basis) == (date(1957, 1, 1), "dated")
+
+
+def test_a_lookback_seating_dates_the_start():
+    spans = [_span("h", "chamber-house", "ld-2-position-1", start="2015-16", frm=date(2015, 1, 1))]
+    events = [SuccessionEvent("h", "seated", date(2014, 1, 17), "chamber-house", "ld-2-position-1")]
+    (span,) = apply_operator_events(
+        spans, events, current_biennium=CURRENT, owned_kinds={"chamber-house"}
+    )
+    assert (span.valid_from, span.start_basis) == (date(2014, 1, 17), "dated")
+
+
+def test_a_synthesized_seating_is_dated_and_open():
+    events = [SuccessionEvent("n", "seated", date(2025, 6, 3), "chamber-senate", "5")]
+    (span,) = apply_operator_events(
+        [], events, current_biennium=CURRENT, owned_kinds={"chamber-senate"}
+    )
+    assert (span.start_basis, span.end_basis) == ("dated", "open")
+
+
+def test_a_movers_synthesized_tenure_opens_observed_and_closes_dated():
+    events = [
+        SuccessionEvent("13546", "vacated", date(2014, 1, 22), "chamber-house", "ld-21-position-2")
+    ]
+    (span,) = apply_operator_events(
+        [],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+        movers_by_biennium={"2013-14": {"13546"}},
+    )
+    assert (span.start_basis, span.end_basis) == ("observed", "dated")
+
+
+def test_a_split_tail_starts_derived():
+    """#267's tail reopens at the member's return — another span's start, so `derived`."""
+    committee = _span(
+        "p", "committee", "c1", start="2013-14", frm=date(2013, 1, 1), to=date(2018, 12, 31)
+    )
+    committee = replace(committee, end_biennium="2017-18", is_active=False)
+    house = _span("p", "chamber-house", "ld-1-position-1", start="2017-18", frm=date(2017, 1, 9))
+    events = [SuccessionEvent("p", "departed", date(2015, 6, 1))]
+    out = apply_operator_events(
+        [committee],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"committee"},
+        context_spans=[house],
+    )
+    head, tail = sorted(out, key=lambda s: s.valid_from)
+    assert (head.valid_to, head.end_basis) == (date(2015, 6, 1), "dated")
+    assert (tail.valid_from, tail.start_basis, tail.end_basis) == (
+        date(2017, 1, 9),
+        "derived",
+        "observed",
+    )

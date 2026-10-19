@@ -21,11 +21,13 @@ evidence than a biennium the builder derived. Where both sides are dated the
 sources genuinely contradict each other, and where neither is there is nothing
 to clip to — both are left standing for the gate to report.
 
-**Quantization is measured against the span's own biennium**, never a Jan-1 /
-Dec-31 pattern. A span whose ``valid_from`` equals its ``start_biennium``'s floor
-was quantized there; one that differs was dated by an event. Pattern-matching
-would misread a genuine December 31 resignation as a ceiling and clip a real
-boundary away.
+**"Dated" is the edge's basis** (usa-wa#501 D4/D6), never its geometry. Until #501
+this module compared ``valid_from`` with the span's own biennium floor, which read
+Woodall's real ``seated 1957-01-01`` as quantized (pair #3 of the occupancy
+residue). Every writer now states its basis, so a stated edge is a ``dated`` one,
+a quantized edge an ``observed`` one, and an edge this pass moves becomes
+``derived`` — which is also what stops a clipped boundary being read back as
+evidence by the next pair.
 
 Pure, idempotent, order- and length-preserving: it runs over the **union** of
 every span family, because a seat's two holders routinely come from different
@@ -45,24 +47,33 @@ An *open* old seat is the live cohort, which a ``vacated`` dates (#145), so it i
 never clipped from geometry. A declined member overlap is left for
 ``assignments_one_seat_per_member`` to report; ``unclipped`` is the seat axis's.
 
-**Known gap — usa-wa#362.** This module sees only span geometry, so it has no
-notion of a seat that legitimately holds more than one person. The 1889 Senate
-had multi-member districts; the `assignments_seat_occupancy` gate excludes those
-district-years, and this does not. Harmless today only because the exclusion is
-conditioned on the district-year carrying no annotations, so no 1889 span is
-dated and the clip's precondition is never met — but the day one is parsed, the
-clip would resolve a legitimate two-holder seat into a succession *and* the
-gate's exclusion would lift, leaving nothing to report it. The fix is a
-per-district-year capacity passed in from Layer 3.
+**Capacity (usa-wa#362, #501 D4).** A seat can lawfully hold more than one
+principal — the 1889 Senate seated five in LD-19 under one ``role_key``. With more
+than one lawful holder, geometry cannot say which pair is a succession, so a pair
+whose overlap touches a period of capacity above one is declined as
+``multi_holder_period`` and left for the occupancy gate to judge by count. The
+capacity is passed in (:class:`CapacityPeriod`, keyed by seat) because deriving it
+is a jurisdiction's business; a seat absent from it holds one, which is the
+behaviour every caller had before.
+
+**Membership (#501 D5).** Only principals are seat counterparts. A substitute
+serving under a principal on leave is not that principal's successor, so the seat
+axis never pairs either with it; the member axis is unchanged.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 
+from clearinghouse_domain_legislative.boundary_basis import (
+    BASIS_DATED,
+    BASIS_DERIVED,
+    BASIS_OBSERVED,
+)
+from clearinghouse_domain_legislative.membership_types import MEMBERSHIP_PRINCIPAL
 from clearinghouse_domain_legislative.span_kinds import SINGLE_HOLDER_KINDS
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from clearinghouse_domain_legislative.terms import parse_biennium
@@ -82,9 +93,31 @@ UNCLIPPED_START_LEAVES_BIENNIUM = "start_leaves_biennium"
 #: about the world, so the overlap stands instead.
 UNCLIPPED_DEGENERATE = "degenerate"
 
+#: The overlap touches a period in which the seat lawfully holds more than one
+#: principal (#501 D4): not a succession, so not this module's to resolve.
+UNCLIPPED_MULTI_HOLDER_PERIOD = "multi_holder_period"
+
 #: Sentinel for an open span in an ordering comparison — an unbounded end sorts
 #: last and outlives every closed counterpart.
 _OPEN = date(9999, 12, 31)
+
+
+@dataclass(frozen=True)
+class CapacityPeriod:
+    """How many principals a seat holds at once over ``[valid_from, valid_to]``.
+
+    ``valid_to`` is the period's last day, **inclusive**, and ``None`` runs through the
+    present; ``max_holders`` is ``None`` for no limit. A tenure's ``valid_to`` is a
+    handoff date instead — the published ``role_periods`` dataset states both
+    conventions (#501 D1)."""
+
+    valid_from: date
+    valid_to: date | None
+    max_holders: int | None
+
+
+#: Seat ``(kind, discriminator)`` → its capacity periods, as a caller derives them.
+Capacity = Mapping[tuple[str, str], Sequence[CapacityPeriod]]
 
 
 @dataclass(frozen=True)
@@ -116,29 +149,22 @@ def _overlaps(a: TenureSpan, b: TenureSpan) -> bool:
     return a.valid_to != b.valid_from and b.valid_to != a.valid_from
 
 
-def _stated_start(span: TenureSpan, position: int, derived: set[tuple[int, str]]) -> bool:
-    """The span's ``valid_from`` is a date some source stated, rather than the
-    biennium floor the builder derived — or an edge this pass has already moved.
+def _stated_start(span: TenureSpan) -> bool:
+    """The span's ``valid_from`` is a date some source stated: its basis is ``dated``.
 
-    The second half is what stops a cascade. Clipping Charnley's LD-44 start onto
-    North's dated 1979-12-31 exit gave him a ``valid_from`` that is not his own
-    biennium floor; read back as evidence, it then "dated" Bradburn — who opened
-    on that very day — and closed his tenure at its own opening, a zero-length
-    span (usa-wa#360 follow-up). A derived boundary is an inference, not a fact.
+    Not ``derived``, which is what stops a cascade. Clipping Charnley's LD-44 start
+    onto North's dated 1979-12-31 exit moved it off his biennium floor; read back as
+    evidence, it then "dated" Bradburn — who opened on that very day — and closed his
+    tenure at its own opening, a zero-length span (usa-wa#360 follow-up). A derived
+    boundary is an inference, not a fact, and its basis now says so.
     """
-    if (position, "start") in derived:
-        return False
-    return span.valid_from != date(parse_biennium(span.start_biennium)[0], 1, 1)
+    return span.start_basis == BASIS_DATED
 
 
-def _stated_exit(span: TenureSpan, position: int, derived: set[tuple[int, str]]) -> date | None:
-    """The span's stated end, or ``None`` when it has none: an open span, one
-    sitting on its own biennium ceiling, or one this pass already clipped."""
-    if span.valid_to is None or (position, "end") in derived:
-        return None
-    if span.valid_to == date(parse_biennium(span.end_biennium)[1], 12, 31):
-        return None
-    return span.valid_to
+def _stated_exit(span: TenureSpan) -> date | None:
+    """The span's stated end, or ``None`` when it has none: open, observed (the
+    builder's ceiling) or derived (another tenure's boundary)."""
+    return span.valid_to if span.end_basis == BASIS_DATED else None
 
 
 def _tenure_order(span: TenureSpan) -> tuple[date, date]:
@@ -154,19 +180,33 @@ def _in_biennium(day: date, biennium: str) -> bool:
     return start <= day.year <= end
 
 
-def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
+def _multi_holder(capacity: Capacity, a: TenureSpan, b: TenureSpan) -> bool:
+    """The overlap of ``a`` and ``b`` touches a period in which their seat holds more
+    than one principal (or has no limit)."""
+    periods = capacity.get((a.kind, a.discriminator), ())
+    start = max(a.valid_from, b.valid_from)
+    end = min(a.valid_to or _OPEN, b.valid_to or _OPEN)
+    return any(
+        (p.max_holders is None or p.max_holders > 1)
+        and p.valid_from <= end
+        and start <= (p.valid_to or _OPEN)
+        for p in periods
+    )
+
+
+def clip_seat_counterparts(
+    spans: Iterable[TenureSpan], *, capacity: Capacity | None = None
+) -> SeatClipResult:
     """Apply the rule to every single-holder seat in ``spans``.
 
     The returned ``spans`` are positionally identical to the input — same length,
     same order — so a caller that unioned several families can re-split the result
-    by slicing (:func:`clip_seat_families`).
+    by slicing (:func:`clip_seat_families`). ``capacity`` names the seats that hold
+    more than one principal, and when; a seat it omits holds one.
     """
     work = list(spans)
     unclipped: list[UnclippedOverlap] = []
-    # Positions whose boundary this pass moved. A clipped edge is DERIVED, and
-    # must never be read back as a stated date by any later pair, on either axis
-    # — see `_stated_start`/`_stated_exit`/`_quantized_exit`.
-    derived: set[tuple[int, str]] = set()
+    seat_capacity: Capacity = capacity or {}
 
     # The member axis runs FIRST (#282). Run second, the seat pass has already
     # clipped a mover's old ceiling onto their successor's later seating and
@@ -184,11 +224,12 @@ def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
         )
         for outer, i in enumerate(ordered):
             for j in ordered[outer + 1 :]:
-                _resolve_move(work, i, j, derived)
+                _resolve_move(work, i, j)
 
+    # Principals only (#501 D5): a substitute is nobody's counterpart.
     seats: dict[tuple[str, str], list[int]] = defaultdict(list)
     for i, span in enumerate(work):
-        if span.kind in SINGLE_HOLDER_KINDS:
+        if span.kind in SINGLE_HOLDER_KINDS and span.membership_type == MEMBERSHIP_PRINCIPAL:
             seats[(span.kind, span.discriminator)].append(i)
 
     for (kind, discriminator), positions in sorted(seats.items()):
@@ -197,7 +238,7 @@ def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
         ordered = sorted(positions, key=lambda p: (*_tenure_order(work[p]), work[p].member_id))
         for outer, i in enumerate(ordered):
             for j in ordered[outer + 1 :]:
-                reason = _resolve_pair(work, i, j, derived)
+                reason = _resolve_pair(work, i, j, seat_capacity)
                 if reason is not None:
                     a, b = work[i], work[j]
                     unclipped.append(
@@ -213,15 +254,13 @@ def clip_seat_counterparts(spans: Iterable[TenureSpan]) -> SeatClipResult:
     return SeatClipResult(spans=tuple(work), unclipped=tuple(unclipped))
 
 
-def _quantized_exit(span: TenureSpan, position: int, derived: set[tuple[int, str]]) -> bool:
-    """The span closes on its own biennium ceiling, which the builder derived —
-    not open, not a stated date, and not an edge this pass already moved."""
-    if span.valid_to is None or (position, "end") in derived:
-        return False
-    return span.valid_to == date(parse_biennium(span.end_biennium)[1], 12, 31)
+def _quantized_exit(span: TenureSpan) -> bool:
+    """The span closes where the builder observed it last — its basis is
+    ``observed`` — not open, not a stated date, and not an edge already moved."""
+    return span.end_basis == BASIS_OBSERVED
 
 
-def _resolve_move(work: list[TenureSpan], i: int, j: int, derived: set[tuple[int, str]]) -> None:
+def _resolve_move(work: list[TenureSpan], i: int, j: int) -> None:
     """Close the member's old seat at a dated seating into a new one (usa-wa#282).
 
     ``i`` ranks before ``j`` in tenure order, so ``work[i]`` is the seat the member
@@ -231,20 +270,17 @@ def _resolve_move(work: list[TenureSpan], i: int, j: int, derived: set[tuple[int
         return  # one seat held twice — a merged tenure (#267), not a move
     if not _overlaps(old, new):
         return
-    if not (_quantized_exit(old, i, derived) and _stated_start(new, j, derived)):
+    if not (_quantized_exit(old) and _stated_start(new)):
         return
     boundary = new.valid_from
     if boundary <= old.valid_from:
         return  # the old seat would have no duration at all
     if (old.valid_to or _OPEN) > (new.valid_to or _OPEN):
         return  # the old row outlives the new seat: two tenures merged (#267)
-    work[i] = replace(old, valid_to=boundary, is_active=False)
-    derived.add((i, "end"))
+    work[i] = replace(old, valid_to=boundary, is_active=False, end_basis=BASIS_DERIVED)
 
 
-def _resolve_pair(
-    work: list[TenureSpan], i: int, j: int, derived: set[tuple[int, str]]
-) -> str | None:
+def _resolve_pair(work: list[TenureSpan], i: int, j: int, capacity: Capacity) -> str | None:
     """Clip one overlapping pair in place. Returns the refusal reason, or ``None``
     when the pair needed no action or was resolved."""
     a, b = work[i], work[j]
@@ -254,6 +290,8 @@ def _resolve_pair(
         return None
     if not _overlaps(a, b):
         return None
+    if _multi_holder(capacity, a, b):
+        return UNCLIPPED_MULTI_HOLDER_PERIOD
 
     # Predecessor = the tenure that STARTS first; ties break on the earlier end,
     # which is what makes the Houghton/Crow shape (one shared biennium floor, two
@@ -265,8 +303,8 @@ def _resolve_pair(
 
     # Bound as an Optional rather than a bool so the date narrows on the branch:
     # an open span has no exit to clip to, and a quantized one states no date.
-    pred_exit = _stated_exit(pred, pred_pos, derived)
-    succ_dated_start = _stated_start(succ, succ_pos, derived)
+    pred_exit = _stated_exit(pred)
+    succ_dated_start = _stated_start(succ)
 
     if (pred_exit is not None) and succ_dated_start:
         return UNCLIPPED_BOTH_DATED
@@ -288,8 +326,7 @@ def _resolve_pair(
             # its own name would split one shape across two rows of the residue
             # taxonomy the gate comment and PIPELINE.md both publish.
             return UNCLIPPED_PREDECESSOR_OUTLIVES
-        work[succ_pos] = replace(succ, valid_from=boundary)
-        derived.add((succ_pos, "start"))
+        work[succ_pos] = replace(succ, valid_from=boundary, start_basis=BASIS_DERIVED)
         return None
 
     boundary = succ.valid_from
@@ -305,13 +342,14 @@ def _resolve_pair(
         # duration. CR 130 removed a `<`-only guard as unreachable, which was true
         # and beside the point; the boundary condition is where the hazard was.
         return UNCLIPPED_DEGENERATE
-    work[pred_pos] = replace(pred, valid_to=boundary, is_active=False)
-    derived.add((pred_pos, "end"))
+    work[pred_pos] = replace(pred, valid_to=boundary, is_active=False, end_basis=BASIS_DERIVED)
     return None
 
 
 def clip_seat_families(
     spans_by_source: dict[str, list[TenureSpan]],
+    *,
+    capacity: Capacity | None = None,
 ) -> tuple[dict[str, list[TenureSpan]], tuple[UnclippedOverlap, ...]]:
     """:func:`clip_seat_counterparts` across families, re-split by source.
 
@@ -326,7 +364,7 @@ def clip_seat_families(
     """
     sources: list[str] = list(spans_by_source)
     flat: list[TenureSpan] = [s for source in sources for s in spans_by_source[source]]
-    result = clip_seat_counterparts(flat)
+    result = clip_seat_counterparts(flat, capacity=capacity)
     clipped: Sequence[TenureSpan] = result.spans
     out: dict[str, list[TenureSpan]] = {}
     cursor = 0

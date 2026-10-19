@@ -603,7 +603,7 @@ def test_assignment_rows_tag_each_family_with_its_own_source() -> None:
     assert counters["published"] == len(rows) == len(wsl) + len(roster_spans)
 
 
-def _seat_span(member, *, start, end, frm, to, source_kind=KIND_SENATE):
+def _seat_span(member, *, start, end, frm, to, source_kind=KIND_SENATE, end_basis=None):
     return TenureSpan(
         member_id=member,
         kind=source_kind,
@@ -613,6 +613,7 @@ def _seat_span(member, *, start, end, frm, to, source_kind=KIND_SENATE):
         valid_from=frm,
         valid_to=to,
         is_active=False,
+        end_basis=end_basis,
     )
 
 
@@ -621,7 +622,12 @@ def test_assignment_rows_clip_a_dated_handoff_across_the_family_seam() -> None:
     a WSL-joined incumbent and a minted pre-1991 successor. Clipping per family
     would be blind across exactly the seam the handoff crosses."""
     incumbent = _seat_span(
-        "100", start="1897-98", end="1897-98", frm=date(1897, 1, 1), to=date(1897, 8, 25)
+        "100",
+        start="1897-98",
+        end="1897-98",
+        frm=date(1897, 1, 1),
+        to=date(1897, 8, 25),
+        end_basis="dated",
     )
     successor = _seat_span(
         "crow:1897", start="1897-98", end="1903-04", frm=date(1897, 1, 1), to=date(1904, 12, 31)
