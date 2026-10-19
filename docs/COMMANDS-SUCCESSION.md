@@ -32,8 +32,9 @@ the weekly integrity sweep covers — its only provenance since #412 PR F droppe
 #     untouched. A chamber move's old seat, or a single-seat resignation.
 #   seated   (seat-scoped) — one named seat's span opens at the date (instead of the
 #     biennium floor), synthesized if the wire built none. Appointment, swearing-in.
-# A chamber move = vacated(old seat) + seated(new seat) on the same member, each applied to
-# the span family that owns that seat kind. seat_kind/seat_discriminator name the seat the same
+# A chamber move = vacated(old seat) + seated(new seat) on the same member, never departed:
+# the nightly's chamber_move_departures probe (#518) fails on a departed dated at one. Each is
+# applied to the span family that owns that seat kind. seat_kind/seat_discriminator name the seat the same
 # way the pipeline keys it: chamber-senate + LD, chamber-house + ld-{n}-position-{p},
 # committee + the WSL committee id. Validates kind/reason/seat shape AND that member_id
 # is a registered person key (usa_wa_legislature:<id>, or a pre-1991 roster member's

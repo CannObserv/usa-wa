@@ -186,7 +186,8 @@ kinds, split by scope so a chamber move never touches the party span:
 A `CHECK` enforces the shape: a seat-scoped kind must carry `(seat_kind, seat_discriminator)`;
 `departed` must carry neither. A chamber move is modeled exactly as `vacated` (old seat) +
 `seated` (new seat) on the same member, each applied by the family that owns that seat kind
-(`owned_kinds`).
+(`owned_kinds`). A `departed` dated at a move closes the new tenure too; the nightly
+`chamber_move_departures` probe flags one (#518).
 
 Reasons are **evidence classification, not behaviour** — reasons within a kind apply identically.
 `resigned` appears under both `departed` and `vacated`; the kind disambiguates.
