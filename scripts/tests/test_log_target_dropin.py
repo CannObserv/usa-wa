@@ -59,5 +59,6 @@ def test_the_drop_in_sorts_after_exeuntus() -> None:
 
     systemd reads only ``*.conf``, so a misnamed copy would be skipped outright.
     """
+    assert DROP_IN.is_file()
     assert DROP_IN.suffix == ".conf"
     assert sorted([EXEUNTU_DROP_IN, DROP_IN.name]) == [EXEUNTU_DROP_IN, DROP_IN.name]
