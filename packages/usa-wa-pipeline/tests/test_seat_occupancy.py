@@ -5,14 +5,19 @@ against synthetic rows, never by restating it here. A test that retypes the SQL
 it checks is two literals with a comment claiming they agree — the defect CR 117
 caught one level up, and the reason #358's phantom could have returned unnoticed.
 
-Three files ship it (#360 part A): the macro holding the predicate
-(``dbt/macros/seat_overlap_pairs.sql``), which both tests call so neither holds a
-copy; the gate (``assignments_seat_occupancy.sql``), which errors on any pair the
-named list (``dbt/seeds/accepted_seat_overlaps.csv``) does not accept; and the
+Four files ship it (#360 part A, #501 D7): the macro holding the two-tier
+predicate (``dbt/macros/seat_overlap_pairs.sql``), which every test calls so none
+holds a copy; the gate (``assignments_seat_occupancy.sql``), which errors on any
+CERTAIN pair the named list (``dbt/seeds/accepted_seat_overlaps.csv``) does not
+accept; the may-tier listing (``assignments_seat_occupancy_may.sql``); and the
 stale check (``assignments_seat_occupancy_stale.sql``), which warns on any listed
-pair that no longer overlaps. They are rendered with a real Jinja environment
+pair that is no longer certain. They are rendered with a real Jinja environment
 rather than regex-stripped, because the stale check branches on the hermetic
 marker and a stripped ``{% if %}`` would run both branches at once.
+
+A row is ``(entity, role, kind, from, to[, span_key[, latest, earliest[, membership]]])``.
+With no interval given its bounds are exact — the dated reading — so the certain
+tier and the may tier agree, which is what the pre-#501 cases assume.
 
 **Their logic, not their schema** (CR 124). The synthetic table declares its own
 columns, so a rename in the `assignments` model leaves these green; the dbt run
@@ -31,6 +36,7 @@ import yaml
 
 DBT = Path(__file__).resolve().parents[1] / "dbt"
 TEST_SQL = DBT / "tests" / "assignments_seat_occupancy.sql"
+MAY_SQL = DBT / "tests" / "assignments_seat_occupancy_may.sql"
 STALE_SQL = DBT / "tests" / "assignments_seat_occupancy_stale.sql"
 MACRO_SQL = DBT / "macros" / "seat_overlap_pairs.sql"
 SEED_CSV = DBT / "seeds" / "accepted_seat_overlaps.csv"
@@ -38,9 +44,12 @@ SEED_SCHEMA = DBT / "seeds" / "schema.yml"
 
 COLUMNS = (
     "entity_id varchar, role_key varchar, span_kind varchar, valid_from date, valid_to date,"
-    " span_key varchar"
+    " span_key varchar, valid_from_latest date, valid_to_earliest date, membership_type varchar"
 )
-ROSTER_COLUMNS = "district integer, chamber varchar, year integer, name varchar, annotation varchar"
+PERIOD_COLUMNS = (
+    "role_key varchar, valid_from date, valid_to date, max_holders bigint,"
+    " max_holders_basis varchar"
+)
 ACCEPTED_COLUMNS = "span_key_lo varchar, span_key_hi varchar, category varchar, reason varchar"
 
 
@@ -73,36 +82,49 @@ def _render(path: Path, *, hermetic: bool = False) -> tuple[str, dict]:
 def _span_key(row: tuple) -> str:
     """A span_key shaped like the published one (entity, role, start year), unless
     the row carries its own as a sixth element."""
-    if len(row) == 6:
+    if len(row) >= 6 and row[5] is not None:
         return row[5]
-    entity, role, _kind, valid_from, _valid_to = row
+    entity, role, _kind, valid_from, _valid_to = row[:5]
     return f"{entity}|{role}|{valid_from[:4]}"
+
+
+def _record(row: tuple) -> tuple:
+    """A synthetic row as the table holds it: exact bounds unless stated."""
+    entity, role, kind, valid_from, valid_to = row[:5]
+    latest = row[6] if len(row) > 6 else valid_from
+    earliest = row[7] if len(row) > 7 else valid_to
+    membership = row[8] if len(row) > 8 else "principal"
+    return (entity, role, kind, valid_from, valid_to, _span_key(row), latest, earliest, membership)
 
 
 def _run(
     path: Path,
     rows: list[tuple],
-    roster: list[tuple] | None = None,
+    periods: list[tuple] | None = None,
     accepted: list[tuple] | None = None,
     *,
     hermetic: bool = False,
 ) -> list[tuple]:
-    """Run one shipped test over synthetic spans, an optional roster and list.
+    """Run one shipped test over synthetic spans, optional capacity periods and list.
 
-    The roster drives the multi-member exclusion, so most cases pass none and
-    get the default single-member reading — which is the conservative one.
+    ``periods`` are ``(role_key, valid_from, valid_to, max_holders)``. Most cases
+    pass none, and a seat with no covering period is read as holding one — the
+    conservative reading.
     """
     con = duckdb.connect()
     try:
         con.execute(f"create table assignments ({COLUMNS})")
         if rows:
             con.executemany(
-                "insert into assignments values (?, ?, ?, ?, ?, ?)",
-                [(*row[:5], _span_key(row)) for row in rows],
+                "insert into assignments values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [_record(row) for row in rows],
             )
-        con.execute(f"create table stg_roster_members ({ROSTER_COLUMNS})")
-        if roster:
-            con.executemany("insert into stg_roster_members values (?, ?, ?, ?, ?)", roster)
+        con.execute(f"create table role_periods ({PERIOD_COLUMNS})")
+        if periods:
+            con.executemany(
+                "insert into role_periods values (?, ?, ?, ?, ?)",
+                [(*p, "roster") for p in periods],
+            )
         con.execute(f"create table accepted_seat_overlaps ({ACCEPTED_COLUMNS})")
         if accepted:
             con.executemany("insert into accepted_seat_overlaps values (?, ?, ?, ?)", accepted)
@@ -111,9 +133,9 @@ def _run(
         con.close()
 
 
-def _conflicts(rows: list[tuple], roster: list[tuple] | None = None) -> int:
+def _conflicts(rows: list[tuple], periods: list[tuple] | None = None) -> int:
     """How many pairs the gate reports, with nothing accepted."""
-    return len(_run(TEST_SQL, rows, roster))
+    return len(_run(TEST_SQL, rows, periods))
 
 
 def _accept(a: tuple, b: tuple, category: str = "undated") -> tuple:
@@ -326,57 +348,177 @@ def test_one_person_two_spans_in_one_seat_is_not_a_conflict() -> None:
     )
 
 
-def test_a_bare_multi_member_district_year_is_not_a_conflict() -> None:
+LD19_1889 = [
+    ("seat:senate:ld-19", "1889-01-01", "1890-12-31", 5),
+    ("seat:senate:ld-19", "1891-01-01", None, 1),
+]
+
+
+def test_a_multi_member_period_is_not_a_conflict() -> None:
     """#360: WA's 1889 legislature seated multi-member senate districts — LD-19
-    carried five, all unannotated. `seat:senate:ld-N` collapses them into one
-    role_key, so without this the gate reads five lawful senators as a fight."""
+    carried five. `seat:senate:ld-N` collapses them into one role_key, so without
+    `role_periods` the gate reads five lawful senators as a fight (#501 D7)."""
     spans = [
         ("a", "seat:senate:ld-19", "chamber-senate", "1889-01-01", "1890-12-31"),
         ("b", "seat:senate:ld-19", "chamber-senate", "1889-01-01", "1890-12-31"),
     ]
-    roster = [(19, "senate", 1889, f"Senator {n}", None) for n in "ABCDE"]
-
-    assert _conflicts(spans, roster) == 0
-    # the same spans with no roster evidence stay a conflict: absent proof of a
+    assert _conflicts(spans, LD19_1889) == 0
+    # the same spans with no capacity stated stay a conflict: absent proof of a
     # multi-member seat, the conservative reading polices
     assert _conflicts(spans) == 1
 
 
-def test_an_annotated_extra_row_is_succession_not_capacity() -> None:
-    """An annotation means a SUCCESSOR within one seat, so the district is still
-    single-member and a genuine overlap there must still be caught. Reading it
-    as capacity would license exactly what this gate exists to find."""
-    spans = [
-        ("pelz", "seat:senate:ld-37", "chamber-senate", "1995-01-01", "1996-12-31"),
-        ("kline", "seat:senate:ld-37", "chamber-senate", "1995-06-01", "1996-12-31"),
-    ]
-    roster = [
-        (37, "senate", 1995, "Dwight Pelz", "Resigned January 13, 1997"),
-        (37, "senate", 1995, "Adam Kline", "Appointed January 20, 1997"),
-    ]
-    assert _conflicts(spans, roster) == 1
-
-
-def test_a_partly_annotated_district_year_is_not_multi_member() -> None:
-    """One annotation explains the extra row. Ambiguity resolves toward
-    policing, never toward excusing."""
-    spans = [
-        ("mccutcheon", "seat:senate:ld-29", "chamber-senate", "1971-01-01", "1972-12-31"),
-        ("rasmussen", "seat:senate:ld-29", "chamber-senate", "1971-06-01", "1972-12-31"),
-    ]
-    roster = [
-        (29, "senate", 1971, "John T. McCutcheon", "Deceased Aug. 9, 1971"),
-        (29, "senate", 1971, "A. L. Rasmussen", None),
-    ]
-    assert _conflicts(spans, roster) == 1
+def test_more_holders_than_capacity_is_a_conflict() -> None:
+    spans = [(e, "seat:senate:ld-2", "chamber-senate", "1889-01-01", "1890-12-31") for e in "abcd"]
+    periods = [("seat:senate:ld-2", "1889-01-01", "1890-12-31", 3)]
+    assert _conflicts(spans, periods) == 6  # every pair holding the over-full instant
 
 
 def test_capacity_must_cover_the_overlap_not_merely_exist() -> None:
-    """A district that was multi-member in 1889 is not licensed forever. The
-    exclusion applies only where the bare biennium actually covers the overlap."""
-    roster = [(19, "senate", 1889, f"Senator {n}", None) for n in "ABCDE"]
+    """A district that was multi-member in 1889 is not licensed forever."""
     later = [
         ("a", "seat:senate:ld-19", "chamber-senate", "1975-01-01", "1978-12-31"),
         ("b", "seat:senate:ld-19", "chamber-senate", "1976-01-01", "1978-12-31"),
     ]
-    assert _conflicts(later, roster) == 1
+    assert _conflicts(later, LD19_1889) == 1
+
+
+def test_a_capacity_drop_is_checked_where_it_happens() -> None:
+    """Two 1889 holders who both run past 1890 overfill the seat from 1891-01-01,
+    though neither STARTS there: the period's own start is an instant the
+    predicate checks (#501 correction 7)."""
+    spans = [
+        ("a", "seat:senate:ld-19", "chamber-senate", "1889-01-01", "1892-12-31"),
+        ("b", "seat:senate:ld-19", "chamber-senate", "1889-01-01", "1892-12-31"),
+    ]
+    assert _conflicts(spans, LD19_1889) == 1
+
+
+def test_party_and_committee_periods_have_no_limit() -> None:
+    """`role_periods` states no limit for them; the gate still scopes to seats."""
+    spans = [
+        ("a", "party-role:r", "party", "2001-01-01", "2002-12-31"),
+        ("b", "party-role:r", "party", "2001-01-01", "2002-12-31"),
+    ]
+    assert _conflicts(spans, [("party-role:r", "1889-01-01", None, None)]) == 0
+
+
+def test_a_substitute_is_not_a_second_holder() -> None:
+    """Wyss served LD-6 2005-04-14 → 16 while Benson was on military leave: a true
+    overlap of two people, of whom one holds the seat (#501 D5)."""
+    benson = ("benson", "seat:senate:ld-6", "chamber-senate", "2005-01-01", "2006-12-31")
+    wyss = (
+        "wyss",
+        "seat:senate:ld-6",
+        "chamber-senate",
+        "2005-04-14",
+        "2005-04-16",
+        None,
+        "2005-04-14",
+        "2005-04-16",
+        "substitute",
+    )
+    assert _conflicts([benson, wyss]) == 0
+    assert _run(MAY_SQL, [benson, wyss]) == []
+
+
+# The tiers (#501 D7). An observed edge is known only to its biennium, so its
+# inner bound sits at the far side of it: a one-biennium undated succession can
+# overlap, but never certainly does.
+PRED = (
+    "pred",
+    "seat:senate:ld-31",
+    "chamber-senate",
+    "1951-01-01",
+    "1956-12-31",
+    None,
+    "1952-12-31",
+    "1955-01-01",
+)
+SUCC = (
+    "succ",
+    "seat:senate:ld-31",
+    "chamber-senate",
+    "1955-01-01",
+    "1958-12-31",
+    None,
+    "1956-12-31",
+    "1957-01-01",
+)
+
+
+def test_an_imprecise_succession_may_overlap_but_never_certainly() -> None:
+    assert len(_run(MAY_SQL, [PRED, SUCC])) == 1
+    assert _conflicts([PRED, SUCC]) == 0
+
+
+def test_inner_bounds_that_overlap_are_certain() -> None:
+    """Riley resigned 1965-08-10 (dated); Kennett is keyed 1963-64, undated, so his
+    start is no later than 1964-12-31 by what we attest — a certain overlap, which
+    is why his pair stays on the list as `undated`."""
+    riley = ("riley", "seat:senate:ld-35", "chamber-senate", "1951-01-01", "1965-08-10")
+    kennett = (
+        "kennett",
+        "seat:senate:ld-35",
+        "chamber-senate",
+        "1963-01-01",
+        "1966-12-31",
+        None,
+        "1964-12-31",
+        "1965-01-01",
+    )
+    assert _conflicts([riley, kennett]) == 1
+
+
+def test_an_empty_inner_interval_holds_nothing() -> None:
+    """A one-biennium observed tenure has `latest > earliest`: certainly nothing."""
+    short = (
+        "short",
+        "seat:senate:ld-31",
+        "chamber-senate",
+        "1955-01-01",
+        "1956-12-31",
+        None,
+        "1956-12-31",
+        "1955-01-01",
+    )
+    long = ("long", "seat:senate:ld-31", "chamber-senate", "1951-01-01", "1958-12-31")
+    assert _conflicts([short, long]) == 0
+    assert len(_run(MAY_SQL, [short, long])) == 1
+
+
+def test_the_may_tier_lists_accepted_pairs_too() -> None:
+    """It is power-map's cross-check, and PM's ratchet counts every pair."""
+    assert len(_run(MAY_SQL, [A, B], accepted=[_accept(A, B)])) == 1
+
+
+def test_the_may_tier_warns_and_keeps_its_list() -> None:
+    _sql, config = _render(MAY_SQL)
+    assert config == {"severity": "warn", "store_failures": True}
+
+
+def test_a_listed_pair_no_longer_certain_is_stale() -> None:
+    """Owner, #360, 2026-10-17: a pair that leaves the certain tier leaves the list,
+    though the may tier still names it."""
+    pred = (
+        "pred",
+        "seat:senate:ld-31",
+        "chamber-senate",
+        "1951-01-01",
+        "1956-12-31",
+        "kp",
+        "1952-12-31",
+        "1955-01-01",
+    )
+    succ = (
+        "succ",
+        "seat:senate:ld-31",
+        "chamber-senate",
+        "1955-01-01",
+        "1958-12-31",
+        "ks",
+        "1956-12-31",
+        "1957-01-01",
+    )
+    entry = _accept(pred, succ)
+    assert _run(STALE_SQL, [pred, succ], accepted=[entry]) == [entry]

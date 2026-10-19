@@ -108,6 +108,47 @@ models:
         data_tests: [not_null]
       - name: valid_from
         data_tests: [not_null]
+      # #501 D6/D8: one closed vocabulary for both edges, pinned against the
+      # Python constant and the datapackage's `constraints.enum` by
+      # tests/test_published_contracts.py. A start is never `open`.
+      - name: start_basis
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["dated", "derived", "observed"]
+      - name: end_basis
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["dated", "derived", "observed", "open"]
+      - name: valid_from_latest
+        data_tests: [not_null]
+      - name: membership_type
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["principal", "substitute", "ex_officio", "acting"]
+  - name: role_periods
+    description: "Each role's seat capacity over time (#501 D1): one row per period, dense across every held role, tiled from the floor of the biennium holding its earliest tenure's valid_from to an open last period. valid_to is the period's LAST day, inclusive (null = through the present), and periods tile with next.valid_from = prev.valid_to + 1 day — unlike an assignment's valid_to, a handoff date. max_holders null = no limit (party, committee). The counterpart clip reads the same capacity. Key (role_key, valid_from): tests/role_periods_key.sql; tiling: tests/role_periods_tiled.sql."
+    columns:
+      - name: role_key
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('roles')
+                field: role_key
+      - name: valid_from
+        data_tests: [not_null]
+      - name: max_holders_basis
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ["kind", "roster"]
   - name: roles
     description: "The seat/slot dimension the assignments name (#309). role_key is a DETERMINISTIC structural key — a pure function of the seat, identical on every run, and the key a subscriber matches a seat on. Since #313 a role also carries entity_id, its registry ULID: the API needs a stable handle when the derived key moves. Both are published; the key is never mediated away. entity_id is nullable for one run only — the nightly registers after the build."
     columns:

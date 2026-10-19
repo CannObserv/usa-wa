@@ -37,6 +37,7 @@ FIELDS = {
         {"name": "entity_id", "type": "string"},
         {"name": "name_full", "type": "string"},
         {"name": "name_source", "type": "string"},
+        {"name": "name_own", "type": "string"},
     ],
     "assignments": [
         {"name": "entity_id", "type": "string"},
@@ -52,6 +53,12 @@ FIELDS = {
         {"name": "is_active", "type": "boolean"},
         # usa-wa#370 — the five key fields as one string, for power-map#490
         {"name": "span_key", "type": "string"},
+        # usa-wa#501 — basis, interval and membership (assignments 1.8.0)
+        {"name": "start_basis", "type": "string"},
+        {"name": "end_basis", "type": "string"},
+        {"name": "valid_from_latest", "type": "date"},
+        {"name": "valid_to_earliest", "type": "date"},
+        {"name": "membership_type", "type": "string"},
     ],
 }
 

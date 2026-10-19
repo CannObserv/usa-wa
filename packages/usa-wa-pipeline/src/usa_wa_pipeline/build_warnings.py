@@ -22,9 +22,16 @@ biennium: while the built duckdb stages no sponsors for it, the warning is count
 stage. Once sponsors stage, the entry is stale and degrades the stage until it is removed —
 the #333 ``ACCEPTED_OUTAGES`` pattern.
 
-Exit ``0`` every node passed (or warned under an acceptance) · ``1`` a node warned (or any
-other non-clean status) · ``4`` degraded — no results file, no nodes in it, a run that was
-not a ``build``, or a stale acceptance.
+**Informational nodes (#501 D7).** One warn is a list, not news: the seat-occupancy MAY
+tier names every pair whose outer bounds overlap — power-map's like-for-like cross-check —
+and is never empty, since a succession dated only to a month, or not at all, may overlap
+by the width of what is unknown. ``INFORMATIONAL_NODES`` names it; its warn is counted in
+``informational`` and logged ``dbt_build_informational_warning`` with its row count, and
+does not fail the stage. Any other status on it still does.
+
+Exit ``0`` every node passed (or warned under an acceptance, or informationally) · ``1`` a
+node warned (or any other non-clean status) · ``4`` degraded — no results file, no nodes
+in it, a run that was not a ``build``, or a stale acceptance.
 """
 
 from __future__ import annotations
@@ -103,6 +110,16 @@ ACCEPTED_WARNINGS: tuple[AcceptedWarning, ...] = (
 )
 
 
+#: Nodes whose ``warn`` is a listing, never news (#501 correction 2): counted and
+#: logged, never failing the stage. Node → why.
+INFORMATIONAL_NODES: dict[str, str] = {
+    "test.usa_wa_pipeline.assignments_seat_occupancy_may": (
+        "the may tier lists every seat pair whose outer bounds overlap (#501 D7): "
+        "power-map's cross-check, never empty; the certain tier is the gate"
+    ),
+}
+
+
 def summarize(
     run_results: dict[str, Any],
     *,
@@ -127,16 +144,24 @@ def summarize(
     warned_accepted = sorted(
         r["unique_id"] for r in results if r["status"] == "warn" and r["unique_id"] in accepting
     )
+    informational = {
+        r["unique_id"]: int(r.get("failures") or 0)
+        for r in results
+        if r["status"] == "warn" and r["unique_id"] in INFORMATIONAL_NODES
+    }
     not_clean = sorted(
         r["unique_id"]
         for r in results
-        if r["status"] not in CLEAN_STATUSES and r["unique_id"] not in warned_accepted
+        if r["status"] not in CLEAN_STATUSES
+        and r["unique_id"] not in warned_accepted
+        and r["unique_id"] not in informational
     )
     counters = {
         "nodes": len(results),
         "warned": sum(1 for r in results if r["status"] == "warn"),
         "not_clean": not_clean,
         "accepted_warnings": warned_accepted,
+        "informational": informational,
         "stale_acceptances": [a.node for a in stale],
         "generated_at": run_results.get("metadata", {}).get("generated_at"),
     }
@@ -159,6 +184,8 @@ def summarize(
                 "observed": [accepting[node].observed for node in warned_accepted],
             },
         )
+    if informational:
+        logger.info("dbt_build_informational_warning", extra={"nodes": informational})
     if not_clean:
         logger.error("dbt_build_not_clean", extra=counters)
         return JobResult.failed(counters, exit_code=1)

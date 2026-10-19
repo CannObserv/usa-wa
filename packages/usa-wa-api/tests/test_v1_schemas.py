@@ -18,6 +18,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from ulid import ULID
 
+from usa_wa_api.api.main import app
 from usa_wa_api.api.v1.schemas import (
     ULID_PATTERN,
     AssignmentSummary,
@@ -216,3 +217,68 @@ class _StubRun:
         self.counters = {"processed": 3}
         self.git_sha = "abc123"
         self.host = "usa-wa"
+
+
+class TestRelease210Fields:
+    """usa-wa#501 (Q5): `/api/v1` exposes `name_own` and the five new assignment columns."""
+
+    def test_a_person_summary_carries_name_own(self):
+        model = PersonSummary.model_validate(
+            {
+                "entity_id": "01M0JB0S4397R35WY8VEB2WBE8",
+                "name_full": "Mrs. Irwin LeCocq (Mary)",
+                "name_source": "roster",
+                "name_own": "Mary LeCocq",
+            }
+        )
+        assert model.name_own == "Mary LeCocq"
+
+    def test_an_assignment_summary_carries_basis_interval_and_membership(self):
+        model = AssignmentSummary.model_validate(
+            {
+                "source": "usa_wa_legislature",
+                "member_id": "11176",
+                "span_kind": "chamber-senate",
+                "span_discriminator": "6",
+                "span_start_biennium": "2005-06",
+                "valid_from": date(2005, 4, 14),
+                "valid_to": date(2005, 4, 16),
+                "start_basis": "dated",
+                "end_basis": "dated",
+                "valid_from_latest": date(2005, 4, 14),
+                "valid_to_earliest": date(2005, 4, 16),
+                "membership_type": "substitute",
+            }
+        )
+        assert (model.start_basis, model.end_basis, model.membership_type) == (
+            "dated",
+            "dated",
+            "substitute",
+        )
+        assert model.valid_to_earliest == date(2005, 4, 16)
+
+    def test_the_vocabularies_are_closed_in_the_openapi_document(self):
+        schemas = app.openapi()["components"]["schemas"]
+        props = schemas["AssignmentSummary"]["properties"]
+        for name, values in {
+            "start_basis": ["dated", "derived", "observed"],
+            "end_basis": ["dated", "derived", "observed", "open"],
+            "membership_type": ["principal", "substitute", "ex_officio", "acting"],
+        }.items():
+            (branch,) = [b for b in props[name]["anyOf"] if "enum" in b]
+            assert branch["enum"] == values, name
+        assert {"valid_from_latest", "valid_to_earliest"} <= set(props)
+        assert "name_own" in schemas["PersonSummary"]["properties"]
+
+    def test_an_unknown_basis_is_refused(self):
+        with pytest.raises(ValidationError):
+            AssignmentSummary.model_validate(
+                {
+                    "source": "usa_wa_legislature",
+                    "member_id": "1",
+                    "span_kind": "party",
+                    "span_discriminator": "d",
+                    "span_start_biennium": "2005-06",
+                    "start_basis": "term",
+                }
+            )

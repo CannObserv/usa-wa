@@ -34,8 +34,16 @@ from usa_wa_adapter_pdc.coverage import PDC_KEY_NAMESPACE
 from usa_wa_common.names import strip_tenure_notes
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
+from usa_wa_pipeline.conformed.own_names import OWN_NAMES, OwnName, own_name_for
 
-PERSON_SCHEMA = {"entity_id": "VARCHAR", "name_full": "VARCHAR", "name_source": "VARCHAR"}
+PERSON_SCHEMA = {
+    "entity_id": "VARCHAR",
+    "name_full": "VARCHAR",
+    "name_source": "VARCHAR",
+    # usa-wa#384 / #501 D9 (persons 2.1.0): her own name where the roster prints a
+    # married-name form; null everywhere else. Appended for a positional reader.
+    "name_own": "VARCHAR",
+}
 PERSON_COLUMNS = list(PERSON_SCHEMA)
 ORG_SCHEMA = {
     "entity_id": "VARCHAR",
@@ -175,8 +183,10 @@ def person_rows(
     sponsors: list[dict[str, Any]],
     roster: list[dict[str, Any]],
     pdc: list[dict[str, Any]],
+    own_names: tuple[OwnName, ...] = OWN_NAMES,
 ) -> list[dict[str, Any]]:
-    """One conformed person per live registry entity."""
+    """One conformed person per live registry entity; ``name_own`` from ``own_names``
+    (:mod:`~usa_wa_pipeline.conformed.own_names`)."""
     wsl_latest: dict[str, tuple[str, str]] = {}
     for row in sponsors:
         member_id, name = row.get("member_id"), _display_name(row.get("name"))
@@ -238,7 +248,14 @@ def person_rows(
                     if raw:
                         name_full, name_source = raw.title(), "pdc"
                         break
-        rows.append({"entity_id": entity_id, "name_full": name_full, "name_source": name_source})
+        rows.append(
+            {
+                "entity_id": entity_id,
+                "name_full": name_full,
+                "name_source": name_source,
+                "name_own": own_name_for(keys, name_full, own_names),
+            }
+        )
     return rows
 
 

@@ -54,7 +54,7 @@ from clearinghouse_domain_legislative.operator_overlay import (
     log_departure_misses,
     stale_exempt_members,
 )
-from clearinghouse_domain_legislative.seat_clipping import clip_seat_families
+from clearinghouse_domain_legislative.seat_clipping import Capacity, clip_seat_families
 from clearinghouse_domain_legislative.span_kinds import (
     KIND_COMMITTEE,
     KIND_PARTY,
@@ -94,6 +94,7 @@ from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
 from usa_wa_common.seats import district_number
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 from usa_wa_pipeline.conformed.house import build_house_spans
+from usa_wa_pipeline.conformed.memberships import apply_memberships
 from usa_wa_pipeline.conformed.movers import (
     chamber_moves,
     committee_agencies,
@@ -134,6 +135,14 @@ ASSIGNMENT_SCHEMA = {
     # serialized once by the producer so power-map#490's applier and this tier
     # cannot disagree about how they become one string.
     "span_key": "VARCHAR",
+    # usa-wa#501 (assignments 1.8.0), appended so a positional reader keeps its
+    # columns: where each boundary's date came from (#369), how precisely it is
+    # known (#360 increment 2), and how the tenure holds its role (#362).
+    "start_basis": "VARCHAR",
+    "end_basis": "VARCHAR",
+    "valid_from_latest": "DATE",
+    "valid_to_earliest": "DATE",
+    "membership_type": "VARCHAR",
 }
 ASSIGNMENT_COLUMNS = list(ASSIGNMENT_SCHEMA)
 
@@ -638,7 +647,9 @@ def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, li
     current one are dropped first (:func:`without_future_bienniums`, #135), so
     no span is built from one — the guard's reach ends at the spans; see there.
     So are committee rows for a member no sponsor roster lists that biennium
-    (:func:`without_non_legislator_committee_rows`, #469).
+    (:func:`without_non_legislator_committee_rows`, #469). The curated substitute
+    tenures are marked last (:func:`~usa_wa_pipeline.conformed.memberships.
+    apply_memberships`, #501 D5) — after every overlay, before the clip.
     """
     inputs = without_future_bienniums(inputs, current_biennium=current_biennium)
     inputs = without_non_legislator_committee_rows(inputs)
@@ -652,7 +663,7 @@ def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, li
     roster_spans = build_roster_spans(
         resolution, events=inputs.events, current_biennium=current_biennium, context_spans=spans
     )
-    return {SOURCE: spans, ROSTER_SOURCE: roster_spans}
+    return apply_memberships({SOURCE: spans, ROSTER_SOURCE: roster_spans})
 
 
 def entity_index(crosswalk: list[dict[str, Any]]) -> dict[str, str]:
@@ -669,7 +680,10 @@ def entity_index(crosswalk: list[dict[str, Any]]) -> dict[str, str]:
 
 
 def assignment_rows(
-    spans_by_source: dict[str, list[TenureSpan]], entity_by_key: dict[str, str]
+    spans_by_source: dict[str, list[TenureSpan]],
+    entity_by_key: dict[str, str],
+    *,
+    capacity: Capacity | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Span families → counterpart-clipped, ⨝ the person crosswalk → published rows.
 
@@ -683,14 +697,14 @@ def assignment_rows(
     counted in ``seat_overlaps_unclipped``.
 
     That counter is deliberately **larger** than the gate's row count, and the
-    two are not interchangeable. The clip is jurisdiction-agnostic and sees only
-    span geometry, so it declines every overlap it cannot resolve; the gate
-    additionally *excludes* the district-years the WA roster lists with more than
-    one member and no annotations, which are legitimately multi-holder rather
-    than defective (the 1889 multi-member Senate). At the 2026-09-10 measurement
-    that is 54 counted here against 34 listed by the gate. The gate is the
-    authority on what is publishable; this counter is the authority on how much
-    the rule left on the table.
+    two are not interchangeable. ``capacity`` (#501 D4,
+    :func:`~usa_wa_pipeline.conformed.capacity.seat_capacity`) names the seats
+    that lawfully hold more than one principal — the 1889 multi-member Senate —
+    and the clip declines their pairs as ``multi_holder_period`` rather than
+    resolving a co-senator into a succession; the counter still counts them,
+    while the gate judges those seats by count. The gate is the authority on
+    what is publishable; this counter is the authority on how much the rule left
+    on the table.
 
     Keyed by source because the two families live in **disjoint identity
     spaces** and share one table: the WSL family's member ids are the archive's
@@ -711,7 +725,7 @@ def assignment_rows(
         "spans": sum(len(spans) for spans in spans_by_source.values()),
         "unregistered_spans": 0,
     }
-    clipped, unclipped = clip_seat_families(spans_by_source)
+    clipped, unclipped = clip_seat_families(spans_by_source, capacity=capacity)
     counters["seat_overlaps_unclipped"] = len(unclipped)
     for source, spans in clipped.items():
         for span in spans:
@@ -743,6 +757,11 @@ def assignment_rows(
                         span_discriminator=span.discriminator,
                         span_start_biennium=span.start_biennium,
                     ),
+                    "start_basis": span.start_basis,
+                    "end_basis": span.end_basis,
+                    "valid_from_latest": span.valid_from_latest,
+                    "valid_to_earliest": span.valid_to_earliest,
+                    "membership_type": span.membership_type,
                 }
             )
     counters["published"] = len(rows)

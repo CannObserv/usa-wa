@@ -45,7 +45,9 @@ import duckdb
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.registry import KIND_ORG, KIND_PERSON, KIND_ROLE
+from clearinghouse_domain_legislative.seat_clipping import Capacity
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
+from usa_wa_pipeline.conformed.capacity import seat_capacity
 from usa_wa_pipeline.conformed.roles import SOURCE as ROLE_SOURCE
 from usa_wa_pipeline.conformed.roles import role_rows
 from usa_wa_pipeline.conformed.spans import (
@@ -105,6 +107,7 @@ def coverage_counters(
     persons: dict[str, str],
     orgs: dict[str, str],
     roles: dict[str, str],
+    capacity: Capacity | None = None,
 ) -> dict[str, Any]:
     """Both families ⨝ the three crosswalks → the counters, plus a sample of each
     unbound key so the report says what to register or adjudicate.
@@ -113,7 +116,7 @@ def coverage_counters(
     ``parity_spans``' rule (CR 86): from the joined rows, a person gap would hide
     the roles only that person's spans name.
     """
-    _rows, join = assignment_rows(families, persons)
+    _rows, join = assignment_rows(families, persons, capacity=capacity)
     derived_roles, role_join = role_rows(
         [
             {"span_kind": span.kind, "span_discriminator": span.discriminator}
@@ -182,7 +185,14 @@ def run_coverage(
     families = build_families(
         SpanInputs(**staging, events=events), current_biennium=current_biennium
     )
-    counters = coverage_counters(families, persons=persons, orgs=orgs, roles=roles)
+    counters = coverage_counters(
+        families,
+        persons=persons,
+        orgs=orgs,
+        roles=roles,
+        # the capacity the `assignments` model clips with (#501 D4)
+        capacity=seat_capacity(staging["roster"]),
+    )
     counters["integrity_failures"] = [name for name in GATED_COUNTERS if counters[name]]
     clean = not counters["integrity_failures"]
     (logger.info if clean else logger.error)(

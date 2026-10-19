@@ -15,6 +15,7 @@ from usa_wa_pipeline.publish import (
     PUBLISHED_DATASETS,
     SHRINK_WINDOW,
     ContractRelease,
+    FieldDoc,
     PublishedDataset,
     PublishRefused,
     contract_fingerprint,
@@ -936,3 +937,87 @@ def test_a_catalog_without_its_version_dirs_still_gates_on_the_catalog(built_db,
 
     with pytest.raises(PublishRefused, match=r"persons.*4 → 1"):
         publish(built_db, out, _manifest(tmp_path), datasets=DATASETS)
+
+
+# usa-wa#501 D8: fields carry a description and, for a closed vocabulary, its enum.
+
+
+def _documented(**fields: FieldDoc) -> list[PublishedDataset]:
+    persons = PublishedDataset(
+        "persons",
+        "conformed",
+        (ContractRelease("1.0.0", ("entity_id", "name_full"), "test baseline"),),
+        fields=fields,
+    )
+    return [persons, _dataset("person_crosswalk")]
+
+
+def _persons_package(out) -> dict:
+    entry = next(
+        d
+        for d in json.loads((out / "catalog.json").read_text())["datasets"]
+        if d["name"] == "persons"
+    )
+    return entry, json.loads(
+        (out / "persons" / entry["latest_version"] / "datapackage.json").read_text()
+    )
+
+
+def test_a_field_publishes_its_description_and_enum(built_db, tmp_path) -> None:
+    out = tmp_path / "datasets"
+    datasets = _documented(
+        entity_id=FieldDoc("The person's registry ULID."),
+        name_full=FieldDoc("The printed name.", enum=("Dana",)),
+    )
+    publish(built_db, out, _manifest(tmp_path), datasets=datasets)
+    _entry, package = _persons_package(out)
+    [resource] = package["resources"]
+    entity_id, name_full = resource["schema"]["fields"]
+    assert entity_id == {
+        "name": "entity_id",
+        "type": "string",
+        "description": "The person's registry ULID.",
+    }
+    assert name_full["constraints"] == {"enum": ["Dana"]}
+
+
+def test_a_description_does_not_move_the_contract_hash(built_db, tmp_path) -> None:
+    """Prose is not contract (#501 D8): `roles` gains descriptions and keeps its hash."""
+    plain, described = tmp_path / "plain", tmp_path / "described"
+    publish(built_db, plain, _manifest(tmp_path), datasets=DATASETS)
+    publish(
+        built_db,
+        described,
+        _manifest(tmp_path),
+        datasets=_documented(entity_id=FieldDoc("ULID."), name_full=FieldDoc("Name.")),
+    )
+    assert (
+        _persons_package(plain)[0]["contract_hash"]
+        == _persons_package(described)[0]["contract_hash"]
+    )
+
+
+def test_an_enum_is_contract_only_where_declared() -> None:
+    """`constraints` enters the fingerprint only when present, so no existing
+    dataset's hash moves, and a later enum change does move it."""
+    fields = [{"name": "entity_id", "type": "string"}]
+    legacy = contract_fingerprint(name="persons", tier="conformed", fields=fields)
+    described = contract_fingerprint(
+        name="persons", tier="conformed", fields=[{**fields[0], "description": "x"}]
+    )
+    enum_a = contract_fingerprint(
+        name="persons", tier="conformed", fields=[{**fields[0], "constraints": {"enum": ["a"]}}]
+    )
+    enum_b = contract_fingerprint(
+        name="persons",
+        tier="conformed",
+        fields=[{**fields[0], "constraints": {"enum": ["a", "b"]}}],
+    )
+    assert legacy == described
+    assert len({legacy, enum_a, enum_b}) == 3
+
+
+def test_a_documented_field_must_exist() -> None:
+    """A description for a column the release does not carry documents nothing."""
+    with pytest.raises(ValueError, match="nope"):
+        _documented(nope=FieldDoc("x"))

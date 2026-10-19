@@ -45,8 +45,12 @@ ROLE_B = "01JGGGGGGGGGGGGGGGGGGGGGGG"
 
 
 async def _insert(session, table, rows: list[dict]) -> None:
+    """Insert ``rows``; a column a row leaves out is NULL, as the loader leaves it."""
     if rows:
-        await session.execute(insert(table.__table__), rows)
+        columns = {c for row in rows for c in row}
+        await session.execute(
+            insert(table.__table__), [{c: row.get(c) for c in columns} for row in rows]
+        )
 
 
 @pytest.fixture
@@ -62,7 +66,12 @@ async def corpus(serving_schema):
         session,
         Person,
         [
-            {"entity_id": PERSON_A, "name_full": "Dana Whitfield", "name_source": "roster"},
+            {
+                "entity_id": PERSON_A,
+                "name_full": "Dana Whitfield",
+                "name_source": "roster",
+                "name_own": "Dana Lee",
+            },
             {"entity_id": PERSON_B, "name_full": "Sam Ortega", "name_source": "wsl"},
             {"entity_id": PERSON_C, "name_full": "Lee Whitfield", "name_source": "pdc"},
         ],
@@ -195,6 +204,11 @@ async def corpus(serving_schema):
                 "valid_from": date(2021, 1, 11),
                 "valid_to": date(2022, 12, 31),
                 "is_active": False,
+                "start_basis": "dated",
+                "end_basis": "observed",
+                "valid_from_latest": date(2021, 1, 11),
+                "valid_to_earliest": date(2021, 1, 11),
+                "membership_type": "principal",
             },
             {
                 # The roster family: a member id that carries its own colon.
@@ -221,6 +235,7 @@ class TestPersons:
         body = (await client.get("/api/v1/persons")).json()
         assert [item["entity_id"] for item in body["items"]] == [PERSON_A, PERSON_B, PERSON_C]
         assert body["items"][0]["name_source"] == "roster"
+        assert [item["name_own"] for item in body["items"]] == ["Dana Lee", None, None]
 
     async def test_source_filters_on_what_the_registry_knows_not_on_origin(
         self, client, corpus
@@ -390,6 +405,20 @@ class TestAssignments:
         assert item["span_kind"] == "committee"
         assert item["span_discriminator"] == "5"
         assert item["span_start_biennium"] == "2021-22"
+
+    async def test_the_501_columns_reach_the_response(self, client, corpus) -> None:
+        """#501 Q5: basis, interval and membership are served as published."""
+        body = (await client.get("/api/v1/assignments", params={"person_id": PERSON_B})).json()
+        [item] = body["items"]
+        assert (item["start_basis"], item["end_basis"], item["membership_type"]) == (
+            "dated",
+            "observed",
+            "principal",
+        )
+        assert (item["valid_from_latest"], item["valid_to_earliest"]) == (
+            "2021-01-11",
+            "2021-01-11",
+        )
 
     async def test_span_kind_filters_a_column_not_a_string_split(self, client, corpus) -> None:
         """#335: the old filter split `source_id` left-to-right and under-reported

@@ -44,6 +44,8 @@ class Person(ServingBase):
     entity_id: Mapped[str] = mapped_column(String(26), primary_key=True)
     name_full: Mapped[str | None] = mapped_column(String(512))
     name_source: Mapped[str | None] = mapped_column(String(64))
+    #: Her own name where the roster prints a married-name form (#384, #501 D9).
+    name_own: Mapped[str | None] = mapped_column(String(512))
 
 
 class Organization(ServingBase):
@@ -109,6 +111,13 @@ class Assignment(ServingBase):
     #: the published columns and the modelled ones to be one set in both
     #: directions: a declared field with no column is a value silently dropped.
     span_key: Mapped[str | None] = mapped_column(String(512))
+    #: Where each boundary's date came from, and how precisely it is known
+    #: (#369, #360 increment 2; #501 D6); how the tenure holds its role (#501 D5).
+    start_basis: Mapped[str | None] = mapped_column(String(16))
+    end_basis: Mapped[str | None] = mapped_column(String(16))
+    valid_from_latest: Mapped[date | None] = mapped_column(Date)
+    valid_to_earliest: Mapped[date | None] = mapped_column(Date)
+    membership_type: Mapped[str | None] = mapped_column(String(16))
 
 
 class PersonCrosswalk(ServingBase):
