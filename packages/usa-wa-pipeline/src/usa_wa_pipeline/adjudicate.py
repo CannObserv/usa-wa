@@ -170,13 +170,7 @@ async def adjudicate_move(
     entity would be a re-point whose crosswalk row immediately says "merged
     away" — almost always a typo'd ULID."""
     await _require_live_entity(session, kind, to_entity)
-    key_row = (
-        await session.execute(
-            select(RegistryKey).where(
-                RegistryKey.kind == kind, RegistryKey.natural_key == natural_key
-            )
-        )
-    ).scalar_one_or_none()
+    key_row = await _bound_key(session, kind, natural_key)
     if key_row is None:
         raise ValueError(f"no registered {kind} key {natural_key!r}")
     adjudication = RegistryAdjudication(
@@ -273,6 +267,7 @@ async def adjudicate_register(
 
 
 async def _bound_key(session: AsyncSession, kind: str, natural_key: str) -> RegistryKey | None:
+    """The registry row binding ``natural_key``, or ``None`` — move's and register's one lookup."""
     return (
         await session.execute(
             select(RegistryKey).where(
