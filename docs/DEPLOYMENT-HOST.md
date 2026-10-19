@@ -196,7 +196,7 @@ sudo install -D -m 0644 deploy/system.conf.d/zz-cannobserv-log-target.conf /etc/
 # daemon-reload re-reads every unit too, so first: each copy matches (silent), no nightly in flight
 for f in deploy/*.service deploy/*.timer; do diff -q "$f" /etc/systemd/system/; done
 diff -q deploy/system.slice.d/10-usa-wa-memory.conf /etc/systemd/system/system.slice.d/
-systemctl is-active usa-wa-pipeline.service     # inactive — never active/activating
+systemctl is-active usa-wa-pipeline.service     # inactive or failed — never active/activating
 sudo systemctl daemon-reload
 systemd-analyze get-log-target                  # journal-or-kmsg
 # revert: sudo rm /etc/systemd/system.conf.d/zz-cannobserv-log-target.conf && sudo systemctl daemon-reload
