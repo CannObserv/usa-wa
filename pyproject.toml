@@ -113,6 +113,12 @@ line-length = 100
 target-version = "py312"
 extend-exclude = ["skills-vendor/", "alembic/versions/", ".superpowers/"]
 
+[tool.ruff.format]
+# ruff 0.17 formats Python fences in Markdown by default; docs' fences are
+# illustrative (dated specs, hand-aligned pseudo-code), so they keep 0.15's
+# hands-off behaviour. Pinned, with the hook rev, by scripts/tests/test_ruff_pin.py.
+exclude = ["*.md"]
+
 [tool.ruff.lint]
 # ASYNC (flake8-async) and S (flake8-bandit) added by CR #191 finding 7: the job
 # harness introduced a blocking subprocess call inside a coroutine that nothing could
