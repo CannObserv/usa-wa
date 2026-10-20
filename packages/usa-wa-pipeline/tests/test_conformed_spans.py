@@ -8,6 +8,7 @@ orchestration ORDER the Postgres-tier builders use. These tests pin that
 plumbing and the order, not the engine's own behavior.
 """
 
+from collections import Counter
 from dataclasses import replace
 from datetime import date
 
@@ -973,3 +974,21 @@ def test_build_families_reads_the_annotation_windows() -> None:
         "dated",
         date(1925, 10, 31),
     )
+
+
+def test_build_families_hands_the_window_counts_to_its_caller() -> None:
+    """CR 7: a dbt model's log reaches nobody, so the counts leave by an out-parameter
+    for `registry_coverage` to report (the `applied_departures` idiom)."""
+    roster = [
+        _roster(
+            "Wilbur Cranston", 1925, district=30, chamber="senate", annotation="Appointed Oct. 1925"
+        ),
+        _roster("Wilbur Cranston", 1927, district=30, chamber="senate"),
+    ]
+    counts: Counter = Counter()
+    build_families(
+        SpanInputs(sponsors=[], committee_members=[], roster=roster),
+        current_biennium=CURRENT,
+        window_counts=counts,
+    )
+    assert counts["start"] == 1

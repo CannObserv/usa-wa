@@ -28,6 +28,8 @@ alarms — which is the state tomorrow's build publishes from.
 
 ``seat_overlaps_unclipped`` (#360) rides along, reported and not gated: the
 ``assignments`` model computes it on every build and a dbt model cannot report.
+So do the roster annotation windows' counts (``annotation_windows``, #501 D6a):
+``contradicted`` names an operator event its own roster clause disagrees with.
 
 Exit ``0`` clean · ``1`` any gated counter nonzero · ``4`` degraded — the build
 holds no sponsors, no roster rows, or sponsors with no ballot rows. Each would
@@ -38,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from collections import Counter
 from typing import Any
 
 import duckdb
@@ -182,8 +185,11 @@ def run_coverage(
         logger.warning("registry_coverage_empty_sos_rows")
         return JobResult.degraded({"empty_sos_rows": True})
 
+    window_counts: Counter = Counter()
     families = build_families(
-        SpanInputs(**staging, events=events), current_biennium=current_biennium
+        SpanInputs(**staging, events=events),
+        current_biennium=current_biennium,
+        window_counts=window_counts,
     )
     counters = coverage_counters(
         families,
@@ -193,6 +199,9 @@ def run_coverage(
         # the capacity the `assignments` model clips with (#501 D4)
         capacity=seat_capacity(staging["roster"]),
     )
+    # the roster's annotation windows (#501 D6a): `contradicted` is an operator event
+    # that disagrees with its own roster clause — reported, never gated (CR 7)
+    counters["annotation_windows"] = dict(window_counts)
     counters["integrity_failures"] = [name for name in GATED_COUNTERS if counters[name]]
     clean = not counters["integrity_failures"]
     (logger.info if clean else logger.error)(

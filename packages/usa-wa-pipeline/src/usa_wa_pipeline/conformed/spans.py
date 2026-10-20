@@ -644,7 +644,9 @@ def without_non_legislator_committee_rows(inputs: SpanInputs) -> SpanInputs:
     return kept
 
 
-def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, list[TenureSpan]]:
+def build_families(
+    inputs: SpanInputs, *, current_biennium: str, window_counts: Counter | None = None
+) -> dict[str, list[TenureSpan]]:
     """Both span families, keyed by source — the one sequence every caller runs.
 
     The ``assignments`` model, ``parity_spans`` and ``registry_coverage`` (#412
@@ -677,9 +679,12 @@ def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, li
     )
     # The roster's month/year/election dates, after every overlay and before the clip
     # (#501 D6a): an observed edge a clause dates becomes that window.
-    families, _counts = apply_windows(
+    families, counts = apply_windows(
         {SOURCE: spans, ROSTER_SOURCE: roster_spans}, edge_windows(resolution.members)
     )
+    # A model's log reaches nobody; a caller that reports passes a Counter (CR 7).
+    if window_counts is not None:
+        window_counts.update(counts)
     return apply_memberships(families)
 
 
