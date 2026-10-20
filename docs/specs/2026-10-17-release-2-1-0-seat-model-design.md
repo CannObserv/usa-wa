@@ -428,10 +428,14 @@ operator.
 5. **One `role_key` still spans every districting plan** (LD-19 in 1889 is not LD-19 today).
    That's unchanged here; `district_plan` is how it's eventually told apart (D3).
 6. **Substitutes are hand-curated.** A new one needs a PR until the revisit trigger in D5.
-7. **The capacity rule reads annotations only.** A tenure note printed in the name field, as with
+7. **A windowed edge the day rule moves widens.** Where a day inside a counterpart's
+   window moves a windowed edge (Happy's "Appointed 1962" onto her husband's June 21
+   death), the edge becomes `derived`, and its interval is the biennium's, not its own
+   window's. Only ever wider than the truth, never narrower; equal for both cases today.
+8. **The capacity rule reads annotations only.** A tenure note printed in the name field, as with
    Kreidler, doesn't count as an annotation. That's harmless today, because no multi-row Senate
    district-year outside 1889 is bare [measured], but the build should treat a
-   `strip_tenure_notes` parenthetical as an annotation.
+   `strip_tenure_notes` parenthetical as an annotation. (Built: `conformed.capacity` does.)
 
 ## Owner decisions (2026-10-17)
 
