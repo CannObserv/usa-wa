@@ -13,10 +13,13 @@ separate this from "a cleanup script someone runs when they remember":
   them running; five Claude extension versions (#399), one live and a different
   one active. A size-or-mtime heuristic would delete a running editor's server.
   A *grace window* covers the case liveness cannot (CR 12): a tree still being
-  installed is named by no process yet. The plugin cache adds a fifth source
-  (#407): a session reading a plugin version's skills and hooks names it in no
-  `/proc` entry, so Claude Code's own `.in_use/<pid>` markers — checked against
-  the pid's start time — are the only evidence it is in use.
+  installed is named by no process yet. It reads ctime as well as mtime (#512),
+  since VS Code restores archive mtimes, so tests move `DISK_GC_NOW` rather than
+  backdate a tree; one it cannot walk is withheld, never settled. The plugin
+  cache adds a fifth source (#407): a session reading a plugin version's skills
+  and hooks names it in no `/proc` entry, so Claude Code's own `.in_use/<pid>`
+  markers — checked against the pid's start time — are the only evidence it is
+  in use.
 * **It never touches repo data.** Retention for the published-dataset, `raw/`,
   dbt and cassette tiers is a *contract* question descoped to its own issue; this
   script reports those sizes and removes nothing from them. A GC that quietly
@@ -381,7 +384,8 @@ def test_keeps_a_tree_that_is_still_being_written(host):
 
 
 @pytest.mark.parametrize(
-    "setting", ["DISK_GC_GRACE_MINUTES", "DISK_GC_WARN_BYTES", "DISK_GC_FAIL_BYTES"]
+    "setting",
+    ["DISK_GC_GRACE_MINUTES", "DISK_GC_NOW", "DISK_GC_WARN_BYTES", "DISK_GC_FAIL_BYTES"],
 )
 def test_bad_configuration_refuses_to_run(host, setting):
     """CR 19. These all used to fail OPEN: a non-numeric value made bash print
@@ -392,6 +396,30 @@ def test_bad_configuration_refuses_to_run(host, setting):
     assert result.returncode == 2
     assert setting in result.stderr
     assert result.stdout == ""
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [("DISK_GC_GRACE_MINUTES", "9" * 10), ("DISK_GC_NOW", "9" * 13)],
+)
+def test_a_value_the_window_arithmetic_would_wrap_refuses_to_run(host, setting, value):
+    """#512 CR 2. Digits alone are not enough: `NOW - GRACE*60` wraps past
+    int64, and a wrap that lands the cutoff after now reads every tree settled —
+    the window off, silently. Bounded, so it cannot wrap."""
+    result = run_gc(host, "--json", **{setting: value})
+    assert result.returncode == 2
+    assert setting in result.stderr
+
+
+def test_a_leading_zero_grace_is_minutes_not_octal(host):
+    """#512 CR 2. Bash arithmetic reads `060` as octal 48. A tree 50 minutes old
+    must be withheld under a 60-minute window however the 60 is written."""
+    tree = _fill(host["npx"] / "eeeeeeeeeeeeeeee")
+    data = report(
+        host, "--prune", DISK_GC_GRACE_MINUTES="060", DISK_GC_NOW=int(time.time()) + 50 * 60
+    )
+    assert tree.exists()
+    assert [c["reason"] for c in data["withheld"]] == ["recent"]
 
 
 def test_a_bad_grace_value_cannot_prune(host):
@@ -408,7 +436,7 @@ def test_withheld_candidates_are_reported_not_silently_skipped(host):
     _fill(host["npx"] / "aaaaaaaaaaaaaaaa", kib=128)
     data = report(host, "--prune", DISK_GC_GRACE_MINUTES=60)
     assert data["pruned"] == []
-    assert [c["kind"] for c in data["withheld"]] == ["npx-cache"]
+    assert [(c["kind"], c["reason"]) for c in data["withheld"]] == [("npx-cache", "recent")]
     assert data["grace_minutes"] == 60
 
     human = run_gc(host, "--prune", DISK_GC_GRACE_MINUTES=60)
@@ -420,27 +448,89 @@ def test_nothing_withheld_on_an_empty_host(host):
     assert data["withheld"] == []
 
 
+def _two_hours_on() -> int:
+    """A `DISK_GC_NOW` under which everything a fixture just built reads settled.
+
+    The window reads ctime as well as mtime (#512), and ctime cannot be
+    backdated — `os.utime` moves it to now — so the clock is moved instead."""
+    return int(time.time()) + 7200
+
+
+def _backdate(root: Path) -> None:
+    """Set every mtime under `root` to 2020, the way VS Code's extractor
+    restores archive mtimes. ctime moves to now, as it does on the real host."""
+    old = time.mktime((2020, 1, 1, 0, 0, 0, 0, 0, -1))
+    for path in [root, *root.rglob("*")]:
+        os.utime(path, (old, old))
+
+
 def test_prunes_a_tree_older_than_the_grace_window(host):
     """The other half of CR 12 — the window must expire, or nothing is ever
     reclaimed and the GC quietly becomes a no-op."""
     old = _fill(host["npx"] / "bbbbbbbbbbbbbbbb")
-    stale = time.time() - 7200
-    for path in [old, *old.rglob("*")]:
-        os.utime(path, (stale, stale))
-    run_gc(host, "--prune", DISK_GC_GRACE_MINUTES=60)
+    run_gc(host, "--prune", DISK_GC_GRACE_MINUTES=60, DISK_GC_NOW=_two_hours_on())
     assert not old.exists()
 
 
 def test_a_fresh_file_deep_inside_protects_the_tree(host):
     """An installer writing files inside leaves the top level's own mtime
-    untouched, so the check has to look at the whole tree."""
+    untouched, so the check has to look at the whole tree. Under the moved clock
+    only the deep file's mtime falls inside the window."""
     tree = _fill(host["npx"] / "cccccccccccccccc")
-    stale = time.time() - 7200
-    os.utime(tree, (stale, stale))
     (tree / "node_modules").mkdir()
-    (tree / "node_modules" / "just-written").write_bytes(b"x")
-    run_gc(host, "--prune", DISK_GC_GRACE_MINUTES=60)
+    just_written = tree / "node_modules" / "just-written"
+    just_written.write_bytes(b"x")
+    now = _two_hours_on()
+    os.utime(just_written, (now, now))
+    data = report(host, "--prune", DISK_GC_GRACE_MINUTES=60, DISK_GC_NOW=now)
     assert tree.exists()
+    assert [c["reason"] for c in data["withheld"]] == ["recent"]
+
+
+def test_a_cli_with_a_restored_archive_mtime_is_withheld(host):
+    """#512. A `code-*` CLI is one file, and VS Code's extractor restores its
+    archive mtime: one downloaded a minute ago read weeks old, and was a
+    candidate in the gap between download and exec. ctime says when it landed."""
+    cli = host["vscode"] / "code-07f806f9"
+    cli.write_bytes(b"\0" * 4096)
+    _backdate(cli)
+    data = report(host, "--prune", DISK_GC_GRACE_MINUTES=60)
+    assert cli.exists()
+    assert data["withheld"] == [{"kind": "vscode-cli", "path": str(cli), "reason": "recent"}]
+
+
+def test_a_build_with_every_mtime_restored_is_withheld(host):
+    """#512. Today a new server build is protected only because the extractor
+    leaves directory mtimes alone; one that restored those too would read
+    settled. With every mtime in the tree backdated it must still be held."""
+    build = _fill(host["vscode"] / "cli" / "servers" / "Stable-6d62b1d5")
+    _fill(build / "server", kib=4)
+    _backdate(build)
+    data = report(host, "--prune", DISK_GC_GRACE_MINUTES=60)
+    assert build.exists()
+    assert [(c["kind"], c["reason"]) for c in data["withheld"]] == [("vscode-server", "recent")]
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads through chmod 000, exercising nothing")
+def test_a_tree_the_window_cannot_read_is_withheld(host):
+    """#512. `find` errors used to be discarded, so a subtree it could not
+    enter read as "not recent" — the tree a candidate though nobody could tell
+    whether it was still being written. Under the moved clock every readable
+    entry is settled, so only the unreadable subdir can hold it back."""
+    tree = _fill(host["npx"] / "dddddddddddddddd")
+    unreadable = _fill(tree / "unreadable", kib=4)
+    unreadable.chmod(0o000)
+    try:
+        data = report(host, "--prune", DISK_GC_GRACE_MINUTES=60, DISK_GC_NOW=_two_hours_on())
+        assert tree.exists()
+        assert data["pruned"] == []
+        assert data["withheld"] == [{"kind": "npx-cache", "path": str(tree), "reason": "unchecked"}]
+        assert any(str(tree) in w and "could not be checked" in w for w in data["warnings"])
+
+        human = run_gc(host, DISK_GC_GRACE_MINUTES=60, DISK_GC_NOW=_two_hours_on())
+        assert f"{tree} (unchecked)" in human.stdout
+    finally:
+        unreadable.chmod(0o755)
 
 
 def test_keeps_a_build_a_process_only_runs_inside(host, live_cwd):

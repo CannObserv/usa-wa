@@ -1,4 +1,4 @@
-"""Identity adjudication CLI (#308): the only path that merges or moves.
+"""Identity adjudication CLI (#308): the only path that merges, moves or registers.
 
     python -m usa_wa_pipeline.adjudicate merge --kind person \
         --loser <ULID> --survivor <ULID> --note "…"
@@ -6,33 +6,48 @@
         --key <natural-key> --to <ULID> --note "…"
     python -m usa_wa_pipeline.adjudicate unmerge --kind person \
         --entity <ULID> --note "…"
+    python -m usa_wa_pipeline.adjudicate register --kind person \
+        --key <natural-key> --note "…"
 
 Corrections are always adjudications (sticky registry, spec § tradeoffs): a
 merge sets the loser's ``merged_into`` tombstone — the signal the published
-crosswalk carries and PM's mapping layer follows — and a move re-points one
-natural key. Every action writes a ``registry.adjudications`` row with its
-note; there is no delete (a wrong adjudication is corrected by another
-adjudication, so the trail stays whole — a wrong merge specifically by
-``unmerge``, never by a reverse merge, which would cycle the tombstones).
-``--note`` is mandatory: an unexplained identity decision is exactly what the
-trail exists to prevent.
+crosswalk carries and PM's mapping layer follows — a move re-points one
+natural key, and a register (#514) mints one entity for a key the registrar
+deliberately never mints (a new roster-only person). Every action writes a
+``registry.adjudications`` row with its note; there is no delete (a wrong
+adjudication is corrected by another adjudication, so the trail stays whole —
+a wrong merge specifically by ``unmerge``, never by a reverse merge, which
+would cycle the tombstones). ``--note`` is mandatory: an unexplained identity
+decision is exactly what the trail exists to prevent.
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.job import JobContext, JobResult, run_job
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.registry import RegistryAdjudication, RegistryEntity, RegistryKey
+from clearinghouse_core.registry import (
+    KIND_PERSON,
+    RegistryAdjudication,
+    RegistryEntity,
+    RegistryKey,
+)
+from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
+from usa_wa_adapter_legislature.roster_pdf.identity import ROSTER_IDENTITY_FLOOR
 
 logger = get_logger(__name__)
 
 #: Stable ledger identity (#178).
 JOB_SLUG = "registry-adjudicate"
+
+#: The one key shape ``register`` accepts (CR 9): a minted pre-1991 roster person,
+#: ``<source>:<identity fold>:<first roster year>`` — the key the registrar declines.
+_REGISTRABLE_KEY = re.compile(rf"^{re.escape(ROSTER_SOURCE_SLUG)}:[a-z0-9]+:(?P<year>\d{{4}})$")
 
 
 async def _require_entity(session: AsyncSession, kind: str, entity_id: str) -> RegistryEntity:
@@ -155,13 +170,7 @@ async def adjudicate_move(
     entity would be a re-point whose crosswalk row immediately says "merged
     away" — almost always a typo'd ULID."""
     await _require_live_entity(session, kind, to_entity)
-    key_row = (
-        await session.execute(
-            select(RegistryKey).where(
-                RegistryKey.kind == kind, RegistryKey.natural_key == natural_key
-            )
-        )
-    ).scalar_one_or_none()
+    key_row = await _bound_key(session, kind, natural_key)
     if key_row is None:
         raise ValueError(f"no registered {kind} key {natural_key!r}")
     adjudication = RegistryAdjudication(
@@ -183,19 +192,129 @@ async def adjudicate_move(
     logger.info("registry_move", extra={"kind": kind, "natural_key": natural_key, "to": to_entity})
 
 
+async def adjudicate_register(
+    session: AsyncSession,
+    kind: str,
+    *,
+    natural_key: str,
+    note: str,
+    distinct_person: bool = False,
+) -> str:
+    """Mint one entity for one unregistered key and record the decision (#514).
+
+    The registrar never mints a roster key: it is built from a name, so a parser
+    or fold change would publish a duplicate (``registrar.load_sponsor_keys``).
+    A parser fix that surfaces a genuinely new roster-only person therefore
+    leaves it unregistered — ``registry_coverage`` names it nightly — and this is
+    the human decision that binds it. A key already bound is refused: re-pointing
+    is :func:`adjudicate_move`, and a second entity could never be deleted.
+
+    A roster key is ``<fold>:<first year>``, so a parse change that surfaces an
+    earlier row re-keys a person already registered under the same fold (CR 1).
+    That shape is refused too, naming the bound keys — it is a ``move`` — unless
+    ``distinct_person`` records that a human judged the namesake a different
+    person (the ``IDENTITY_SPLITS`` shape).
+
+    Only that key shape is accepted (CR 9): ``persons`` publishes one row per live
+    entity, so minting for a mistyped or out-of-scope key — a WSL id is the
+    registrar's, an org needs no human — would publish a nameless row with no delete.
+    """
+    match = _REGISTRABLE_KEY.match(natural_key)
+    if kind != KIND_PERSON or match is None or int(match["year"]) >= ROSTER_IDENTITY_FLOOR:
+        raise ValueError(
+            f"register mints only a pre-{ROSTER_IDENTITY_FLOOR} roster person "
+            f"({KIND_PERSON} key {ROSTER_SOURCE_SLUG}:<fold>:<year>), not {kind} {natural_key!r}"
+        )
+    bound = await _bound_key(session, kind, natural_key)
+    if bound is not None:
+        raise ValueError(
+            f"{kind} key {natural_key!r} is already registered to {bound.entity_id!s} — "
+            "re-point it with the move verb"
+        )
+    same_fold = await _same_fold_keys(session, kind, natural_key)
+    if same_fold and not distinct_person:
+        raise ValueError(
+            f"{kind} key {natural_key!r} shares its fold with registered "
+            f"{', '.join(same_fold)} — a re-keyed person is moved, not minted; pass "
+            "--distinct-person only for an adjudicated namesake"
+        )
+    entity = RegistryEntity(kind=kind)
+    session.add(entity)
+    await session.flush()
+    adjudication = RegistryAdjudication(
+        kind=kind,
+        action="register",
+        target_entity_id=str(entity.id),
+        natural_key=natural_key,
+        note=note,
+    )
+    session.add(adjudication)
+    await session.flush()
+    session.add(
+        RegistryKey(
+            kind=kind,
+            natural_key=natural_key,
+            entity_id=str(entity.id),
+            registered_by=f"adjudication:{adjudication.id}",
+        )
+    )
+    await session.flush()
+    logger.info(
+        "registry_register",
+        extra={"kind": kind, "natural_key": natural_key, "entity": str(entity.id)},
+    )
+    return str(entity.id)
+
+
+async def _bound_key(session: AsyncSession, kind: str, natural_key: str) -> RegistryKey | None:
+    """The registry row binding ``natural_key``, or ``None`` — move's and register's one lookup."""
+    return (
+        await session.execute(
+            select(RegistryKey).where(
+                RegistryKey.kind == kind, RegistryKey.natural_key == natural_key
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _same_fold_keys(session: AsyncSession, kind: str, natural_key: str) -> list[str]:
+    """Registered keys sharing ``natural_key``'s ``<namespace>:<fold>:`` prefix — empty for a
+    key with no year segment, which has no fold to share."""
+    namespace, _, rest = natural_key.partition(":")
+    fold, sep, _year = rest.rpartition(":")
+    if not (sep and fold):
+        return []
+    prefix = f"{namespace}:{fold}:"
+    rows = await session.execute(
+        select(RegistryKey.natural_key).where(
+            RegistryKey.kind == kind,
+            RegistryKey.natural_key.startswith(prefix, autoescape=True),
+        )
+    )
+    return sorted(key for (key,) in rows.all())
+
+
 def _add_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("verb", choices=["merge", "move", "unmerge"])
+    parser.add_argument("verb", choices=["merge", "move", "unmerge", "register"])
     parser.add_argument("--kind", required=True, choices=["person", "org"])
     parser.add_argument("--note", required=True, help="Why — recorded on the adjudication row.")
     parser.add_argument("--loser", help="merge: the entity to tombstone.")
     parser.add_argument("--survivor", help="merge: the entity that lives on.")
-    parser.add_argument("--key", help="move: the natural key to re-point.")
+    parser.add_argument("--key", help="move: the natural key to re-point; register: to mint.")
     parser.add_argument("--to", dest="to_entity", help="move: the destination entity.")
     parser.add_argument("--entity", help="unmerge: the tombstoned entity to revive.")
+    parser.add_argument(
+        "--distinct-person",
+        action="store_true",
+        help="register: mint although the key's fold is registered under another year.",
+    )
 
 
 async def _adjudicate_job(ctx: JobContext) -> JobResult:
     session = ctx.require_session()
+    if ctx.args.distinct_person and ctx.args.verb != "register":
+        # A flag a verb ignores reads as if it took effect (CR 11).
+        raise SystemExit("--distinct-person applies only to register")
     if ctx.args.verb == "merge":
         if not (ctx.args.loser and ctx.args.survivor):
             raise SystemExit("merge needs --loser and --survivor")
@@ -215,6 +334,18 @@ async def _adjudicate_job(ctx: JobContext) -> JobResult:
         # The inventory must reach the operator through the interface they use,
         # not only the structured log (CR 51).
         return JobResult.ok({"action": "unmerge", "keys_moved_away": moved_away})
+    elif ctx.args.verb == "register":
+        if not ctx.args.key:
+            raise SystemExit("register needs --key")
+        entity = await adjudicate_register(
+            session,
+            ctx.args.kind,
+            natural_key=ctx.args.key,
+            note=ctx.args.note,
+            distinct_person=ctx.args.distinct_person,
+        )
+        # The operator needs the ULID — a seed row names the span_key it starts.
+        return JobResult.ok({"action": "register", "entity": entity})
     else:
         if not (ctx.args.key and ctx.args.to_entity):
             raise SystemExit("move needs --key and --to")
@@ -235,7 +366,7 @@ def main(argv: list[str] | None = None) -> int:
         _adjudicate_job,
         argv=argv,
         prog="python -m usa_wa_pipeline.adjudicate",
-        description="Merge/unmerge entities or move a key, with a recorded note (#308).",
+        description="Merge/unmerge entities, move or register a key, with a recorded note (#308).",
         extra_args=_add_args,
     )
 

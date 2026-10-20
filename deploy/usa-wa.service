@@ -55,6 +55,18 @@ ExecStart=/usr/local/bin/uv run --frozen --no-sync uvicorn usa_wa_api.api.main:a
 Restart=on-failure
 RestartSec=5
 
+# A clean stop exits 143, not 0 (#505). systemd SIGTERMs the cgroup; uvicorn
+# shuts down, then re-raises SIGTERM on itself, and `uv run` — the MainPID —
+# reports its child's signal death as exit(128 + 15). Without this every
+# `systemctl restart` logs "Failed with result 'exit-code'", and an OnFailure=
+# added here later would email on every deploy.
+SuccessExitStatus=143
+# ...but a SIGTERM from outside systemd (`pkill uvicorn` aimed at a dev server,
+# earlyoom's first signal) exits 143 too, and counted a success it would leave
+# the service down. Force the restart Restart=on-failure gave it before; an
+# explicit `systemctl stop` never restarts, so the clean stop is unaffected.
+RestartForceExitStatus=143
+
 # Memory-pressure reservation (#389). The host is 7.7 GiB with NO swap, and an
 # interactive agent session shares it with this service — the combination that
 # took CannObserv/broker down for 57m on 2026-09-16 (gregoryfoster/skills#295).

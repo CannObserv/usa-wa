@@ -41,14 +41,19 @@ async def _committee(session, cid):
     await _register(session, cid, KIND_ORG)
 
 
-async def _register(session, wsl_id, kind):
+async def _roster_person(session, roster_id):
+    """Register a pre-1991 roster member (``<fold>:<year>``) the way the registrar does."""
+    await _register(session, roster_id, KIND_PERSON, source="usa_wa_legislature_roster")
+
+
+async def _register(session, wsl_id, kind, source="usa_wa_legislature"):
     entity = RegistryEntity(kind=kind)
     session.add(entity)
     await session.flush()
     session.add(
         RegistryKey(
             kind=kind,
-            natural_key=f"usa_wa_legislature:{wsl_id}",
+            natural_key=f"{source}:{wsl_id}",
             entity_id=entity.id,
             registered_by="test",
         )
@@ -75,6 +80,23 @@ async def test_records_a_valid_departed_event(db_session, raw):
 async def test_unknown_member_rejected(db_session, raw):
     with pytest.raises(OperatorEventError, match="resolves to no"):
         await validate_and_record(db_session, _departed(member="999"), raw=raw)
+
+
+async def test_a_registered_roster_member_is_a_member(db_session, raw):
+    """A pre-1991 senator exists only in the roster family, keyed ``<fold>:<year>``
+    (#360 part A: McCarty, unseated 1891-01-27). The backfill that wrote the 228 live
+    roster-keyed events is gone (#471), so the CLI is now the only way to date one."""
+    await _roster_person(db_session, "morrismccarty:1891")
+    event = await validate_and_record(db_session, _departed(member="morrismccarty:1891"), raw=raw)
+    assert event.member_id == "morrismccarty:1891"
+
+
+async def test_an_unregistered_roster_member_is_rejected(db_session, raw):
+    """The roster namespace is checked, not trusted: a typo'd fold is the same silent
+    no-op overlay as a typo'd WSL id."""
+    await _roster_person(db_session, "morrismccarty:1891")
+    with pytest.raises(OperatorEventError, match="resolves to no"):
+        await validate_and_record(db_session, _departed(member="morismccarty:1891"), raw=raw)
 
 
 async def test_a_committee_key_is_not_a_member(db_session, raw):

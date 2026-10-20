@@ -79,6 +79,11 @@ FAIL_BYTES=${DISK_GC_FAIL_BYTES:-1073741824}
 # starting a minute earlier gets its half-written install deleted under it, and
 # nothing detects or repairs the partial tree afterwards.
 GRACE_MINUTES=${DISK_GC_GRACE_MINUTES:-60}
+# The clock the window is measured against, in epoch seconds. Test-only: the
+# window reads ctime (#512), which no fixture can backdate, so a test proves the
+# window expires by moving this forward instead. It disarms nothing that
+# DISK_GC_GRACE_MINUTES=0 does not already.
+NOW=${DISK_GC_NOW:-$(date +%s)}
 
 # Every numeric input, validated before anything is read or removed. Left
 # unchecked these all failed OPEN: `DISK_GC_GRACE_MINUTES=abc` made bash print
@@ -87,7 +92,7 @@ GRACE_MINUTES=${DISK_GC_GRACE_MINUTES:-60}
 # --prune deleting a half-written install — signalled only by one stderr line
 # in the journal. A misconfigured garbage collector must refuse to run, not run
 # with its safeties off.
-for setting in WARN_BYTES FAIL_BYTES GRACE_MINUTES; do
+for setting in WARN_BYTES FAIL_BYTES GRACE_MINUTES NOW; do
     case "${!setting}" in
         '' | *[!0-9]*)
             echo "disk-gc: DISK_GC_$setting must be a non-negative integer, got '${!setting}'" >&2
@@ -95,9 +100,25 @@ for setting in WARN_BYTES FAIL_BYTES GRACE_MINUTES; do
             ;;
     esac
 done
+# The window's cutoff is `NOW - GRACE*60` (#512 CR 2), and digits alone do not
+# keep that from wrapping past int64; a wrap that lands the cutoff after now reads
+# every tree settled, i.e. the window silently off. 9 and 12 digits (1900 years
+# of minutes; epoch seconds to the year 33658) cannot wrap. Then normalised to
+# plain decimal: bash arithmetic reads `060` as octal 48 — a shorter window than
+# configured — and `09` as an error, and `060` is not a JSON number either.
+for bound in GRACE_MINUTES:9 NOW:12; do
+    setting=${bound%:*}
+    value=${!setting}
+    [ "${#value}" -le "${bound#*:}" ] || {
+        echo "disk-gc: DISK_GC_$setting must be at most ${bound#*:} digits, got '$value'" >&2
+        exit 2
+    }
+    printf -v "$setting" '%d' "$((10#$value))"
+done
 
-# `find` is how the grace window is enforced; without it recently_touched would
-# return "not recent" for everything and the window would silently not exist.
+# `find` is how the grace window is enforced. Without it withhold_reason fails
+# closed — every tree `unchecked`, one warning each, nothing reclaimed (#512) —
+# so this check is for the operator: one clear refusal instead of that page.
 command -v find >/dev/null 2>&1 || {
     echo "disk-gc: find not found — the grace window cannot be enforced" >&2
     exit 2
@@ -198,26 +219,54 @@ WARNINGS=()
 #: written to is what the window exists to avoid.
 WITHHELD_KINDS=()
 WITHHELD_PATHS=()
+#: `recent` (touched inside the window) or `unchecked` (could not be walked).
+WITHHELD_REASONS=()
 
-recently_touched() {
-    # Anything under the tree modified inside the grace window, not just the
-    # directory itself: an installer writing files deep inside leaves the top
-    # level's own mtime untouched.
-    [ "$GRACE_MINUTES" -le 0 ] && return 1
-    [ -n "$(find "$1" -mmin "-$GRACE_MINUTES" -print -quit 2>/dev/null)" ]
+withhold_reason() {
+    # Prints `recent` if anything under the tree was touched inside the grace
+    # window, `unchecked` if the tree could not be walked to find out, and
+    # nothing if it is settled. The whole tree, not just the directory itself:
+    # an installer writing files deep inside leaves the top level's own times
+    # untouched.
+    #
+    # ctime as well as mtime (#512). VS Code's extractor restores archive
+    # mtimes, so a `code-*` CLI that landed a minute ago reads weeks old, and a
+    # new server build's files do too. ctime cannot be set by `utime` — setting
+    # an mtime moves it to now — so it says when the entry actually landed.
+    #
+    # Errors fail closed (#512). An unreadable subdir, or a tree vanishing
+    # mid-walk, used to read as "not recent" unless a readable entry happened to
+    # match first. `find` exits non-zero after any error, even past `-quit`.
+    # The one false `unchecked`: an entry removed after its parent was visited
+    # but before its own stat (npm clearing temp files, a session dropping its
+    # `.in_use` marker). Withheld and warned for that run, never pruned.
+    local cutoff found
+    [ "$GRACE_MINUTES" -le 0 ] && return 0
+    cutoff=$((NOW - GRACE_MINUTES * 60))
+    if found=$(find "$1" \( -newermt "@$cutoff" -o -newerct "@$cutoff" \) -print -quit 2>/dev/null) &&
+        [ -z "$found" ]; then
+        return 0
+    fi
+    if [ -n "$found" ]; then echo recent; else echo unchecked; fi
 }
 
 consider() {
     # consider <kind> <path> — record it unless some running process names it,
     # or it is still being written.
-    local kind=$1 path=$2
+    local kind=$1 path=$2 reason
     [ -e "$path" ] || return 0
     if is_live "$path"; then
         return 0
     fi
-    if recently_touched "$path"; then
+    reason=$(withhold_reason "$path")
+    if [ -n "$reason" ]; then
         WITHHELD_KINDS+=("$kind")
         WITHHELD_PATHS+=("$path")
+        WITHHELD_REASONS+=("$reason")
+        # Said, not swallowed: a tree that can never be walked would otherwise
+        # be held every day in silence — #399's `reclaimable: 0B` again.
+        [ "$reason" = unchecked ] &&
+            WARNINGS+=("$path could not be checked against the grace window — withheld, not evaluated")
         return 0
     fi
     CAND_KINDS+=("$kind")
@@ -647,8 +696,9 @@ if [ "$JSON" -eq 1 ]; then
     printf '"withheld":['
     for i in "${!WITHHELD_PATHS[@]}"; do
         [ "$i" -eq 0 ] || printf ','
-        printf '{"kind":%s,"path":%s}' \
-            "$(json_string "${WITHHELD_KINDS[$i]}")" "$(json_string "${WITHHELD_PATHS[$i]}")"
+        printf '{"kind":%s,"path":%s,"reason":%s}' \
+            "$(json_string "${WITHHELD_KINDS[$i]}")" "$(json_string "${WITHHELD_PATHS[$i]}")" \
+            "$(json_string "${WITHHELD_REASONS[$i]}")"
     done
     printf '],'
     printf '"kept":['
@@ -694,9 +744,9 @@ else
         done
     fi
     if [ "${#WITHHELD_PATHS[@]}" -gt 0 ]; then
-        echo "withheld: ${#WITHHELD_PATHS[@]} item(s) modified within the last ${GRACE_MINUTES}m — still being written, or recently used"
+        echo "withheld: ${#WITHHELD_PATHS[@]} item(s) touched within the last ${GRACE_MINUTES}m (recent) or not walkable (unchecked)"
         for i in "${!WITHHELD_PATHS[@]}"; do
-            printf '  ~ %-16s %10s  %s\n' "${WITHHELD_KINDS[$i]}" "-" "${WITHHELD_PATHS[$i]}"
+            printf '  ~ %-16s %10s  %s (%s)\n' "${WITHHELD_KINDS[$i]}" "-" "${WITHHELD_PATHS[$i]}" "${WITHHELD_REASONS[$i]}"
         done
     fi
     if [ "${#KEPT_PATHS[@]}" -gt 0 ]; then

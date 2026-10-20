@@ -34,6 +34,7 @@ from systemd_units import (
     parse_seconds,
     parse_unit_deps,
     unit_value,
+    unit_values,
 )
 
 # Intended dependency graph, encoded as data. After=/Before=/OnFailure= are
@@ -263,6 +264,66 @@ def test_bounded_loop_invariant_would_fail_the_default_window():
     # even though burst=0 would make the bare `>=` trivially true.
     assert not _loop_is_bounded("300", "5", "0")
     assert not _loop_is_bounded("0", "5", "10")
+
+
+# The exit status a `uv run`-wrapped unit reports for a clean SIGTERM stop (#505).
+# uvicorn shuts down, then re-raises SIGTERM on itself; uv (the MainPID) turns
+# "child killed by signal 15" into exit(128 + 15). Unwrapped, systemd would see
+# code=killed/TERM and count it clean — wrapped, every restart logged
+# "Failed with result 'exit-code'". Measured on a transient unit, 2026-10-16.
+UV_SIGTERM_EXIT = "143"
+
+
+def _exit_statuses(path: Path, key: str) -> set[str]:
+    """Every token across a unit's (additive, space-separated) exit-status lists."""
+    return {token for value in unit_values(path, "Service", key) for token in value.split()}
+
+
+@pytest.mark.parametrize("name", sorted(RESTARTING_SERVICES))
+def test_a_clean_stop_is_not_a_failure(name):
+    """`systemctl stop`/`restart` must log `Deactivated successfully` (#505).
+
+    The token is the number: `SuccessExitStatus=SIGTERM` means *killed by* the
+    signal — already clean by default — and does nothing for uv's exit(143).
+    """
+    assert UV_SIGTERM_EXIT in _exit_statuses(DEPLOY / name, "SuccessExitStatus")
+
+
+@pytest.mark.parametrize("name", sorted(RESTARTING_SERVICES))
+def test_a_stray_sigterm_still_restarts(name):
+    """SuccessExitStatus=143 alone turns off the self-heal for a stray SIGTERM (#505).
+
+    A `kill`/`pkill uvicorn` from outside systemd (or earlyoom's first signal)
+    exits 143 too; counted a success, `Restart=on-failure` leaves the service
+    down. RestartForceExitStatus restores the restart — and an explicit
+    `systemctl stop` never restarts, so it costs the clean stop nothing.
+    """
+    assert UV_SIGTERM_EXIT in _exit_statuses(DEPLOY / name, "RestartForceExitStatus")
+
+
+def test_oneshots_still_fail_on_sigterm():
+    """A SIGTERM to a timer job is a real interruption, and its alert is wanted (#505).
+
+    Every other service is Type=oneshot, and systemd counts no signal as clean
+    for a oneshot: a stop mid-run (patch window, reboot chain) fails it however
+    it is wrapped — `uv run` as exit 143, a bash script or the venv's python as
+    killed by TERM (measured on transient units, 2026-10-16) — and its OnFailure=
+    (every one but the notify handler) emails the operator. Exempting 143 here
+    would silence only the uv-wrapped ones, so the serving unit stays the one
+    exception, by decision.
+    """
+    others = {p.name for p in DEPLOY.glob("*.service")} - RESTARTING_SERVICES
+    not_oneshot = {n for n in others if unit_value(DEPLOY / n, "Service", "Type") != "oneshot"}
+    assert not not_oneshot, (
+        f"{sorted(not_oneshot)} not Type=oneshot — a signal can be a clean exit "
+        "there, so this test's premise needs re-deciding"
+    )
+    exempted = {
+        p.name
+        for p in DEPLOY.glob("*.service")
+        if UV_SIGTERM_EXIT in _exit_statuses(p, "SuccessExitStatus")
+    }
+    assert exempted == RESTARTING_SERVICES
 
 
 def test_parse_seconds_handles_systemd_forms():

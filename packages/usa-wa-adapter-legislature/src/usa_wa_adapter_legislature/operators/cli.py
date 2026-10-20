@@ -17,11 +17,12 @@
 
 App-role DML (writes ``registry.operator_events``; the attestation lands in the raw store under
 ``usa_wa_operator`` once the transaction commits); shell access is the trust boundary. Validates
-that ``member_id`` is a registered WSL member, and a committee seat's id a registered committee,
-before writing (a typo would otherwise be a silent no-op overlay). ``--dry-run`` rolls back. The
-nightly pipeline applies each event as an authoritative overlay on its next build; provenance is
-append-only, corrections via ``--supersede``, and an event with nothing to correct it to — a
-boundary the member never crossed — withdrawn via ``--retract`` (#468).
+that ``member_id`` is a registered WSL or pre-1991 roster member, and a committee seat's id a
+registered committee, before writing (a typo would otherwise be a silent no-op overlay).
+``--dry-run`` rolls back. The nightly pipeline applies each event as an authoritative overlay on
+its next build; provenance is append-only, corrections via ``--supersede``, and an event with
+nothing to correct it to — a boundary the member never crossed — withdrawn via ``--retract``
+(#468).
 """
 
 from __future__ import annotations
@@ -69,6 +70,7 @@ from usa_wa_adapter_legislature.operators.store import (
     retract_event,
     supersede_event,
 )
+from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 
 logger = get_logger(__name__)
 
@@ -126,14 +128,21 @@ def _validate(spec: EventSpec) -> None:
         )
 
 
+#: The person namespaces an event's ``member_id`` may name — the two span families' own
+#: identity spaces (``conformed.spans.assignment_rows``): a WSL member's numeric id, or a
+#: pre-1991 roster member's minted ``<fold>:<year>`` (#360 part A). The shapes are disjoint,
+#: so one id never resolves in both.
+MEMBER_SOURCES = (WSL_SOURCE_SLUG, ROSTER_SOURCE_SLUG)
+
+
 async def _is_registered_member(session: AsyncSession, member_id: str) -> bool:
-    """Whether the registry knows ``member_id`` as a WSL member — the identity authority
-    since #412 PR F dropped the canonical persons table. The nightly registrar registers
-    a new member the night their sponsor record is first harvested."""
+    """Whether the registry knows ``member_id`` as a WSL or roster member — the identity
+    authority since #412 PR F dropped the canonical persons table. The nightly registrar
+    registers a new member the night their sponsor or roster record is first built."""
     key = await session.scalar(
         select(RegistryKey.id).where(
             RegistryKey.kind == KIND_PERSON,
-            RegistryKey.natural_key == f"{WSL_SOURCE_SLUG}:{member_id}",
+            RegistryKey.natural_key.in_([f"{source}:{member_id}" for source in MEMBER_SOURCES]),
         )
     )
     return key is not None
@@ -150,7 +159,8 @@ async def validate_and_record(
     _validate(spec)
     if not await _is_registered_member(session, spec.member_id):
         raise OperatorEventError(
-            f"member_id {spec.member_id!r} resolves to no registered {WSL_SOURCE_SLUG} person "
+            f"member_id {spec.member_id!r} resolves to no registered person in "
+            f"{' or '.join(MEMBER_SOURCES)} "
             "(typo, or a member the nightly has not registered yet)"
         )
     if spec.seat_kind == KIND_COMMITTEE and not await is_registered_committee(
@@ -389,7 +399,9 @@ async def _run(session: AsyncSession, args: argparse.Namespace, raw: PendingAtte
 
 def _add_args(parser: argparse.ArgumentParser) -> None:
     """Contribute the recorder's own flags to the harness's shared parser."""
-    parser.add_argument("--member-id", help="the WSL member Id")
+    parser.add_argument(
+        "--member-id", help="the WSL member Id, or a pre-1991 roster key (<fold>:<year>)"
+    )
     parser.add_argument("--kind", choices=sorted(KINDS), help="departed | vacated | seated")
     parser.add_argument(
         "--reason", help="died|resigned|expelled | moved|resigned|defeated | appointed|sworn_in"
