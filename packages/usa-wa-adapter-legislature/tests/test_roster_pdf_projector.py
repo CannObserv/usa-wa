@@ -342,3 +342,20 @@ def test_identity_without_member_or_key_raises() -> None:
     )
     with pytest.raises(ValueError, match="neither"):
         build_pre1991_observations([broken], [])
+
+
+def test_an_election_to_another_office_does_not_key_the_row() -> None:
+    """Cunningham, LD-33, listed 1975: "Resigned; Elected to Congress, 7th District May
+    17, 1977". The election is why he left; his tenure starts with his listing."""
+    rows = [
+        _rec(
+            "Jack Cunningham",
+            1975,
+            district=33,
+            annotation="Resigned; Elected to Congress, 7th District May 17, 1977",
+        ),
+        _rec("Next", 1979, district=33),
+    ]
+    projection = build_pre1991_observations([_minted("jackcunningham:1975", rows[0])], rows)
+    senate = {o.biennium for o in projection.observations if o.kind == KIND_SENATE}
+    assert "1975-76" in senate

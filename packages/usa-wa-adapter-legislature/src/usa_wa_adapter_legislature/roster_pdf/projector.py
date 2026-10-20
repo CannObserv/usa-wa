@@ -54,7 +54,7 @@ from usa_wa_adapter_legislature.roster_pdf.party_changes import (
     PartyChangeUnparsed,
     parse_party_change,
 )
-from usa_wa_adapter_legislature.roster_pdf.succession import parse_annotation
+from usa_wa_adapter_legislature.roster_pdf.succession import parse_annotation, start_clause
 from usa_wa_common.parties import resolve_party_token
 
 
@@ -75,16 +75,13 @@ def _start_date(annotation: str | None) -> date | None:
     of a month or year window falls in the same biennium as every other day in it.
     Keying on day precision alone left "Appointed 1962" (Marjorie B. Happy) under her
     husband's 1959 term start, where her observed interval could not hold her true start
-    and no operator event can reach a span keyed before its seating (#514).
+    and no operator event can reach a span keyed before its seating (#514). An election
+    that follows a departure is the departure's reason, not a start (:func:`start_clause`).
     """
     if not annotation:
         return None
-    clauses = parse_annotation(annotation)
-    for verb in ("sworn_in", "appointed", "elected"):
-        for clause in clauses:
-            if clause.verb == verb and clause.parsed.window is not None:
-                return clause.parsed.window[0]
-    return None
+    clause = start_clause(parse_annotation(annotation))
+    return None if clause is None else clause.parsed.window[0]
 
 
 def _end_date(annotation: str | None) -> date | None:

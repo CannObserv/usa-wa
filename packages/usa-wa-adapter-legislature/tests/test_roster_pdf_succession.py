@@ -11,7 +11,7 @@ from datetime import date
 import pytest
 
 from usa_wa_adapter_legislature.roster_pdf import succession
-from usa_wa_adapter_legislature.roster_pdf.succession import parse_annotation
+from usa_wa_adapter_legislature.roster_pdf.succession import parse_annotation, start_clause
 
 
 class TestDateParsing:
@@ -170,3 +170,35 @@ class TestStatedWindow:
         for text in cases:
             parsed = succession._parse_date(text)
             assert (parsed.window is not None) == (parsed.precision != "none"), text
+
+
+# usa-wa#501: which clause opens a row's service.
+
+
+@pytest.mark.parametrize(
+    ("annotation", "expected"),
+    [
+        ("Appointed Feb. 11, 1974 to serve 1974 Ex. S.", "appointed"),
+        ("Appointed 1935; Sworn in Feb. 1935", "sworn_in"),
+        ("Elected November 4, 1958 to serve unexpired term", "elected"),
+        ("Deceased Aug. 9, 1971", None),
+        ("Appointed to serve unexpired term", None),  # no date: nothing to open on
+    ],
+)
+def test_the_start_clause_is_the_best_dated_opening(annotation: str, expected) -> None:
+    clause = start_clause(parse_annotation(annotation))
+    assert (clause.verb if clause else None) == expected
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        "Resigned; Elected to Congress, 7th District May 17, 1977",
+        "Resigned January 14, 1957; Elected Governor November 1956",
+        "Deceased 1931; Elected 1930",
+    ],
+)
+def test_an_election_after_a_departure_is_its_reason_not_a_start(annotation: str) -> None:
+    """Cunningham, LD-33: the election is to Congress, the reason he left. Read as a
+    start it keyed his 1975 Senate term to 1977-78 and dropped two years of it."""
+    assert start_clause(parse_annotation(annotation)) is None

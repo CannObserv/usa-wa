@@ -454,7 +454,7 @@ change how decisions above are carried out. None changes a decision:
 
 | Where | Amendment |
 |---|---|
-| D6 keying | The roster projector keys a successor on a month or year start as well as a day. That re-keys **16 span_keys** (9 seat spans, 7 party spans). Restating the invariant instead was blocked by `assignments_start_in_key_biennium`. Kennett (undated) stays keyed 1963-64, an accepted limit. |
+| D6 keying | The roster projector keys a successor on a month or year start as well as a day. An election that follows a departure in the same annotation is the departure's reason, not a start: Cunningham's "Elected to Congress … May 17, 1977" had keyed his 1975 term to 1977-78. Together that re-keys **17 span_keys** (10 seat spans, 7 party spans). Restating the invariant instead was blocked by `assignments_start_in_key_biennium`. Kennett (undated) stays keyed 1963-64, an accepted limit. |
 | D7 may tier | The may tier is `warn` + `store_failures` and is **informational** in `build_warnings` (`INFORMATIONAL_NODES`). It is never empty, and a failing warn would email every night. |
 | D7 list | `accepted_seat_overlaps` holds **certain-tier** pairs only. An entry goes stale when its pair is no longer certain. |
 | D7 predicate | The count is checked at each principal's start **and** at each period's start, because capacity can drop with no one starting. |

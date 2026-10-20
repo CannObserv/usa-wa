@@ -188,3 +188,32 @@ def parse_annotation(annotation: str) -> tuple[Clause, ...]:
         verb = next((name for name, pattern in _VERBS if pattern.search(text)), None)
         clauses.append(Clause(verb=verb, parsed=_parse_date(text), text=text))
     return tuple(clauses)
+
+
+#: The verbs that open a row's service, in the order they win (usa-wa#501): service
+#: begins when sworn, and a ballot date would open it early.
+START_VERBS = ("sworn_in", "appointed", "elected")
+
+#: The verbs that end it.
+END_VERBS = ("deceased", "resigned")
+
+
+def start_clause(clauses: tuple[Clause, ...]) -> Clause | None:
+    """The clause that dates when a row's service OPENED, or ``None``.
+
+    The best-ranked of :data:`START_VERBS` that states a date at any precision — except
+    an election that FOLLOWS a departure in the same annotation, which is the reason the
+    member left, not when they arrived (usa-wa#501): "Resigned; Elected to Congress, 7th
+    District May 17, 1977" keyed Cunningham's 1975 Senate term to 1977-78. Positional,
+    not lexical: no office name is matched (ARCHITECTURE.md's second rule)."""
+    departed_at = next(
+        (i for i, clause in enumerate(clauses) if clause.verb in END_VERBS), len(clauses)
+    )
+    for verb in START_VERBS:
+        for i, clause in enumerate(clauses):
+            if clause.verb != verb or clause.parsed.window is None:
+                continue
+            if verb == "elected" and i > departed_at:
+                continue
+            return clause
+    return None
