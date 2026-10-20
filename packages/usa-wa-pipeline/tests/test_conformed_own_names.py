@@ -33,15 +33,13 @@ def test_the_table_is_the_decided_set() -> None:
         "Agnes Kehoe",
         "Belle Reeves",
         "Frances Swayze",
+        "Kathryn Epton",
         "Margaret Hurley",
         "Mary LeCocq",
         "Matilda Jones",
         "Nettie Luella Smith",
     ]
-    assert [e.printed for e in OWN_NAMES if e.name_class == "B"] == [
-        "Mrs. Harry John Miller",
-        "Mrs. John W. Epton",
-    ]
+    assert [e.printed for e in OWN_NAMES if e.name_class == "B"] == ["Mrs. Harry John Miller"]
     assert by_class["C"] == ["Eva Anderson", "Marjorie B. Happy", "Nellie Tucker"]
 
 

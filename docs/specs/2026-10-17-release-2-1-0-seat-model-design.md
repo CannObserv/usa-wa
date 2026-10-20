@@ -464,7 +464,7 @@ change how decisions above are carried out. None changes a decision:
 | D4 + D6a | (D6a) When the stated edge is a window, the clip moves the counterpart to the window's **far** bound, so the `derived` claim holds. A day-dated edge clips as before. |
 | D8 | Enums are declared on the four new vocabularies only. An enum on a standing column (`roles.role_type`) would move a hash with no version bump to cover it. Descriptions reach a dataset's wire only when it next mints, so `roles` keeps its current version dir. |
 | Q6 | Two PRs, one deploy: the contract (PR A), then the windows (PR B, D6a, with no contract change). |
-| D9 | 12 entries, not 11. Marjorie B. Happy is class C (registered in #514). Epton's 1957 row prints `(Kathryn)`; whether she stays class B is the owner's call, and the build ships the decided `null`. `juriebsmith:1933` is one entity for husband and widow, a separate identity issue. |
+| D9 | 12 entries, not 11. Marjorie B. Happy is class C (registered in #514). Epton's 1957 row prints `(Kathryn)`, so she is class A, `Kathryn Epton` (owner, 2026-10-20). That gives 8 A, 1 B (Miller), 3 C, and 11 non-null. `juriebsmith:1933` is one entity for husband and widow, a separate identity issue. |
 
 ## Notes for later issues
 

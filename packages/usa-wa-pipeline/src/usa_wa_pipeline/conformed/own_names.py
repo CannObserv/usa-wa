@@ -118,9 +118,10 @@ OWN_NAMES: tuple[OwnName, ...] = (
     OwnName(
         "johnwepton:1957",
         "Mrs. John W. Epton",
-        None,
-        "B",
-        "the published form prints only her husband's name (#384, as decided)",
+        "Kathryn Epton",
+        "A",
+        "her 1957 row prints `Mrs. John W. Epton (Kathryn)`; the later rows, which "
+        "name_full publishes, drop it (owner 2026-10-20, #501)",
     ),
     OwnName(
         "evaanderson:1949",
