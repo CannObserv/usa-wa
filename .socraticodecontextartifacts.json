@@ -176,6 +176,11 @@
       "description": "The conformed tier's identity surface \u2014 person/org crosswalks read from the identity registry, and the persons/organizations entities with their survivorship rules and guards."
     },
     {
+      "name": "pipeline-conformed-occupancy",
+      "path": "./docs/PIPELINE-CONFORMED-OCCUPANCY.md",
+      "description": "The conformed tier's seat-occupancy surface \u2014 the two-tier occupancy predicate over boundary intervals, role_periods capacity, the named certain-tier accepted list and its stale check, counterpart clipping by boundary basis, and the roster annotation windows (#359, #360, #501)."
+    },
+    {
       "name": "pipeline-publication",
       "path": "./docs/PIPELINE-PUBLICATION.md",
       "description": "The publication contract a subscriber (power-map) builds against \u2014 the immutable versioned dataset tree, catalog.json and its fields, the publisher's gates and the nightly chain, the staging/conformed/internal tiers, per-dataset schema versions and contract_hash (#385), the catalog heartbeat checked_at + its stale_after deadline and what it does and does not cover (#386), and the declared CSV dialect (#357)."

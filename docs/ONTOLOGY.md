@@ -178,7 +178,7 @@ can land exactly on a biennium edge):
 
 | Basis | Means |
 |---|---|
-| `dated` | a source states this tenure's date: an operator event, or a parsed roster window |
+| `dated` | a source states this tenure's date: an operator event (a day), or a roster clause dated to a month or year, or an election opening a start no earlier than itself |
 | `derived` | a rule moved the edge onto another tenure's boundary — the clip, a chamber move, a split's return. An inference, so nothing reads it back as evidence |
 | `observed` | the biennium edge of the first or last attestation, and nothing narrower |
 | `open` | the tenure is still running (an end only) |
