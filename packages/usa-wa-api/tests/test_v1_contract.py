@@ -16,6 +16,10 @@ Four properties that are cheap to check and expensive to lose:
    the #167 ratchet applied to the route table, so a route added, renamed or removed
    fails the suite until the doc follows.
 
+All four filter one flattened route walk, and a fifth test holds that walk to the
+published OpenAPI paths. Since FastAPI 0.137 ``app.routes`` is a tree, so a flat
+filter over it finds nothing, and a read-only check over nothing passes (#504).
+
 No database: these read the route table off the app object and parse one markdown file.
 """
 
