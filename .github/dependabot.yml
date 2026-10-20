@@ -4,10 +4,11 @@
 # `window` lines) beside the OS run; a merge deploys only via
 # `uv sync --locked` + `systemctl restart usa-wa` (AGENTS.md, Server Lifecycle).
 # Between runs, scripts/audit-lock.sh reports new advisories on every pre-ship.
-# It is also the only signal for transitive packages: the uv updater moves
+# It is also the only signal for transitive packages: the uv updater targets
 # direct dependencies only (dependabot-core#14073; 34 of #499's 43 advisories
 # were transitive), so each month's landing runs it on the PR's branch
-# (docs/DEPLOYMENT.md, Deploy convention).
+# (docs/DEPLOYMENT-HOST.md, Dependency updates). The relock still moves what
+# resolution moves: #504 named 12 packages and moved 22, so review the lock diff.
 # No workspace dependency may declare extras: the updater gives `name[extra]`
 # no previous version and discards the whole group, green and silent
 # (dependabot-core#16431; #499's first run, on sqlalchemy[asyncio]).
@@ -24,8 +25,12 @@ updates:
       interval: "monthly"
     # The members are packages with a build backend, so the default `auto`
     # resolves to `widen`, which uv does not support (dependabot-core#15290;
-    # CannObserv/notifier#33). This one rewrites a specifier only when the new
-    # version falls outside it, e.g. past a `<N` cap.
+    # CannObserv/notifier#33). Under uv this one still raises the floor of every
+    # package it bumps: #504 rewrote all 12 (e.g. `anyio>=4.0` -> `>=4.15.1`)
+    # though only `pytest-cov<7` was outside its specifier (notifier#103 saw the
+    # same). Accepted: with one lock, a raised floor restates what uv.lock already
+    # pins. `increase` ratchets by design, and `lockfile-only` would skip any bump
+    # past a `<N` cap without a word (#526).
     versioning-strategy: increase-if-necessary
     groups:
       # One PR a month, reviewed and landed as one window step.

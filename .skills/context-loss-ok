@@ -141,3 +141,9 @@ docs/DEPLOYMENT.md :: retarget :: Then merge, and deploy with the `git pull` / `
 docs/DEPLOYMENT.md :: retarget :: head of this section.
 docs/MODULES-DEPLOYMENT.md :: retarget :: .github/              — one GitHub Actions workflow, the weekly context cadence. It is the only scheduled job not on this VM: [DEPLOYMENT.md](DEPLOYMENT.md) § Scheduled work outside systemd. Also `dependabot.yml`, the monthly grouped `uv.lock` PR (#499): [DEPLOYMENT.md](DEPLOYMENT.md) § Deploy convention
 
+# "Moves direct dependencies only ... leaves transitive ones alone" is refuted by
+# git diff 5ffaf95a^ 5ffaf95a -- uv.lock: Dependabot's commit named 12 packages
+# and moved 22, grimp, metricflow and typing-extensions (transitive) among them.
+# Replaced by "targets direct dependencies only"; the lock-diff paragraph carries the rest.
+docs/DEPLOYMENT.md :: disproven :: That PR moves **direct dependencies only** — the uv updater leaves transitive ones
+docs/DEPLOYMENT.md :: disproven :: alone (dependabot-core#14073), and 34 of #499's 43 advisories were transitive. So
