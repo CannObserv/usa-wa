@@ -106,13 +106,39 @@ def test_each_basis_as_defined_passes(row: dict) -> None:
         {"valid_from": "1971-06-01"},
         {"valid_to": "1974-06-01"},
         {"valid_from_latest": "1972-06-01"},
-        # invariant 5: dated is exact (a window is #501 D6a's, in the follow-up)
-        {"start_basis": "dated"},
+        # invariant 5: dated is exact, or one of D6a's windows — and these are neither.
+        # (A dated Jan-1 start reaching its biennium's end IS an election window's shape.)
+        {"start_basis": "dated", "valid_from_latest": "1972-06-01"},
         {"end_basis": "dated"},
+        {"start_basis": "dated", "valid_from": "1971-10-04", "valid_from_latest": "1971-10-31"},
     ],
 )
 def test_a_broken_invariant_fails(over: dict) -> None:
     assert _failures([_row(**over)])
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        # "Appointed Oct. 1971": a month
+        {"valid_from": "1971-10-01", "start_basis": "dated", "valid_from_latest": "1971-10-31"},
+        # "Appointed 1972": a year
+        {"valid_from": "1972-01-01", "start_basis": "dated", "valid_from_latest": "1972-12-31"},
+        # "Elected November 4, 1972": an election opens the start to the biennium's end
+        {"valid_from": "1972-11-04", "start_basis": "dated", "valid_from_latest": "1972-12-31"},
+        # "Resigned July 1974": a month, on the end
+        {
+            "valid_to": "1974-07-31",
+            "end_basis": "dated",
+            "valid_to_earliest": "1974-07-01",
+            "is_active": False,
+        },
+    ],
+)
+def test_a_d6a_window_is_a_dated_edge(over: dict) -> None:
+    """Invariant 5 as amended (#501 D6a): a dated edge is exact, or a calendar month or
+    year opened by its outer bound, or an election opening a start to the biennium."""
+    assert _failures([_row(**over)]) == []
 
 
 def test_a_derived_edge_is_never_posed_as_exact() -> None:

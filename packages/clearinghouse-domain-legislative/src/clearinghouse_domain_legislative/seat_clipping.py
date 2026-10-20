@@ -162,9 +162,56 @@ def _stated_start(span: TenureSpan) -> bool:
 
 
 def _stated_exit(span: TenureSpan) -> date | None:
-    """The span's stated end, or ``None`` when it has none: open, observed (the
-    builder's ceiling) or derived (another tenure's boundary)."""
-    return span.valid_to if span.end_basis == BASIS_DATED else None
+    """The earliest the span's stated end can be, or ``None`` when it states none:
+    open, observed (the builder's ceiling) or derived (another tenure's boundary).
+
+    The EARLIEST, not ``valid_to`` (#501 D6a): a successor of "Resigned July 1900"
+    started no earlier than July 1, and moving its start any later than that would
+    claim more than the roster says. A day-dated end is its own earliest."""
+    return span.valid_to_earliest if span.end_basis == BASIS_DATED else None
+
+
+def _closed_at(span: TenureSpan, boundary: date) -> TenureSpan:
+    """``span`` with its end clipped to ``boundary`` — derived — and its own start window
+    clamped to it: a tenure starts no later than it ends (#501 D6a)."""
+    window = span.start_window_end
+    if window is not None:
+        window = min(window, boundary)
+        window = None if window == span.valid_from else window
+    return replace(
+        span,
+        valid_to=boundary,
+        is_active=False,
+        end_basis=BASIS_DERIVED,
+        start_window_end=window,
+        end_window_start=None,
+    )
+
+
+def _opened_at(span: TenureSpan, boundary: date) -> TenureSpan:
+    """``span`` with its start clipped to ``boundary`` — derived — and its own end window
+    clamped to it."""
+    window = span.end_window_start
+    if window is not None:
+        window = max(window, boundary)
+        window = None if window == span.valid_to else window
+    return replace(
+        span,
+        valid_from=boundary,
+        start_basis=BASIS_DERIVED,
+        start_window_end=None,
+        end_window_start=window,
+    )
+
+
+def _day_start(span: TenureSpan) -> bool:
+    """A start stated to the day: no window around it."""
+    return span.valid_from_latest == span.valid_from
+
+
+def _day_end(span: TenureSpan) -> bool:
+    """An end stated to the day: no window around it."""
+    return span.valid_to is not None and span.valid_to_earliest == span.valid_to
 
 
 def _tenure_order(span: TenureSpan) -> tuple[date, date]:
@@ -272,12 +319,13 @@ def _resolve_move(work: list[TenureSpan], i: int, j: int) -> None:
         return
     if not (_quantized_exit(old) and _stated_start(new)):
         return
-    boundary = new.valid_from
+    # the far edge of a windowed seating: they left the old seat by then (#501 D6a)
+    boundary = min(new.valid_from_latest, old.valid_to or _OPEN)
     if boundary <= old.valid_from:
         return  # the old seat would have no duration at all
     if (old.valid_to or _OPEN) > (new.valid_to or _OPEN):
         return  # the old row outlives the new seat: two tenures merged (#267)
-    work[i] = replace(old, valid_to=boundary, is_active=False, end_basis=BASIS_DERIVED)
+    work[i] = _closed_at(old, boundary)
 
 
 def _resolve_pair(work: list[TenureSpan], i: int, j: int, capacity: Capacity) -> str | None:
@@ -307,12 +355,30 @@ def _resolve_pair(work: list[TenureSpan], i: int, j: int, capacity: Capacity) ->
     succ_dated_start = _stated_start(succ)
 
     if (pred_exit is not None) and succ_dated_start:
-        return UNCLIPPED_BOTH_DATED
+        # Both stated. A DAY inside the other side's window is the more precise of the
+        # two, and one holder at a time puts the handoff on it (#501 D6a): Happy was
+        # "Appointed 1962", and her husband died June 21. Otherwise the sources
+        # genuinely disagree, or neither is precise enough to move the other.
+        if (
+            _day_end(pred)
+            and not _day_start(succ)
+            and (succ.valid_from <= pred.valid_to <= succ.valid_from_latest)
+        ):
+            succ_dated_start = False
+        elif (
+            _day_start(succ)
+            and not _day_end(pred)
+            and (pred.valid_to_earliest <= succ.valid_from <= (pred.valid_to or _OPEN))
+        ):
+            pred_exit = None
+        else:
+            return UNCLIPPED_BOTH_DATED
     if pred_exit is None and not succ_dated_start:
         return UNCLIPPED_NEITHER_DATED
 
     if pred_exit is not None:
-        boundary = pred_exit
+        # never earlier than the successor already starts: the clip only raises it
+        boundary = max(pred_exit, succ.valid_from)
         if not _in_biennium(boundary, succ.start_biennium):
             # The roster listed the successor biennia before the predecessor's
             # dated exit. That is the sources contradicting each other, not a
@@ -326,10 +392,12 @@ def _resolve_pair(work: list[TenureSpan], i: int, j: int, capacity: Capacity) ->
             # its own name would split one shape across two rows of the residue
             # taxonomy the gate comment and PIPELINE.md both publish.
             return UNCLIPPED_PREDECESSOR_OUTLIVES
-        work[succ_pos] = replace(succ, valid_from=boundary, start_basis=BASIS_DERIVED)
+        work[succ_pos] = _opened_at(succ, boundary)
         return None
 
-    boundary = succ.valid_from
+    # The far edge of a windowed seating (#501 D6a): Rasmussen, "Appointed Oct. 1971",
+    # had a predecessor gone no later than Oct 31. A day-dated seating is its own.
+    boundary = min(succ.valid_from_latest, pred.valid_to or _OPEN)
     if (pred.valid_to or _OPEN) > (succ.valid_to or _OPEN):
         # usa-wa#267: `build_tenure_spans` merges contiguous biennia, so a
         # predecessor that outlives the successor is one row covering two
@@ -342,7 +410,7 @@ def _resolve_pair(work: list[TenureSpan], i: int, j: int, capacity: Capacity) ->
         # duration. CR 130 removed a `<`-only guard as unreachable, which was true
         # and beside the point; the boundary condition is where the hazard was.
         return UNCLIPPED_DEGENERATE
-    work[pred_pos] = replace(pred, valid_to=boundary, is_active=False, end_basis=BASIS_DERIVED)
+    work[pred_pos] = _closed_at(pred, boundary)
     return None
 
 

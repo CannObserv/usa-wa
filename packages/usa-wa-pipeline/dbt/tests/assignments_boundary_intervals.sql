@@ -9,8 +9,11 @@
 --                     valid_from ≤ valid_to_earliest; valid_from_latest ≤ valid_to
 --   off_edge       4. `observed` sits on its own biennium edge — the one residual
 --                     blind spot is a writer that moves an edge exactly onto one
---   inexact_dated  5. `dated` is exact. (The annotation windows, D6a, widen this
---                     to a calendar month or year in their own change.)
+--   inexact_dated  5. `dated` is exact, or one of the annotation windows (D6a):
+--                     a calendar month or year its outer bound opens (a start) or
+--                     closes (an end), clamped by the other edge — or an election
+--                     opening a start, whose inner bound is the biennium's last day.
+--                     The window's width IS the precision; there is no column for it.
 --   interval       6. otherwise the interval is the D6 table's: a start no later
 --                     than its biennium's last day, an end no earlier than its
 --                     first, each clamped by the other edge — so an inference
@@ -52,8 +55,34 @@ where (start_basis = 'observed' and valid_from <> start_floor)
 union all
 select span_key, 'inexact_dated'
 from a
-where (start_basis = 'dated' and valid_from_latest <> valid_from)
-   or (end_basis = 'dated' and valid_to_earliest <> valid_to)
+where (
+        start_basis = 'dated'
+        and valid_from_latest <> valid_from
+        and not (
+            day(valid_from) = 1
+            and valid_from_latest = least(last_day(valid_from), coalesce(valid_to, last_day(valid_from)))
+        )
+        and not (
+            month(valid_from) = 1 and day(valid_from) = 1
+            and valid_from_latest = least(
+                make_date(year(valid_from), 12, 31),
+                coalesce(valid_to, make_date(year(valid_from), 12, 31))
+            )
+        )
+        and valid_from_latest <> least(start_ceiling, coalesce(valid_to, start_ceiling))
+    )
+   or (
+        end_basis = 'dated'
+        and valid_to_earliest <> valid_to
+        and not (
+            valid_to = last_day(valid_to)
+            and valid_to_earliest = greatest(date_trunc('month', valid_to)::date, valid_from)
+        )
+        and not (
+            month(valid_to) = 12 and day(valid_to) = 31
+            and valid_to_earliest = greatest(make_date(year(valid_to), 1, 1), valid_from)
+        )
+    )
 union all
 select span_key, 'interval'
 from a
