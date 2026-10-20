@@ -177,3 +177,23 @@ docs/SOCRATICODE-GRAPH.md :: § Graph health's yield check, stay in SOCRATICODE.
 docs/SOCRATICODE-GRAPH.md :: The file-dependency graph works here (#299)
 docs/SOCRATICODE-GRAPH.md :: Background work outlives the tool call (#299)
 docs/SOCRATICODE.md :: The graph and background work (#299)
+
+# #526: the Dependabot recipe moved to DEPLOYMENT-HOST.md. Its heading carries the
+# issue like every sibling there; the back-references name DEPLOYMENT.md § Deploy
+# convention, which stayed, and the provenance line follows the disk-GC one.
+docs/DEPLOYMENT-HOST.md :: Dependency updates (#499)
+docs/DEPLOYMENT-HOST.md :: The monthly Dependabot recipe came here from [`DEPLOYMENT.md`](DEPLOYMENT.md) (#526).
+docs/DEPLOYMENT-HOST.md :: [`DEPLOYMENT.md` § Deploy convention](DEPLOYMENT.md#deploy-convention-units-never-sync-the-venv-issue-30)
+docs/MODULES-DEPLOYMENT.md :: .github/              — one GitHub Actions workflow, the weekly context cadence.
+# Source that names DEPLOYMENT.md: swept once #526 moved body lines out of it. Each
+# names a section that stayed (§ Services, § Lifecycle reference, DB roles) or the
+# manifest's entry for the file itself.
+.socraticodecontextartifacts.json :: "path": "./docs/DEPLOYMENT.md",
+packages/clearinghouse-core/src/clearinghouse_core/config.py :: rows the app role is REVOKEd on (#54; none since #412 PR F) — see docs/DEPLOYMENT.md."""
+scripts/tests/test_docs_timer_drift.py :: """Parse docs/DEPLOYMENT.md's `## Services` table → {timer unit: its row}."""
+scripts/tests/test_docs_timer_drift.py :: """docs/DEPLOYMENT.md § Services describes every timer the deploy ships."""
+scripts/tests/test_docs_timer_drift.py :: * **docs/DEPLOYMENT.md** `## Services` — the operator's what-each-one-does table.
+scripts/tests/test_docs_unit_copy_drift.py :: "docs/DEPLOYMENT.md § Lifecycle reference has no `After editing` row for "
+scripts/tests/test_docs_unit_copy_drift.py :: "docs/DEPLOYMENT.md",
+scripts/tests/test_docs_unit_copy_drift.py :: assert operator_docs(paths) == ["README.md", "docs/DEPLOYMENT.md"]
+scripts/tests/test_docs_unit_copy_drift.py :: assert {"docs/DEPLOYMENT.md", "docs/COMMANDS.md"} <= docs

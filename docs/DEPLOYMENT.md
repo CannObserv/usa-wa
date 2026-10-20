@@ -7,6 +7,7 @@ detail behind them.
 The host hazards — the main-only checkout guard (#87), shared-venv
 integrity (#279), memory pressure (#389) and the disk GC (#394) — are in
 [`DEPLOYMENT-HOST.md`](DEPLOYMENT-HOST.md).
+So are the monthly window's two update runs, OS (#497) and dependencies (#499).
 
 ## Services
 
@@ -140,35 +141,6 @@ sudo systemctl restart usa-wa-migrate  # if DB models changed (restart, not star
 sudo systemctl restart usa-wa
 ```
 
-**Where `uv.lock` changes come from (#499).** `.github/dependabot.yml` opens one
-grouped PR a month; the owner lands it in the patching-hosts window
-(`.skills/patching-hosts`) beside the OS run, then deploys it with the block above
-(`git pull`, `uv sync --locked`, restart).
-That PR moves **direct dependencies only** — the uv updater leaves transitive ones
-alone (dependabot-core#14073), and 34 of #499's 43 advisories were transitive. So
-`scripts/audit-lock.sh` is the signal for those: it prints `uv audit --frozen`'s OSV
-findings at the top of every `pre-ship.sh`, report-only (exit 0 whatever it finds,
-so a disclosure elsewhere never blocks an unrelated ship), and each advised package
-it lists takes `uv lock --upgrade-package <name>` — on the month's PR, or
-out-of-cycle for an advisory that warrants it, with the same deploy.
-
-**Landing the month's PR.** No CI runs on it, and the uv updater has open bugs on
-this layout (a virtual root over `packages/*`), so it is gated by hand, in a worktree —
-never the prod checkout (#87):
-
-```bash
-git fetch origin && gh pr list --author app/dependabot   # its branch name
-bash .claude/skills/using-git-worktrees/scripts/worktree-create.sh <branch>
-# in the printed worktree:
-uv sync --locked && git submodule update --init --recursive
-#   red here = a member's pyproject.toml rewritten without a relock (dependabot-core#15786)
-bash scripts/audit-lock.sh    # each package still listed: uv lock --upgrade-package <name>, commit, push
-bash scripts/pre-ship.sh      # the PR's only gate
-```
-
-Then merge, and deploy with the `git pull` / `uv sync --locked` / restart block at the
-head of this section.
-
 `uv sync` here uses `--locked` (not `--frozen`): it additionally asserts
 `uv.lock` is consistent with `pyproject.toml`, catching a committed lock that
 went stale — a deploy-time integrity check worth failing on. Units stay on
@@ -178,6 +150,9 @@ If the venv is missing a locked dependency, units fail loudly at import — the
 intended signal to run `uv sync`. **First provision (or after a venv wipe)
 requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 `.venv`.
+
+**Where `uv.lock` changes come from, and landing the month's Dependabot PR (#499):**
+[`DEPLOYMENT-HOST.md` § Dependency updates](DEPLOYMENT-HOST.md#dependency-updates-499).
 
 **Units are installed as copies, not symlinks.** Every `/etc/systemd/system/usa-wa*`
 unit is a root-owned copy of its `deploy/` counterpart, so after editing a unit file

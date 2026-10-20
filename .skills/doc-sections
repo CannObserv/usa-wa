@@ -49,7 +49,7 @@ docs/PIPELINE-PUBLICATION.md: the publication contract — the nightly chain's s
 
 # The deployment surface.
 docs/DEPLOYMENT.md: the systemd service+timer table (pinned by test_docs_timer_drift.py), the OnFailure alerting chain, the DB role split, the restart/lifecycle table, the verify-units.sh gate, and § Scheduled work outside systemd for the GitHub Actions cadence (deploy/, alembic/, scripts/, uv.lock, .pre-commit-config.yaml, .github/)
-docs/DEPLOYMENT-HOST.md: the host hazards and their guards — the #87 main-only and #279 venv-integrity ExecStartPre guards, the #389 memory reservation and earlyoom, and the #394 disk GC (deploy/, scripts/)
+docs/DEPLOYMENT-HOST.md: the host hazards and their guards — the #87 main-only and #279 venv-integrity ExecStartPre guards, the #389 memory reservation and earlyoom, the #394 disk GC, and § Dependency updates for landing the monthly Dependabot PR (deploy/, scripts/, uv.lock, .pre-commit-config.yaml, .github/)
 docs/ENVIRONMENT.md: every variable the deployment reads — a unit's EnvironmentFile=, a new getenv, or a workflow secret belongs in the list here (deploy/, .github/)
 docs/API.md: the read-only /api/v1 route table, pagination, and the response contracts (api/v1/)
 
