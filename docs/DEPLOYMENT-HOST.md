@@ -296,7 +296,7 @@ bash .claude/skills/using-git-worktrees/scripts/worktree-create.sh <branch>
 git merge origin/main         # if behind: gate the tree that lands (#504 was 71 behind)
 uv sync --locked && git submodule update --init --recursive
 #   red here = a member's pyproject.toml rewritten without a relock (dependabot-core#15786)
-git diff origin/main -- uv.lock   # every version that moved, not only the PR table's
+git diff origin/main -- uv.lock | grep -E '^[ +-](name|version) = '   # every version that moved
 bash scripts/audit-lock.sh    # each package still listed: uv lock --upgrade-package <name>, commit, push
 # lock moved ruff? bump .pre-commit-config.yaml's ruff-pre-commit rev to match, commit, or
 #   scripts/tests/test_ruff_pin.py fails pre-ship (#504: hook 0.15.14, lock 0.17.0)
