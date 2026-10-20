@@ -7,6 +7,7 @@ detail behind them.
 The host hazards — the main-only checkout guard (#87), shared-venv
 integrity (#279), memory pressure (#389) and the disk GC (#394) — are in
 [`DEPLOYMENT-HOST.md`](DEPLOYMENT-HOST.md).
+So are the monthly window's two update runs, OS (#497) and dependencies (#499).
 
 ## Services
 
