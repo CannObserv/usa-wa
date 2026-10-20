@@ -161,7 +161,8 @@ datasets (`verify_contract` refuses a serving load whose columns and fields diff
   counts toward a seat's capacity. Three rows are `substitute` (the military substitutes).
 
 `valid_to` is a handoff date — a successor may open on the same day — and the filters are
-unchanged: `as_of` still reads the outer bounds. Capacity (`role_periods`) is published,
+unchanged: `as_of` still reads the outer bounds, `valid_to` included, so on a handoff day it
+returns both holders. Capacity (`role_periods`) is published,
 not served (Q5): read it from `/datasets/role_periods`.
 
 ### Liveness, and why there is none left
