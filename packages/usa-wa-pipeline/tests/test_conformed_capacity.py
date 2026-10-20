@@ -151,3 +151,10 @@ def test_a_roster_period_before_the_seat_was_ever_held_asserts_nothing() -> None
 
 def test_no_assignments_no_periods() -> None:
     assert role_period_rows([], LD19_1889) == []
+
+
+def test_a_nan_cell_is_no_annotation() -> None:
+    """CR 4: an all-null column can reach a model as float NaN, which is truthy. Read as
+    an annotation it would erase the 1889 capacity, and the gate would error on 20 pairs."""
+    rows = [{**r, "annotation": float("nan")} for r in LD19_1889]
+    assert bare_multi_member_years(rows) == {19: {1889: 5}}

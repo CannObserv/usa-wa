@@ -63,11 +63,16 @@ _ONE_DAY = timedelta(days=1)
 
 
 def _annotated(row: dict[str, Any]) -> bool:
-    """The roster row carries a tenure fact: an annotation, or a note in its name."""
-    if row.get("annotation"):
+    """The roster row carries a tenure fact: an annotation, or a note in its name.
+
+    Only non-blank TEXT counts (CR 4): an all-null column can arrive from a frame as
+    float NaN, which is truthy, and reading it as an annotation would erase every
+    multi-member year."""
+    annotation = row.get("annotation")
+    if isinstance(annotation, str) and annotation.strip():
         return True
-    name = str(row.get("name") or "")
-    return strip_tenure_notes(name) != name
+    name = row.get("name")
+    return isinstance(name, str) and strip_tenure_notes(name) != name
 
 
 def bare_multi_member_years(roster: list[dict[str, Any]]) -> dict[int, dict[int, int]]:
