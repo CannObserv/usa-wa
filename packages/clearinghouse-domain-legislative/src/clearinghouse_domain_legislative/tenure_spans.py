@@ -297,18 +297,23 @@ def _extend(run: TenureSpan, later: TenureSpan) -> TenureSpan:
 
     ``valid_from`` and ``start_biennium`` are the run's, untouched by ``replace``
     — taken together, which is what keys the merged span on its earliest-dated
-    start without misdating it. So is ``start_basis``; the end's basis is the
-    basis of whichever side supplied the end (usa-wa#501 D6).
+    start without misdating it. So is ``start_basis``; the end — its date, its
+    basis and its ``end_biennium`` — is whichever closed side ends last
+    (usa-wa#501 D6, CR 1).
     """
     is_active = run.is_active or later.is_active
+    latest_biennium = max(run.end_biennium, later.end_biennium, key=lambda b: parse_biennium(b)[0])
     if is_active:
-        valid_to, end_basis = None, BASIS_OPEN
+        end_biennium, valid_to, end_basis = latest_biennium, None, BASIS_OPEN
     else:
-        last = max((run, later), key=lambda s: s.valid_to or date.max)
-        valid_to, end_basis = last.valid_to, last.end_basis
+        # One tenure's end, whole (usa-wa#501 CR 1): its date, its basis and the biennium it
+        # was last attested in. A later-attested span closed early by an event must not lend
+        # its biennium to the other span's observed ceiling.
+        last = max((run, later), key=lambda s: (s.valid_to, parse_biennium(s.end_biennium)[0]))
+        end_biennium, valid_to, end_basis = last.end_biennium, last.valid_to, last.end_basis
     return replace(
         run,
-        end_biennium=max(run.end_biennium, later.end_biennium, key=lambda b: parse_biennium(b)[0]),
+        end_biennium=end_biennium,
         valid_to=valid_to,
         is_active=is_active,
         end_basis=end_basis,

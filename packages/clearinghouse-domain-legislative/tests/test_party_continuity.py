@@ -1,5 +1,6 @@
 """Party membership survives a gap in elected service (#289)."""
 
+from dataclasses import replace
 from datetime import date
 
 from clearinghouse_domain_legislative.span_kinds import (
@@ -198,3 +199,21 @@ def test_a_nested_later_span_does_not_shorten_the_run() -> None:
 
     assert merged.valid_to == date(2018, 12, 31)
     assert merged.end_biennium == "2017-18"
+
+
+def test_the_merged_end_is_one_tenures_end() -> None:
+    """usa-wa#501 CR 1: the end's date, basis and biennium come from ONE span. A later
+    span attested into 1981-82 but closed early by a departure (dated 1980-06-01) must
+    not lend its biennium to the other span's observed 1980-12-31 ceiling — an observed
+    end off its own ceiling fails `assignments_boundary_intervals` and aborts the build."""
+    first = _span("party", "democratic", "1971-72", "1979-80", date(1971, 1, 1), date(1980, 12, 31))
+    later = replace(
+        _span("party", "democratic", "1975-76", "1981-82", date(1975, 1, 1), date(1980, 6, 1)),
+        end_basis="dated",
+    )
+    (merged,) = merge_party_continuity([first, later])
+    assert (merged.valid_to, merged.end_basis, merged.end_biennium) == (
+        date(1980, 12, 31),
+        "observed",
+        "1979-80",
+    )
