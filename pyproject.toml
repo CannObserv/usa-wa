@@ -14,22 +14,22 @@ dev = [
     "usa-wa-facts-seats",
     "usa-wa-pipeline",
     # Tools
-    "alembic>=1.15.0,<2",
-    "anyio>=4.0,<5",
+    "alembic>=1.20.0,<2",
+    "anyio>=4.15.1,<5",
     "httpx>=0.27,<1",
-    "pre-commit>=4.0,<5",
+    "pre-commit>=4.7.0,<5",
     # Read by scripts/tests/test_hook_registration_gate.py to parse
     # .pre-commit-config.yaml. Present transitively via pre-commit, but a gate
     # test must not depend on another package's dependency tree staying put.
     "pyyaml>=6.0,<7",
     # Floor = the fix for pytest 8.4.2's two OSV advisories (#499); keep it.
-    "pytest>=9.0.3,<10",
-    "pytest-asyncio>=1.0,<2",
-    "pytest-cov>=6.0,<7",
+    "pytest>=9.1.1,<10",
+    "pytest-asyncio>=1.4.0,<2",
+    "pytest-cov>=7.1.0,<8",
     "respx>=0.21,<1",
-    "ruff>=0.9,<1",
-    "vcrpy>=7.0",
-    "import-linter>=2.0,<3",
+    "ruff>=0.17.0,<1",
+    "vcrpy>=8.3.0",
+    "import-linter>=2.15,<3",
 ]
 
 [tool.uv.sources]
@@ -112,6 +112,12 @@ fail_under = 96
 line-length = 100
 target-version = "py312"
 extend-exclude = ["skills-vendor/", "alembic/versions/", ".superpowers/"]
+
+[tool.ruff.format]
+# ruff 0.17 formats Python fences in Markdown by default; docs' fences are
+# illustrative (dated specs, hand-aligned pseudo-code), so they keep 0.15's
+# hands-off behaviour. Pinned, with the hook rev, by scripts/tests/test_ruff_pin.py.
+exclude = ["*.md"]
 
 [tool.ruff.lint]
 # ASYNC (flake8-async) and S (flake8-bandit) added by CR #191 finding 7: the job

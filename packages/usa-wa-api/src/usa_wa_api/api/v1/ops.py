@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import literal, select, tuple_
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from clearinghouse_core.runs import JobRun
@@ -70,7 +71,7 @@ async def list_job_health(
 
     Ordered by ``job_slug`` ascending; the cursor is a job slug.
     """
-    stmt = select(JobRun).distinct(JobRun.job_slug)
+    stmt = select(JobRun).ext(distinct_on(JobRun.job_slug))
     if job_slug is not None:
         stmt = stmt.where(JobRun.job_slug == job_slug)
     if cursor is not None:
