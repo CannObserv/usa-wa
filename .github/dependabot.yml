@@ -7,8 +7,8 @@
 # It is also the only signal for transitive packages: the uv updater targets
 # direct dependencies only (dependabot-core#14073; 34 of #499's 43 advisories
 # were transitive), so each month's landing runs it on the PR's branch
-# (docs/DEPLOYMENT-HOST.md, Dependency updates). The relock still moves what
-# resolution moves: #504 named 12 packages and moved 22, so review the lock diff.
+# (docs/DEPLOYMENT-HOST.md, Dependency updates). The relock is not confined to
+# the PR's table: #504 named 12 packages and moved 22, so review the lock diff.
 # No workspace dependency may declare extras: the updater gives `name[extra]`
 # no previous version and discards the whole group, green and silent
 # (dependabot-core#16431; #499's first run, on sqlalchemy[asyncio]).

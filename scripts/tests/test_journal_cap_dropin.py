@@ -40,15 +40,14 @@ def test_the_drop_in_sets_only_the_cap() -> None:
     assert _settings() == [("Journal", "SystemMaxUse=200M")]
 
 
-def test_journald_reads_the_drop_in() -> None:
-    """journald reads only ``*.conf`` under ``journald.conf.d``; a misnamed copy is skipped."""
-    assert DROP_IN.is_file()
-    assert DROP_IN.suffix == ".conf"
-    assert DROP_IN.parent.name == "journald.conf.d"
+def test_it_is_the_only_journald_drop_in_shipped() -> None:
+    """A second drop-in under ``deploy/journald.conf.d`` would ship with no test pinning it."""
+    assert sorted(p.name for p in DROP_IN.parent.iterdir()) == [DROP_IN.name]
 
 
 def test_the_documented_install_copies_this_file_into_journald_conf_d() -> None:
     """The runbook's ``cp`` and the file's own install comment name the same file and target."""
     command = f"sudo cp deploy/journald.conf.d/{DROP_IN.name} {INSTALLED_DIR}"
     assert command in HOST_DOC.read_text()
+    assert f"deploy/journald.conf.d/{DROP_IN.name}" in DROP_IN.read_text()
     assert INSTALLED_DIR in DROP_IN.read_text()

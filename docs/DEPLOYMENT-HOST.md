@@ -280,9 +280,9 @@ so a disclosure elsewhere never blocks an unrelated ship), and each advised pack
 it lists takes `uv lock --upgrade-package <name>` — on the month's PR, or
 out-of-cycle for an advisory that warrants it, with the same deploy.
 
-**Its table is not its diff.** The relock moves whatever resolution moves: #504's PR
-named 12 packages and moved 22 in `uv.lock`, direct ones among them (uvicorn
-0.48 → 0.54). Review the lock diff. Every named package's floor rises too, cap or
+**Its table is not its diff.** The relock is not confined to the table: #504's PR
+named 12 packages and moved 22 in `uv.lock`, unnamed direct ones among them (uvicorn
+0.48 → 0.54, which no named bump required). Review the lock diff. Every named package's floor rises too, cap or
 no cap; `dependabot.yml` says why that is accepted.
 
 **Landing the month's PR.** No CI runs on it, and the uv updater has open bugs on
@@ -298,9 +298,10 @@ uv sync --locked && git submodule update --init --recursive
 #   red here = a member's pyproject.toml rewritten without a relock (dependabot-core#15786)
 git diff origin/main -- uv.lock   # every version that moved, not only the PR table's
 bash scripts/audit-lock.sh    # each package still listed: uv lock --upgrade-package <name>, commit, push
-# lock moved ruff? bump .pre-commit-config.yaml's ruff-pre-commit rev to match, or
+# lock moved ruff? bump .pre-commit-config.yaml's ruff-pre-commit rev to match, commit, or
 #   scripts/tests/test_ruff_pin.py fails pre-ship (#504: hook 0.15.14, lock 0.17.0)
 bash scripts/pre-ship.sh      # the PR's only gate
+git push                      # the PR head must be the tree pre-ship gated
 ```
 
 Then merge, and deploy with the `git pull` / `uv sync --locked` / restart block in

@@ -140,9 +140,6 @@ sudo systemctl restart usa-wa-migrate  # if DB models changed (restart, not star
 sudo systemctl restart usa-wa
 ```
 
-**Where `uv.lock` changes come from, and landing the month's Dependabot PR (#499):**
-[`DEPLOYMENT-HOST.md` § Dependency updates](DEPLOYMENT-HOST.md#dependency-updates-499).
-
 `uv sync` here uses `--locked` (not `--frozen`): it additionally asserts
 `uv.lock` is consistent with `pyproject.toml`, catching a committed lock that
 went stale — a deploy-time integrity check worth failing on. Units stay on
@@ -152,6 +149,9 @@ If the venv is missing a locked dependency, units fail loudly at import — the
 intended signal to run `uv sync`. **First provision (or after a venv wipe)
 requires a plain `uv sync`** — `--no-sync` units can't start against an absent
 `.venv`.
+
+**Where `uv.lock` changes come from, and landing the month's Dependabot PR (#499):**
+[`DEPLOYMENT-HOST.md` § Dependency updates](DEPLOYMENT-HOST.md#dependency-updates-499).
 
 **Units are installed as copies, not symlinks.** Every `/etc/systemd/system/usa-wa*`
 unit is a root-owned copy of its `deploy/` counterpart, so after editing a unit file
