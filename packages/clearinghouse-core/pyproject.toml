@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     # sqlalchemy[asyncio] spelled out: the extra adds only greenlet, and an
     # extra makes Dependabot drop the monthly PR (dependabot-core#16431, #499).
-    "sqlalchemy>=2.1.4,<3",
+    "sqlalchemy>=2.1.5,<3",
     "greenlet>=1,<4",
     "asyncpg>=0.30.0,<1",
     "pydantic-settings>=2.5.0,<3",

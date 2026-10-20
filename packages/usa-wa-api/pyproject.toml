@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
-    "fastapi>=0.143.0,<1",
+    "fastapi>=0.143.3,<1",
     # The nightly backup's create-only writer and the restore's reader (#434).
     "google-cloud-storage>=2,<4",
     # The backup's dead-man check-in to co-status (#455).

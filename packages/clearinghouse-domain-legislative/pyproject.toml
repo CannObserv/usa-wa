@@ -8,7 +8,7 @@ dependencies = [
     "clearinghouse-core",
     # sqlalchemy[asyncio] spelled out: the extra adds only greenlet, and an
     # extra makes Dependabot drop the monthly PR (dependabot-core#16431, #499).
-    "sqlalchemy>=2.1.4,<3",
+    "sqlalchemy>=2.1.5,<3",
     "greenlet>=1,<4",
 ]
 
