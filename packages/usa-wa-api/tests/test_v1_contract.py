@@ -16,18 +16,29 @@ Four properties that are cheap to check and expensive to lose:
    the #167 ratchet applied to the route table, so a route added, renamed or removed
    fails the suite until the doc follows.
 
+All four filter one flattened route walk, and a fifth test holds that walk to the
+published OpenAPI paths. Since FastAPI 0.137 ``app.routes`` is a tree, so a flat
+filter over it finds nothing, and a read-only check over nothing passes (#504).
+
 No database: these read the route table off the app object and parse one markdown file.
 """
 
 import re
 from pathlib import Path
 
-from fastapi.routing import APIRoute
+from fastapi.routing import APIRoute, iter_route_contexts
 
 from usa_wa_api.api.main import app
 from usa_wa_api.api.v1 import API_V1_PREFIX
 
-V1_ROUTES = [r for r in app.routes if isinstance(r, APIRoute) and r.path.startswith(API_V1_PREFIX)]
+#: Every mounted path operation, flattened. Since FastAPI 0.137 ``app.routes`` is a
+#: tree of included routers, "an internal implementation detail" upstream, so an
+#: ``isinstance`` filter over it found no route at all, and the read-only checks
+#: below passed on the empty list (#504). ``iter_route_contexts`` is the walk
+#: FastAPI's own OpenAPI generator makes; ``test_the_route_walk_sees_every_published_path``
+#: holds it to the published document.
+API_ROUTES = [r for r in iter_route_contexts(app.routes) if isinstance(r.original_route, APIRoute)]
+V1_ROUTES = [r for r in API_ROUTES if r.path.startswith(API_V1_PREFIX)]
 
 API_DOC = Path(__file__).resolve().parents[3] / "docs" / "API.md"
 
@@ -44,6 +55,17 @@ def documented_routes() -> set[tuple[str, str]]:
         for line in API_DOC.read_text().splitlines()
         if (match := DOC_ROW_RE.match(line))
     }
+
+
+def test_the_route_walk_sees_every_published_path():
+    """The walk the tests here filter is checked against the public contract.
+
+    An empty walk is not a red test: the read-only checks below iterate it and
+    pass on nothing (#504). The OpenAPI document is what FastAPI publishes, so
+    a walk that drifts from it, in either direction, fails here first.
+    """
+    walked = {r.path_format for r in API_ROUTES if r.include_in_schema}
+    assert walked == set(app.openapi()["paths"])
 
 
 def test_the_v1_surface_is_mounted():
@@ -78,7 +100,7 @@ def test_the_unversioned_probes_stay_where_operators_and_systemd_expect_them():
     it reported on is not what an operator watches any more, and it retired with
     the sidecar at #314.
     """
-    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    paths = {r.path for r in API_ROUTES}
     assert {"/health", "/ready"} <= paths
 
 
@@ -90,9 +112,7 @@ def test_the_whole_app_is_read_only_not_just_the_v1_prefix():
     prefix, which is exactly where the last mutating one lived.
     """
     mutating = sorted(
-        f"{sorted(r.methods)} {r.path}"
-        for r in app.routes
-        if isinstance(r, APIRoute) and not r.methods <= {"GET", "HEAD"}
+        f"{sorted(r.methods)} {r.path}" for r in API_ROUTES if not r.methods <= {"GET", "HEAD"}
     )
     assert mutating == []
 
@@ -108,11 +128,7 @@ def test_the_docs_route_inventory_matches_the_app():
     told to expect.
     """
     mounted = {
-        (method, route.path)
-        for route in app.routes
-        if isinstance(route, APIRoute)
-        for method in route.methods
-        if method != "HEAD"
+        (method, route.path) for route in API_ROUTES for method in route.methods if method != "HEAD"
     }
     assert documented_routes() == mounted
 
