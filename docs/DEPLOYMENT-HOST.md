@@ -7,6 +7,7 @@ shared venv (#279), memory exhaustion (#389), a full disk (#394), apt restarting
 mid-patch (#430) — and what guards each. Losing the host itself is
 [RECOVERY.md](RECOVERY.md)'s: the nightly backup to GCS, and the restore in [RECOVERY-RESTORE.md](RECOVERY-RESTORE.md) (#434).
 The disk-GC commands came here from [`COMMANDS.md`](COMMANDS.md).
+The monthly Dependabot recipe came here from [`DEPLOYMENT.md`](DEPLOYMENT.md) (#526).
 
 ## Main-only checkout (issue #87)
 
@@ -263,6 +264,48 @@ bash skills/patching-hosts/scripts/read-knob.sh --host "$(hostname)"   # finding
 `systemd-analyze get-log-target`: a re-exec with the #520 drop-in in place is
 unmeasured (CannObserv/provisioner#67). `journal-or-kmsg` is the pass; `console`
 is a finding: reopen provisioner#62 with the reading.
+
+## Dependency updates (#499)
+
+**Where `uv.lock` changes come from (#499).** `.github/dependabot.yml` opens one
+grouped PR a month; the owner lands it in the patching-hosts window
+(`.skills/patching-hosts`) beside the OS run, then deploys it with the block in
+[`DEPLOYMENT.md` § Deploy convention](DEPLOYMENT.md#deploy-convention-units-never-sync-the-venv-issue-30)
+(`git pull`, `uv sync --locked`, restart).
+That PR **targets direct dependencies only** (dependabot-core#14073), and 34 of
+#499's 43 advisories were transitive. So
+`scripts/audit-lock.sh` is the signal for those: it prints `uv audit --frozen`'s OSV
+findings at the top of every `pre-ship.sh`, report-only (exit 0 whatever it finds,
+so a disclosure elsewhere never blocks an unrelated ship), and each advised package
+it lists takes `uv lock --upgrade-package <name>` — on the month's PR, or
+out-of-cycle for an advisory that warrants it, with the same deploy.
+
+**Its table is not its diff.** #504's PR named 12 packages and moved 22 in `uv.lock`,
+unnamed direct ones among them (uvicorn 0.48 → 0.54, which no named bump required).
+Every named package's floor rises too, cap or no cap; `dependabot.yml` says why that
+is accepted.
+
+**Landing the month's PR.** No CI runs on it, and the uv updater has open bugs on
+this layout (a virtual root over `packages/*`), so it is gated by hand, in a worktree —
+never the prod checkout (#87):
+
+```bash
+git fetch origin && gh pr list --author app/dependabot   # its branch name
+bash .claude/skills/using-git-worktrees/scripts/worktree-create.sh <branch>
+# in the printed worktree:
+git merge origin/main         # if behind: gate the tree that lands (#504 was 71 behind)
+uv sync --locked && git submodule update --init --recursive
+#   red here = a member's pyproject.toml rewritten without a relock (dependabot-core#15786)
+git diff origin/main -- uv.lock | grep -E '^[ +-](name|version) = '   # every version that moved
+bash scripts/audit-lock.sh    # each package still listed: uv lock --upgrade-package <name>, commit, push
+# lock moved ruff? bump .pre-commit-config.yaml's ruff-pre-commit rev to match, commit, or
+#   scripts/tests/test_ruff_pin.py fails pre-ship (#504: hook 0.15.14, lock 0.17.0)
+bash scripts/pre-ship.sh      # the PR's only gate
+git push                      # the PR head must be the tree pre-ship gated
+```
+
+Then merge, and deploy with the `git pull` / `uv sync --locked` / restart block in
+[`DEPLOYMENT.md` § Deploy convention](DEPLOYMENT.md#deploy-convention-units-never-sync-the-venv-issue-30).
 
 ## Secrets on disk (#434)
 

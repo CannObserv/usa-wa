@@ -129,3 +129,21 @@ docs/RECOVERY.md :: retarget :: 2. `scripts/setup-backup-role.sql`, both key fil
 docs/RECOVERY.md :: retarget :: tailnet join (§ The dead-man monitor, step 1) under the same node name, or the
 docs/RECOVERY.md :: retarget :: Provisioning block (`co-usa-wa-backup@co-gcs`, bucket in `co-gcs-blobs`' location)
 docs/RECOVERY.md :: retarget :: --locked`, the role script (`t`/`f` as above, `0 0 0`), units copied. The run
+
+# --- #526: the Dependabot recipe moved to DEPLOYMENT-HOST.md § Dependency updates ---
+
+# Two pointers said "the block above" / "at the head of this section" about
+# DEPLOYMENT.md § Deploy convention's deploy block; the recipe now sits in another
+# doc, so both name that section by link. MODULES-DEPLOYMENT's .github/ entry
+# pointed at the recipe's old section.
+docs/DEPLOYMENT.md :: retarget :: (`.skills/patching-hosts`) beside the OS run, then deploys it with the block above
+docs/DEPLOYMENT.md :: retarget :: Then merge, and deploy with the `git pull` / `uv sync --locked` / restart block at the
+docs/DEPLOYMENT.md :: retarget :: head of this section.
+docs/MODULES-DEPLOYMENT.md :: retarget :: .github/              — one GitHub Actions workflow, the weekly context cadence. It is the only scheduled job not on this VM: [DEPLOYMENT.md](DEPLOYMENT.md) § Scheduled work outside systemd. Also `dependabot.yml`, the monthly grouped `uv.lock` PR (#499): [DEPLOYMENT.md](DEPLOYMENT.md) § Deploy convention
+
+# "Moves direct dependencies only ... leaves transitive ones alone" is refuted by
+# git diff 5ffaf95a^ 5ffaf95a -- uv.lock: Dependabot's commit named 12 packages
+# and moved 22, grimp, metricflow and typing-extensions (transitive) among them.
+# Replaced by "targets direct dependencies only"; the lock-diff paragraph carries the rest.
+docs/DEPLOYMENT.md :: disproven :: That PR moves **direct dependencies only** — the uv updater leaves transitive ones
+docs/DEPLOYMENT.md :: disproven :: alone (dependabot-core#14073), and 34 of #499's 43 advisories were transitive. So
