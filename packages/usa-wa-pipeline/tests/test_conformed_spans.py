@@ -14,6 +14,7 @@ from datetime import date
 import pytest
 
 from clearinghouse_domain_legislative.operator_overlay import SuccessionEvent
+from clearinghouse_domain_legislative.seat_clipping import CapacityPeriod
 from clearinghouse_domain_legislative.span_kinds import (
     KIND_COMMITTEE,
     KIND_PARTY,
@@ -603,7 +604,7 @@ def test_assignment_rows_tag_each_family_with_its_own_source() -> None:
     assert counters["published"] == len(rows) == len(wsl) + len(roster_spans)
 
 
-def _seat_span(member, *, start, end, frm, to, source_kind=KIND_SENATE):
+def _seat_span(member, *, start, end, frm, to, source_kind=KIND_SENATE, end_basis=None):
     return TenureSpan(
         member_id=member,
         kind=source_kind,
@@ -613,6 +614,7 @@ def _seat_span(member, *, start, end, frm, to, source_kind=KIND_SENATE):
         valid_from=frm,
         valid_to=to,
         is_active=False,
+        end_basis=end_basis,
     )
 
 
@@ -621,7 +623,12 @@ def test_assignment_rows_clip_a_dated_handoff_across_the_family_seam() -> None:
     a WSL-joined incumbent and a minted pre-1991 successor. Clipping per family
     would be blind across exactly the seam the handoff crosses."""
     incumbent = _seat_span(
-        "100", start="1897-98", end="1897-98", frm=date(1897, 1, 1), to=date(1897, 8, 25)
+        "100",
+        start="1897-98",
+        end="1897-98",
+        frm=date(1897, 1, 1),
+        to=date(1897, 8, 25),
+        end_basis="dated",
     )
     successor = _seat_span(
         "crow:1897", start="1897-98", end="1903-04", frm=date(1897, 1, 1), to=date(1904, 12, 31)
@@ -881,3 +888,64 @@ def test_a_chamber_movers_committees_follow_the_move() -> None:
     committees = {s.discriminator: s for s in spans if s.kind == KIND_COMMITTEE}
     assert committees["12167"].valid_to == date(2020, 5, 13)
     assert committees["500"].valid_from == date(2020, 5, 13)
+
+
+# usa-wa#501: the five new columns, the capacity the clip reads, the curated memberships.
+
+
+def test_assignment_rows_publish_basis_interval_and_membership() -> None:
+    span = replace(
+        _seat_span(
+            "100", start="1971-72", end="1973-74", frm=date(1971, 10, 4), to=date(1974, 12, 31)
+        ),
+        start_basis="dated",
+    )
+    (row,), _ = assignment_rows({SOURCE: [span]}, {f"{SOURCE}:100": "01A"})
+    assert list(row)[-6:] == [
+        "span_key",
+        "start_basis",
+        "end_basis",
+        "valid_from_latest",
+        "valid_to_earliest",
+        "membership_type",
+    ]
+    assert (row["start_basis"], row["end_basis"]) == ("dated", "observed")
+    assert (row["valid_from_latest"], row["valid_to_earliest"]) == (
+        date(1971, 10, 4),
+        date(1973, 1, 1),
+    )
+    assert row["membership_type"] == "principal"
+
+
+def test_assignment_rows_pass_capacity_to_the_clip() -> None:
+    """The 1889 shape (#501 D4): with capacity stated, a dated co-holder is no successor."""
+    from_floor = _seat_span(
+        "a", start="1889-90", end="1889-90", frm=date(1889, 1, 1), to=date(1890, 12, 31)
+    )
+    dated = _seat_span(
+        "b", start="1889-90", end="1889-90", frm=date(1889, 3, 1), to=date(1890, 12, 31)
+    )
+    dated = replace(dated, start_basis="dated")
+    keys = {f"{SOURCE}:a": "01A", f"{SOURCE}:b": "01B"}
+    capacity = {(KIND_SENATE, "4"): (CapacityPeriod(date(1889, 1, 1), date(1890, 12, 31), 2),)}
+    rows, counters = assignment_rows({SOURCE: [from_floor, dated]}, keys, capacity=capacity)
+    assert {r["valid_to"] for r in rows} == {date(1890, 12, 31)}
+    assert counters["seat_overlaps_unclipped"] == 1
+    clipped, _ = assignment_rows({SOURCE: [from_floor, dated]}, keys)
+    assert date(1889, 3, 1) in {r["valid_to"] for r in clipped}
+
+
+def test_build_families_applies_the_curated_memberships() -> None:
+    """Every caller — `assignments`, `registry_coverage` — sees the same spans (#501 D5)."""
+    sponsors = [_sponsor("232", "1991-92", district="22")]
+    families = build_families(
+        SpanInputs(
+            sponsors=sponsors,
+            committee_members=[],
+            roster=[_roster("Wilbur Cranston", 1925)],
+            sos_results=[_ballot()],
+        ),
+        current_biennium=CURRENT,
+    )
+    seat = next(s for s in families[SOURCE] if s.member_id == "232" and s.kind == KIND_SENATE)
+    assert seat.membership_type == "substitute"

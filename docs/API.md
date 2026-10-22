@@ -142,6 +142,29 @@ parameters (`/persons/{id}`), for the ULID-valued query filters (`roles?organiza
 ULID — where the alternative is worse than a 404, because an unvalidated cursor resumes the scan
 at whatever position it sorts to and the caller silently skips rows.
 
+### Release 2.1.0 fields (#501)
+
+`persons` 2.1.0 and `assignments` 1.8.0 reach the API in the same deploy as the
+datasets (`verify_contract` refuses a serving load whose columns and fields differ):
+
+- **`PersonSummary.name_own`** — her own name where the roster prints a married-name
+  form (#384), null on every other person. Not a display name: read
+  `coalesce(name_own, name_full)`. `name_full` is unchanged.
+- **`AssignmentSummary.start_basis` / `end_basis`** — where each boundary's date came
+  from: `dated` (a source states it), `derived` (moved onto another tenure's boundary —
+  an inference), `observed` (the attested biennium's edge), `open` (an end only, while
+  serving). Closed enums in the OpenAPI document.
+- **`valid_from_latest` / `valid_to_earliest`** — how precisely each boundary is known:
+  `[valid_from, valid_from_latest]` holds the true start and `[valid_to_earliest,
+  valid_to]` the true end. Exact for a day-dated edge; the attested biennium otherwise.
+- **`membership_type`** — `principal | substitute | ex_officio | acting`; only a principal
+  counts toward a seat's capacity. Three rows are `substitute` (the military substitutes).
+
+`valid_to` is a handoff date — a successor may open on the same day — and the filters are
+unchanged: `as_of` still reads the outer bounds, `valid_to` included, so on a handoff day it
+returns both holders. Capacity (`role_periods`) is published,
+not served (Q5): read it from `/datasets/role_periods`.
+
 ### Liveness, and why there is none left
 
 The lifecycle tombstones are gone with the tables that carried them. A row the pipeline no longer

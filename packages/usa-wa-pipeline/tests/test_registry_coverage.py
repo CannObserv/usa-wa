@@ -9,6 +9,7 @@ design, and a failed build never reaches the registrar that would register it.
 """
 
 from argparse import Namespace
+from dataclasses import replace
 from datetime import date
 
 import duckdb
@@ -17,7 +18,8 @@ import pytest
 
 import usa_wa_pipeline
 from clearinghouse_core.job import OUTCOME_DEGRADED, OUTCOME_FAILED, OUTCOME_OK, JobContext
-from clearinghouse_domain_legislative.span_kinds import KIND_PARTY
+from clearinghouse_domain_legislative.seat_clipping import CapacityPeriod
+from clearinghouse_domain_legislative.span_kinds import KIND_PARTY, KIND_SENATE
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
 from usa_wa_pipeline.conformed.spans import ROSTER_SOURCE, SOURCE
 from usa_wa_pipeline.registry_coverage import (
@@ -56,6 +58,30 @@ ROLES = {f"{SOURCE}:party-role:democratic": "01ROLE"}
 
 def _counters(families, *, persons=PERSONS, orgs=ORGS, roles=ROLES) -> dict:
     return coverage_counters(families, persons=persons, orgs=orgs, roles=roles)
+
+
+def test_the_unclipped_count_reads_the_builds_capacity():
+    """The same capacity the `assignments` model passes (#501 D4), so the counter is the
+    build's own: a lawful co-holder is declined as a multi-holder period, not clipped."""
+
+    def seat(member: str, frm: date) -> TenureSpan:
+        return replace(
+            _span(member, KIND_SENATE, "19"),
+            start_biennium="1889-90",
+            end_biennium="1889-90",
+            valid_from=frm,
+            valid_to=date(1890, 12, 31),
+            is_active=False,
+            start_basis="dated" if frm.month > 1 else "observed",
+            end_basis="observed",
+        )
+
+    families = {SOURCE: [seat("100", date(1889, 1, 1)), seat("200", date(1889, 3, 1))]}
+    capacity = {(KIND_SENATE, "19"): (CapacityPeriod(date(1889, 1, 1), date(1890, 12, 31), 5),)}
+    counters = coverage_counters(
+        families, persons=PERSONS, orgs=ORGS, roles=ROLES, capacity=capacity
+    )
+    assert counters["seat_overlaps_unclipped"] == 1
 
 
 def test_a_fully_registered_build_counts_zero():

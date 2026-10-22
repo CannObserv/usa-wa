@@ -35,6 +35,7 @@ from datetime import date
 from typing import Any
 
 from clearinghouse_core.logging import get_logger
+from clearinghouse_domain_legislative.boundary_basis import BASIS_DERIVED
 from clearinghouse_domain_legislative.operator_events import (
     KIND_DEPARTED,
     KIND_SEATED,
@@ -219,6 +220,8 @@ def carry_mover_house_tenures(
                 effective_date=_house_end(move, seat, events),
                 seat_kind=KIND_HOUSE,
                 seat_discriminator=seat,
+                # another tenure's boundary, not a date stated of this one (#501 D6)
+                basis=BASIS_DERIVED,
             )
         )
     return carried, implied
@@ -274,14 +277,14 @@ def _date_committee(
         and span.valid_from <= house_end
         and (span.valid_to is None or house_end < span.valid_to)
     ):
-        return replace(span, valid_to=house_end, is_active=False)
+        return replace(span, valid_to=house_end, is_active=False, end_basis=BASIS_DERIVED)
     if (
         agency == AGENCY_SENATE
         and span.start_biennium == move.biennium
         and span.valid_from == biennium_start_date(move.biennium)
         and (span.valid_to is None or move.moved_on <= span.valid_to)
     ):
-        return replace(span, valid_from=move.moved_on)
+        return replace(span, valid_from=move.moved_on, start_basis=BASIS_DERIVED)
     return span
 
 

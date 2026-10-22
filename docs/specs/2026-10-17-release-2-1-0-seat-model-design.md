@@ -1,8 +1,9 @@
 # Release 2.1.0: seat model, boundary basis and intervals, own names
 
 - **Date:** 2026-10-17
-- **Status:** owner decisions recorded 2026-10-17 (Q1–Q6, all as recommended; § Owner decisions).
-  Waiting on power-map review of the shape (§ Effect on power-map). Nothing here is built.
+- **Status:** owner decisions recorded 2026-10-17 (Q1–Q6, all as recommended; § Owner decisions);
+  power-map reviewed and accepted 2026-10-17. Built 2026-10-19 with the amendments in § Build
+  amendments.
 - **Issues:** usa-wa#501 (this release), #384, #369, #362 (absorbs #230 and #479 as shapes), #360
   (increment 2). Decisions: #384, #369, #362 and #360, each the 2026-10-13 owner comment linked from
   #501.
@@ -442,6 +443,28 @@ operator.
 | Q4 | Term-start seatings: `observed` now, or a fifth value `term` | **agreed:** `observed`; `term` later as a minor (D6) |
 | Q5 | Serve `role_periods`? Expose the new columns in `/api/v1`? | **agreed:** `role_periods` publish-only; expose `name_own` and the five assignment columns |
 | Q6 | Annotation windows in the 2.1.0 deploy, or right after it (no contract change either way) | **agreed:** in it, unless the build PR is too large to review |
+
+## Build amendments (2026-10-19)
+
+The build's review against the code
+([#501 comment 6279341526](https://github.com/CannObserv/usa-wa/issues/501#issuecomment-6279341526),
+corrections 1–9) and the `name_own` check
+([comment 6279669234](https://github.com/CannObserv/usa-wa/issues/501#issuecomment-6279669234))
+change how decisions above are carried out. None changes a decision:
+
+| Where | Amendment |
+|---|---|
+| D6 keying | The roster projector keys a successor on a month or year start as well as a day. An election that follows a departure in the same annotation is the departure's reason, not a start: Cunningham's "Elected to Congress … May 17, 1977" had keyed his 1975 term to 1977-78. Together that re-keys **17 span_keys** (10 seat spans, 7 party spans). Restating the invariant instead was blocked by `assignments_start_in_key_biennium`. Kennett (undated) stays keyed 1963-64, an accepted limit. |
+| D7 may tier | The may tier is `warn` + `store_failures` and is **informational** in `build_warnings` (`INFORMATIONAL_NODES`). It is never empty, and a failing warn would email every night. |
+| D7 list | `accepted_seat_overlaps` holds **certain-tier** pairs only. An entry goes stale when its pair is no longer certain. |
+| D7 predicate | The count is checked at each principal's start **and** at each period's start, because capacity can drop with no one starting. |
+| D1 floor | A role's first period starts at the floor of the biennium holding its earliest `valid_from`, not its earliest key. |
+| D6 writers | #490's implied vacates (`carry_mover_house_tenures`) close `derived` ends. `SuccessionEvent` carries a basis. |
+| D6 invariant 5 | (D6a) An election opens a start window `[election, min(C(start), valid_to)]`, basis `dated`. It only raises `valid_from`. |
+| D4 + D6a | (D6a) When the stated edge is a window, the clip moves the counterpart to the window's **far** bound, so the `derived` claim holds. A day-dated edge clips as before. |
+| D8 | Enums are declared on the four new vocabularies only. An enum on a standing column (`roles.role_type`) would move a hash with no version bump to cover it. Descriptions reach a dataset's wire only when it next mints, so `roles` keeps its current version dir. |
+| Q6 | Two PRs, one deploy: the contract (PR A), then the windows (PR B, D6a, with no contract change). |
+| D9 | 12 entries, not 11. Marjorie B. Happy is class C (registered in #514). Epton's 1957 row prints `(Kathryn)`, so she is class A, `Kathryn Epton` (owner, 2026-10-20). That gives 8 A, 1 B (Miller), 3 C, and 11 non-null. `juriebsmith:1933` is one entity for husband and widow, a separate identity issue. |
 
 ## Notes for later issues
 

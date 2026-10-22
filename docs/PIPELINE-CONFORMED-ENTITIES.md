@@ -81,6 +81,17 @@ under a marital print form at all is deliberately left unanswered** — it is a
 real editorial question, and leaving those forms alone keeps it a decision
 someone makes rather than one a strip makes silently.
 
+**#384 made it, and `name_full` still does not move** (persons 2.1.0, #501 D9).
+`name_own` carries her own name beside the printed form, from a curated table,
+`conformed.own_names.OWN_NAMES`, keyed by roster natural key and pinned to the
+printed form it adjudicated: class A extracts the given name printed inside the
+marital form (`Mary LeCocq`), class C drops an honorific on her own name
+(`Eva Anderson`), class B — only her husband's name printed — stays null.
+Null on every other row: it is not a display name; read
+`coalesce(name_own, name_full)`. The `persons` model refuses an entry that no
+longer names a live person printing its form (a reprinted edition, a merged
+key), so a stale adjudication fails the build rather than attaching.
+
 It mattered because survivorship is roster > WSL: merging #378's 17 duplicate
 pairs made the roster name win, so without this `Myron “Mike” Kreidler (On leave
 of absence …)` would have become the published legal name of a live,
@@ -128,7 +139,7 @@ zero, so the 18th fails `dbt build` rather than shipping.
 
 **A python model, not a SQL test**, unlike its two neighbours. The grouping key
 is `identity_fold` — Python, in `usa-wa-adapter-legislature` — and `persons`
-publishes only `(entity_id, name_full, name_source)`, so there is no fold in
+publishes only names and their source, so there is no fold in
 SQL's reach; re-deriving one there is the second implementation CR 155
 consolidated out of `usa_wa_common.names`. The nightly probes were the other
 candidate home and run *after* publish: they can report that a bad

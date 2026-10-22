@@ -1,11 +1,11 @@
 version: 2
 
 seeds:
-  # The named seat overlaps the occupancy gate accepts (#360 part A). Each row is
-  # one unordered pair of span_keys, stored lo < hi, with the roster evidence
-  # that it is not a defect this build can repair. Read by
+  # The named CERTAIN-tier seat overlaps the occupancy gate accepts (#360 part A,
+  # #501 D7). Each row is one unordered pair of span_keys, stored lo < hi, with
+  # the roster evidence that it is not a defect this build can repair. Read by
   # tests/assignments_seat_occupancy.sql (excused) and
-  # tests/assignments_seat_occupancy_stale.sql (no longer overlapping).
+  # tests/assignments_seat_occupancy_stale.sql (no longer certain).
   - name: accepted_seat_overlaps
     config:
       column_types:
@@ -23,9 +23,9 @@ seeds:
           - not_null
           - accepted_values:
               arguments:
+                # `substitute` and `basis_inferred` retired with their last rows in
+                # #501: membership_type and the explicit boundary basis model them.
                 values:
-                  - substitute
-                  - basis_inferred
                   - election_only
                   - coarse_date
                   - merged_tenure

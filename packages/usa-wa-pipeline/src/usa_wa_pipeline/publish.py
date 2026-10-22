@@ -54,10 +54,11 @@ import json
 import os
 import secrets
 import shutil
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
+from typing import Any
 
 import duckdb
 
@@ -123,6 +124,22 @@ class ContractRelease:
 
 
 @dataclass(frozen=True)
+class FieldDoc:
+    """What one published column means (#501 D8): a Frictionless ``description``,
+    and — for a closed vocabulary — its ``constraints.enum``.
+
+    The description is prose and stays out of the contract fingerprint, so
+    documenting a dataset never moves its ``contract_hash``. The enum is contract:
+    a consumer branches on it, so it enters the fingerprint, but only where one is
+    declared — no undocumented dataset's hash moves, and a later change to a
+    declared enum does move it, as a contract change should.
+    """
+
+    description: str
+    enum: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True)
 class PublishedDataset:
     """A dataset the publisher asserts, and the history of its contract (#385).
 
@@ -148,6 +165,12 @@ class PublishedDataset:
     tier: str
     releases: tuple[ContractRelease, ...]
     min_rows: int | None = None
+    #: Column → what it means, published on the datapackage field (#501 D8).
+    fields: Mapping[str, FieldDoc] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if unknown := sorted(set(self.fields) - set(self.columns)):
+            raise ValueError(f"{self.name}: documents columns its release lacks: {unknown}")
 
     @property
     def schema_version(self) -> str:
@@ -193,11 +216,136 @@ def contract_fingerprint(
         "tier": tier,
         "format": "csv",
         "dialect": CSV_DIALECT if dialect is None else dialect,
-        "fields": [{"name": f["name"], "type": f["type"]} for f in fields],
+        "fields": [
+            {
+                "name": f["name"],
+                "type": f["type"],
+                **({"constraints": f["constraints"]} if "constraints" in f else {}),
+            }
+            for f in fields
+        ],
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
 
+
+#: What each column of the four #501 datasets means (D8). Prose for a reader;
+#: only an ``enum`` is contract, so enums are declared on the four NEW closed
+#: vocabularies alone — one on a standing column (``roles.role_type``) would move a
+#: hash that no version bump accompanies, and the publisher would refuse the run.
+PERSON_FIELDS: dict[str, FieldDoc] = {
+    "entity_id": FieldDoc("The person's registry ULID; stable across rebuilds."),
+    "name_full": FieldDoc(
+        "The name as the winning source prints it — roster > WSL > PDC, newest "
+        "attestation first. A married-name form is kept exactly as printed."
+    ),
+    "name_source": FieldDoc("Which source supplied name_full: roster, wsl or pdc."),
+    "name_own": FieldDoc(
+        "Her own name, where the roster prints a married-name form: extracted where her "
+        "given name is printed in it, the honorific dropped where it is her own name with "
+        "one, null where only her husband's name is printed. Null on every other row — not "
+        "a display name. Read coalesce(name_own, name_full)."
+    ),
+}
+
+ASSIGNMENT_FIELDS: dict[str, FieldDoc] = {
+    "entity_id": FieldDoc("The holder's registry ULID (persons.entity_id)."),
+    "member_id": FieldDoc(
+        "The holder's id in the source's identity space: a WSL member id, or a roster "
+        "<fold>:<first year> key."
+    ),
+    "source": FieldDoc(
+        "Which identity space member_id belongs to: usa_wa_legislature (numeric WSL ids) "
+        "or usa_wa_legislature_roster (<fold>:<year> keys)."
+    ),
+    "role_key": FieldDoc("The slot this tenure fills; joins roles.role_key."),
+    "span_kind": FieldDoc(
+        "What the tenure tracks: party, chamber-senate, committee or chamber-house."
+    ),
+    "span_discriminator": FieldDoc("What the span is scoped to: an LD, a position, a committee."),
+    "span_start_biennium": FieldDoc(
+        "The biennium the tenure was first attested in; part of span_key."
+    ),
+    "span_end_biennium": FieldDoc("The biennium the tenure was last attested in."),
+    "valid_from": FieldDoc(
+        "The earliest the tenure can have started (see start_basis and valid_from_latest)."
+    ),
+    "valid_to": FieldDoc(
+        "The latest the tenure can have ended — a HANDOFF date: a successor may open on the "
+        "same day, so an occupancy check reads it as exclusive. Null while still serving."
+    ),
+    "is_active": FieldDoc("Still serving: valid_to is null."),
+    "span_key": FieldDoc(
+        "The row's name: entity_id|role_key|span_kind|span_discriminator|span_start_biennium."
+    ),
+    "start_basis": FieldDoc(
+        "Where valid_from came from. dated: a source states it (an operator event, a day); "
+        "derived: a rule moved it onto another tenure's boundary — an inference, not "
+        "evidence; observed: the first day of the first biennium the tenure is attested in. "
+        "Never open.",
+        enum=("dated", "derived", "observed"),
+    ),
+    "end_basis": FieldDoc(
+        "Where valid_to came from: dated, derived or observed as for start_basis (observed: "
+        "the last day of the last attested biennium), or open while still serving.",
+        enum=("dated", "derived", "observed", "open"),
+    ),
+    "valid_from_latest": FieldDoc(
+        "The latest the true start can be: [valid_from, valid_from_latest] holds it. Equal "
+        "to valid_from when dated to the day; the attested biennium's last day, clamped by "
+        "valid_to, when observed or derived."
+    ),
+    "valid_to_earliest": FieldDoc(
+        "The earliest the true end can be: [valid_to_earliest, valid_to] holds it. Equal to "
+        "valid_to when dated to the day; the attested biennium's first day, clamped by "
+        "valid_from, otherwise. Null while open."
+    ),
+    "membership_type": FieldDoc(
+        "How the tenure holds its role. principal: in its own right — the only kind that "
+        "counts toward role_periods.max_holders; substitute: serving while the principal is "
+        "on leave; ex_officio and acting are declared and not yet populated.",
+        enum=("principal", "substitute", "ex_officio", "acting"),
+    ),
+}
+
+ROLE_FIELDS: dict[str, FieldDoc] = {
+    "entity_id": FieldDoc("The role's registry ULID; null for one build after a new role."),
+    "role_key": FieldDoc(
+        "The deterministic structural key a subscriber matches a slot on: a pure function "
+        "of the seat."
+    ),
+    "role_type": FieldDoc(
+        "The kind of slot: party_member, committee_member, state_senator or state_representative."
+    ),
+    "name": FieldDoc("A display name for the slot."),
+    "span_kind": FieldDoc("The span_kind of the tenures that fill it."),
+    "span_discriminator": FieldDoc("The span_discriminator of the tenures that fill it."),
+    "org_source_id": FieldDoc("The organization the slot belongs to, by its source id."),
+    "org_entity_id": FieldDoc("The organization's registry ULID."),
+    "district": FieldDoc("The legislative district number; null off a district seat."),
+    "qualifier": FieldDoc(
+        "The seat label, where the source has one: Position 1 or 2 for a House seat; null "
+        "for a Senate seat, which has none. Never invented."
+    ),
+}
+
+ROLE_PERIOD_FIELDS: dict[str, FieldDoc] = {
+    "role_key": FieldDoc("The role this period describes; joins roles.role_key."),
+    "valid_from": FieldDoc("The period's first day, a biennium's first day."),
+    "valid_to": FieldDoc(
+        "The period's LAST day, inclusive — unlike assignments.valid_to, a handoff date. "
+        "Periods tile: the next one opens the day after. Null through the present."
+    ),
+    "max_holders": FieldDoc(
+        "The most principals the role seats at once; null for no limit (party, committee)."
+    ),
+    "max_holders_basis": FieldDoc(
+        "Where max_holders came from. kind: the seat kind's rule (one per Senate seat or "
+        "House Position; no limit for a party or committee); roster: counted from the "
+        "roster's bare multi-row listing (the 1889 Senate).",
+        enum=("kind", "roster"),
+    ),
+}
 
 #: What gets published, and the contract each dataset publishes under (#385).
 #:
@@ -498,8 +646,15 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 ("entity_id", "name_full", "name_source"),
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
+            ContractRelease(
+                "2.1.0",
+                ("entity_id", "name_full", "name_source", "name_own"),
+                "#384/#501: `name_own` appended — her own name where the roster prints a "
+                "married-name form, null elsewhere. Additive, so a minor",
+            ),
         ),
         min_rows=2950,
+        fields=PERSON_FIELDS,
     ),
     PublishedDataset(
         "organizations",
@@ -605,8 +760,53 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 ),
                 "frozen in place at the #385 cutover: the version it was already publishing",
             ),
+            ContractRelease(
+                "1.8.0",
+                (
+                    "entity_id",
+                    "member_id",
+                    "source",
+                    "role_key",
+                    "span_kind",
+                    "span_discriminator",
+                    "span_start_biennium",
+                    "span_end_biennium",
+                    "valid_from",
+                    "valid_to",
+                    "is_active",
+                    "span_key",
+                    "start_basis",
+                    "end_basis",
+                    "valid_from_latest",
+                    "valid_to_earliest",
+                    "membership_type",
+                ),
+                "#501 (#369, #360 increment 2, #362): each boundary's basis and interval, "
+                "and the tenure's membership_type, appended. Additive, so a minor; the two "
+                "enums enter the contract hash",
+            ),
         ),
         min_rows=7950,
+        fields=ASSIGNMENT_FIELDS,
+    ),
+    # Each role's seat capacity over time (#501 D1): a role is a template with no
+    # time axis, and capacity varies on one key (LD-19 seated five in 1889 and one
+    # since), so the periods are a dataset of their own rather than `roles`
+    # columns. Publish-only, like `org_lineage` (Q5): not served. Floor at ~95% of
+    # the first build's 317 rows, the #472 rule.
+    PublishedDataset(
+        "role_periods",
+        "conformed",
+        (
+            ContractRelease(
+                "1.0.0",
+                ("role_key", "valid_from", "valid_to", "max_holders", "max_holders_basis"),
+                "#501 D1: first release — dense capacity periods for every held role; the "
+                "counterpart clip and the occupancy gate read the same periods",
+            ),
+        ),
+        min_rows=300,
+        fields=ROLE_PERIOD_FIELDS,
     ),
     PublishedDataset(
         "roles",
@@ -630,6 +830,7 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
             ),
         ),
         min_rows=295,
+        fields=ROLE_FIELDS,
     ),
     # `internal` is not the subscriber contract (#313). It is published all the
     # same — same immutable version dirs, same digest, same `/datasets` tree,
@@ -754,6 +955,17 @@ _TYPE_MAP = {
     "DATE": "date",
     "TIMESTAMP": "datetime",
 }
+
+
+def _field(name: str, type_: str, dataset: PublishedDataset) -> dict[str, Any]:
+    """One datapackage field: name and type, plus its documentation when declared."""
+    out: dict[str, Any] = {"name": name, "type": type_}
+    doc = dataset.fields.get(name)
+    if doc is not None:
+        out["description"] = doc.description
+        if doc.enum is not None:
+            out["constraints"] = {"enum": list(doc.enum)}
+    return out
 
 
 def _version_sorts(version: str) -> tuple[int, ...]:
@@ -897,7 +1109,7 @@ def publish(
                     "real contraction"
                 )
             fields = [
-                {"name": col[0], "type": _TYPE_MAP.get(col[1].split("(")[0], "string")}
+                _field(col[0], _TYPE_MAP.get(col[1].split("(")[0], "string"), dataset)
                 for col in columns
             ]
             fingerprint = contract_fingerprint(name=name, tier=dataset.tier, fields=fields)

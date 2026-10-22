@@ -12,6 +12,7 @@ import duckdb
 import pytest
 
 import usa_wa_pipeline
+from usa_wa_pipeline.conformed.capacity import ROLE_PERIOD_SCHEMA
 from usa_wa_pipeline.conformed.citations import CITATION_SCHEMA
 from usa_wa_pipeline.conformed.entities import ORG_SCHEMA, PERSON_SCHEMA
 from usa_wa_pipeline.conformed.lineage import CYCLE_SCHEMA, LINEAGE_SCHEMA
@@ -53,6 +54,7 @@ MODEL_SCHEMAS = {
     "person_name_collisions": COLLISION_SCHEMA,
     "persons": PERSON_SCHEMA,
     "roles": ROLE_SCHEMA,
+    "role_periods": ROLE_PERIOD_SCHEMA,
     "seat_winners": SEAT_WINNER_SCHEMA,
 }
 

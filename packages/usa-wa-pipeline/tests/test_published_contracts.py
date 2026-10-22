@@ -19,7 +19,12 @@ publisher's own gate's to catch, against what was last published.
 
 import duckdb
 import pytest
+import yaml
 
+import usa_wa_pipeline
+from clearinghouse_domain_legislative.boundary_basis import BOUNDARY_BASES, START_BASES
+from clearinghouse_domain_legislative.membership_types import MEMBERSHIP_TYPES
+from usa_wa_pipeline.conformed.capacity import MAX_HOLDERS_BASES
 from usa_wa_pipeline.publish import PUBLISHED_DATASETS
 
 
@@ -150,3 +155,70 @@ def test_the_transition_froze_each_dataset_at_the_version_it_was_publishing() ->
             f"{dataset.name}: the frozen baseline is {frozen[dataset.name]}, "
             f"not {baseline.version} — the cutover does not renumber"
         )
+
+
+# usa-wa#501 D8: one vocabulary, three places — the Python constant, the dbt
+# `accepted_values`, and the datapackage's `constraints.enum` — pinned together.
+
+_SCHEMA_YML = usa_wa_pipeline.PROJECT_DIR / "models" / "conformed" / "schema.yml"
+
+#: dataset.column → the constant its enum came from.
+DECLARED_ENUMS = {
+    ("assignments", "start_basis"): START_BASES,
+    ("assignments", "end_basis"): BOUNDARY_BASES,
+    ("assignments", "membership_type"): MEMBERSHIP_TYPES,
+    ("role_periods", "max_holders_basis"): MAX_HOLDERS_BASES,
+}
+
+
+def _accepted_values(model: str, column: str) -> tuple[str, ...]:
+    schema = yaml.safe_load(_SCHEMA_YML.read_text())
+    (entry,) = [m for m in schema["models"] if m["name"] == model]
+    (col,) = [c for c in entry["columns"] if c["name"] == column]
+    (values,) = [
+        t["accepted_values"]["arguments"]["values"]
+        for t in col.get("data_tests", [])
+        if isinstance(t, dict) and "accepted_values" in t
+    ]
+    return tuple(values)
+
+
+def _dataset(name: str):
+    (dataset,) = [d for d in PUBLISHED_DATASETS if d.name == name]
+    return dataset
+
+
+@pytest.mark.parametrize(("dataset", "column"), sorted(DECLARED_ENUMS))
+def test_each_enum_is_one_vocabulary_in_three_places(dataset: str, column: str) -> None:
+    constant = DECLARED_ENUMS[(dataset, column)]
+    assert _dataset(dataset).fields[column].enum == constant
+    assert _accepted_values(dataset, column) == constant
+
+
+def test_only_the_new_vocabularies_declare_an_enum() -> None:
+    """An enum is contract: one on a standing column moves a hash no bump covers."""
+    declared = {
+        (d.name, column)
+        for d in PUBLISHED_DATASETS
+        for column, doc in d.fields.items()
+        if doc.enum is not None
+    }
+    assert declared == set(DECLARED_ENUMS)
+
+
+@pytest.mark.parametrize("name", ["persons", "assignments", "roles", "role_periods"])
+def test_every_field_of_the_release_is_described(name: str) -> None:
+    dataset = _dataset(name)
+    assert set(dataset.fields) == set(dataset.columns)
+    assert all(doc.description.strip() for doc in dataset.fields.values())
+
+
+def test_the_release_versions() -> None:
+    """The 2.1.0 release, per dataset (#501 Q2): `roles` does not move."""
+    versions = {d.name: d.schema_version for d in PUBLISHED_DATASETS}
+    assert (versions["persons"], versions["assignments"], versions["role_periods"]) == (
+        "2.1.0",
+        "1.8.0",
+        "1.0.0",
+    )
+    assert versions["roles"] == "1.3.0"

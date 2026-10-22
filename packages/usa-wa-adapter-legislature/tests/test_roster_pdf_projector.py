@@ -133,6 +133,47 @@ def test_successor_row_starts_at_its_dated_boundary() -> None:
     assert "1971-72" not in beck
 
 
+@pytest.mark.parametrize(
+    "annotation",
+    ["Appointed 1962 to serve unexpired term)", "Elected November 1977 to serve unexpired term"],
+)
+def test_a_coarse_dated_successor_starts_in_its_own_biennium(annotation: str) -> None:
+    """usa-wa#501 D6: Marjorie B. Happy, "Appointed 1962", printed under her husband's
+    1959 term start. Keyed 1959-60, her observed interval [1959, 1960] could not hold
+    her true start, and no event could repair the key (#514). A month or a year opens
+    the coverage at its own biennium exactly as a day does."""
+    rows = [
+        _rec("John H. Happy", 1959, district=6, annotation="(Deceased June 21, 1962)"),
+        _rec("Mrs. Marjorie B. Happy", 1959, district=6, order=2, annotation=annotation),
+        _rec("Next Holder", 1963, district=6),
+    ]
+    projection = build_pre1991_observations(
+        [_minted("johnhhappy:1959", rows[0]), _minted("marjoriebhappy:1959", rows[1])], rows
+    )
+    happy = {
+        o.biennium
+        for o in projection.observations
+        if o.kind == KIND_SENATE and o.member_id == "marjoriebhappy:1959"
+    }
+    assert "1959-60" not in happy
+    assert happy <= {"1961-62", "1977-78"}
+
+
+def test_an_undated_successor_keeps_its_term_start_key() -> None:
+    """Kennett's shape: nothing to key on, so the listing year stands (an accepted
+    limit of #501 D6 — his observed interval sits before his true start)."""
+    rows = [
+        _rec("A. Riley", 1963, district=35, annotation="Resigned Aug. 10, 1965"),
+        _rec(
+            "J. Kennett", 1963, district=35, order=2, annotation="Appointed to serve unexpired term"
+        ),
+        _rec("Next", 1967, district=35),
+    ]
+    projection = build_pre1991_observations([_minted("jkennett:1963", rows[1])], rows)
+    kennett = {o.biennium for o in projection.observations if o.kind == KIND_SENATE}
+    assert "1963-64" in kennett
+
+
 def test_predecessor_row_ends_at_its_dated_boundary() -> None:
     """An early-in-term departure drops the bienniums after its boundary's: a resignation
     in January 1972 ends the coverage at 1971-72."""
@@ -301,3 +342,20 @@ def test_identity_without_member_or_key_raises() -> None:
     )
     with pytest.raises(ValueError, match="neither"):
         build_pre1991_observations([broken], [])
+
+
+def test_an_election_to_another_office_does_not_key_the_row() -> None:
+    """Cunningham, LD-33, listed 1975: "Resigned; Elected to Congress, 7th District May
+    17, 1977". The election is why he left; his tenure starts with his listing."""
+    rows = [
+        _rec(
+            "Jack Cunningham",
+            1975,
+            district=33,
+            annotation="Resigned; Elected to Congress, 7th District May 17, 1977",
+        ),
+        _rec("Next", 1979, district=33),
+    ]
+    projection = build_pre1991_observations([_minted("jackcunningham:1975", rows[0])], rows)
+    senate = {o.biennium for o in projection.observations if o.kind == KIND_SENATE}
+    assert "1975-76" in senate

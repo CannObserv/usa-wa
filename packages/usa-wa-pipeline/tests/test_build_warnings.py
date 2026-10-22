@@ -19,6 +19,7 @@ from clearinghouse_core.job import EXIT_DEGRADED, OUTCOME_DEGRADED, OUTCOME_FAIL
 from clearinghouse_core.testing import patch_job_runtime
 from usa_wa_pipeline.build_warnings import (
     ACCEPTED_WARNINGS,
+    INFORMATIONAL_NODES,
     JOB_SLUG,
     AcceptedWarning,
     main,
@@ -42,6 +43,35 @@ CLEAN = _results(
     ("model.usa_wa_pipeline.assignments", "success"),
     ("test.usa_wa_pipeline.assignments_chamber_vacancy", "pass"),
 )
+
+
+MAY_TIER = "test.usa_wa_pipeline.assignments_seat_occupancy_may"
+
+
+def test_the_may_tier_is_the_one_informational_node() -> None:
+    """#501 correction 2: the may tier is never empty, so failing the stage on it
+    would email every night. It is named here, once, and nothing else is."""
+    assert set(INFORMATIONAL_NODES) == {MAY_TIER}
+    assert all(why.strip() for why in INFORMATIONAL_NODES.values())
+
+
+def test_an_informational_warning_is_counted_not_failed(caplog) -> None:
+    run = _results(("model.usa_wa_pipeline.assignments", "success"), (MAY_TIER, "warn"))
+    run["results"][1]["failures"] = 23
+    with caplog.at_level(logging.INFO):
+        result = summarize(run)
+    assert result.outcome == OUTCOME_OK
+    assert result.counters["informational"] == {MAY_TIER: 23}
+    assert result.counters["not_clean"] == []
+    [record] = [r for r in caplog.records if r.getMessage() == "dbt_build_informational_warning"]
+    assert record.nodes == {MAY_TIER: 23}
+
+
+def test_an_informational_node_that_errors_still_fails() -> None:
+    """Informational covers a WARN only: a node that could not run is no list."""
+    result = summarize(_results((MAY_TIER, "error")))
+    assert result.outcome == OUTCOME_FAILED
+    assert result.counters["not_clean"] == [MAY_TIER]
 
 
 def test_slug_is_stable() -> None:

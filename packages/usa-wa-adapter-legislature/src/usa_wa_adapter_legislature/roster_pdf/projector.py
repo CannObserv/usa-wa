@@ -17,10 +17,11 @@ defect #226 spent three review rounds on.
 
 **Succession refinement, at biennium grain only.** A successor row is listed under its
 predecessor's term-start year; its own annotation dates the real boundary (Beck: appointed
-Feb 11, 1974, printed under 1971). A dated start opens the row's coverage at the
-boundary's biennium; a dated departure closes it there. Rows without dates genuinely
-overlap at this grain — a same-biennium handoff is two people who both served in the
-biennium — so overlaps are **reported**, never silently kept or dropped. Day-precision
+Feb 11, 1974, printed under 1971). A dated start — to the day, month or year (#501 D6) —
+opens the row's coverage at the boundary's biennium; a dated departure closes it there.
+Rows without dates genuinely overlap at this grain — a same-biennium handoff is two
+people who both served in the biennium — so overlaps are **reported**, never silently
+kept or dropped. Day-precision
 correction is not this module's: it arrives as operator events, entered through
 ``operators.cli`` and applied by the overlay (#226's roster backfill, which proposed them, is
 gone — #412 PR F, #471). This module emits spans and no events (§5).
@@ -53,7 +54,7 @@ from usa_wa_adapter_legislature.roster_pdf.party_changes import (
     PartyChangeUnparsed,
     parse_party_change,
 )
-from usa_wa_adapter_legislature.roster_pdf.succession import parse_annotation
+from usa_wa_adapter_legislature.roster_pdf.succession import parse_annotation, start_clause
 from usa_wa_common.parties import resolve_party_token
 
 
@@ -64,20 +65,23 @@ def _biennium(year: int) -> str:
 
 
 def _start_date(annotation: str | None) -> date | None:
-    """The dated boundary that opens a successor row's service, if its annotation has one.
+    """The earliest day a successor row's service can open, if its annotation dates it.
 
     Swearing-in wins over appointment wins over election — service begins when sworn, and
     the ballot date would open the span early. Mirrors the #226 succession semantics
     without adopting its event shapes: here the date only picks a starting biennium.
+
+    **Any stated precision keys the row** (usa-wa#501 D6), not only a day: the first day
+    of a month or year window falls in the same biennium as every other day in it.
+    Keying on day precision alone left "Appointed 1962" (Marjorie B. Happy) under her
+    husband's 1959 term start, where her observed interval could not hold her true start
+    and no operator event can reach a span keyed before its seating (#514). An election
+    that follows a departure is the departure's reason, not a start (:func:`start_clause`).
     """
     if not annotation:
         return None
-    clauses = parse_annotation(annotation)
-    for verb in ("sworn_in", "appointed", "elected"):
-        for clause in clauses:
-            if clause.verb == verb and clause.parsed.precision == "day":
-                return clause.parsed.value
-    return None
+    clause = start_clause(parse_annotation(annotation))
+    return None if clause is None else clause.parsed.window[0]
 
 
 def _end_date(annotation: str | None) -> date | None:

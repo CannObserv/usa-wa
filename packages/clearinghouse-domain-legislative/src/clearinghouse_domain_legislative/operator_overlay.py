@@ -37,6 +37,12 @@ from dataclasses import dataclass, replace
 from datetime import date, timedelta
 
 from clearinghouse_core.logging import get_logger
+from clearinghouse_domain_legislative.boundary_basis import (
+    BASIS_DATED,
+    BASIS_DERIVED,
+    BASIS_OBSERVED,
+    BASIS_OPEN,
+)
 from clearinghouse_domain_legislative.operator_events import (
     KIND_DEPARTED,
     KIND_SEATED,
@@ -65,13 +71,18 @@ DEPARTED_ALREADY_CLOSED_GRACE = timedelta(days=31)
 class SuccessionEvent:
     """The overlay's pure input unit — an :class:`OperatorEvent` projected free of ORM/DB.
     ``seat_kind``/``seat_discriminator`` are set for the seat-scoped kinds, None for
-    ``departed``."""
+    ``departed``.
+
+    ``basis`` (usa-wa#501 D6) is the basis of every edge the event writes. An operator's
+    event states its date, so it defaults to ``dated``; an event a rule IMPLIES from another
+    tenure's boundary — a chamber mover's House vacate (#490) — passes ``derived``."""
 
     member_id: str
     kind: str
     effective_date: date
     seat_kind: str | None = None
     seat_discriminator: str | None = None
+    basis: str = BASIS_DATED
 
 
 def from_rows(rows: Iterable[object]) -> list[SuccessionEvent]:
@@ -197,9 +208,15 @@ def _seating_starts_tenure(span: TenureSpan, effective_date: date) -> bool:
     )
 
 
-def _close(span: TenureSpan, effective_date: date) -> TenureSpan:
-    """Close a span at ``effective_date`` (clamped ≥ its own start), marking it inactive."""
-    return replace(span, valid_to=max(effective_date, span.valid_from), is_active=False)
+def _close(span: TenureSpan, event: SuccessionEvent) -> TenureSpan:
+    """Close a span at the event's date (clamped ≥ its own start), marking it inactive; the
+    end takes the event's basis."""
+    return replace(
+        span,
+        valid_to=max(event.effective_date, span.valid_from),
+        is_active=False,
+        end_basis=event.basis,
+    )
 
 
 def _synthesize(event: SuccessionEvent, current_biennium: str) -> TenureSpan:
@@ -214,6 +231,8 @@ def _synthesize(event: SuccessionEvent, current_biennium: str) -> TenureSpan:
         valid_from=event.effective_date,
         valid_to=None,
         is_active=True,
+        start_basis=event.basis,
+        end_basis=BASIS_OPEN,
     )
 
 
@@ -236,6 +255,8 @@ def _synthesize_closed(event: SuccessionEvent, biennium: str) -> TenureSpan:
         # ``max`` mirrors ``_close`` and guards ``valid_from ≤ valid_to`` defensively regardless.
         valid_to=max(event.effective_date, floor),
         is_active=False,
+        start_basis=BASIS_OBSERVED,
+        end_basis=event.basis,
     )
 
 
@@ -341,7 +362,7 @@ def apply_operator_events(
                     # holding a seat with no party span under it for five years). Split it:
                     # close the first tenure, reopen at the return.
                     re_entry = _re_entry_after([*result, *context], span, event.effective_date)
-                    result[i] = _close(span, event.effective_date)
+                    result[i] = _close(span, event)
                     hit = True
                     if re_entry is None:
                         continue
@@ -390,7 +411,7 @@ def apply_operator_events(
             hit = False
             for i, span in enumerate(result):
                 if _matches_seat(span, event):
-                    result[i] = _close(span, event.effective_date)
+                    result[i] = _close(span, event)
                     hit = True
             if not hit:
                 # No span for the seat is open at the date — a typo/inverted event, or a
@@ -443,7 +464,7 @@ def apply_operator_events(
                     hit = True
                     continue
                 seated_spans[key] = event.effective_date
-                result[i] = replace(span, valid_from=event.effective_date)
+                result[i] = replace(span, valid_from=event.effective_date, start_basis=event.basis)
                 hit = True
             if not hit:
                 # Synthesis is only ever legitimate for a *current-biennium* appointee the wire
@@ -642,11 +663,14 @@ def _split_tail(span: TenureSpan, return_date: date) -> TenureSpan | None:
     ``None`` when the return falls inside the closing span's own start biennium: the tail would
     key to the same ``source_id`` and collide with the head, so the caller leaves the tenure
     whole instead. Openness carries over — a member still serving keeps
-    an open second tenure, which is what makes the sitting-senator case (Chapman) correct."""
+    an open second tenure, which is what makes the sitting-senator case (Chapman) correct.
+
+    Its start is ``derived`` (usa-wa#501 D6): the return date is another span's start, not
+    a date any source states about this tenure."""
     biennium = biennium_for_date(return_date)
     if biennium == span.start_biennium:
         return None
-    return replace(span, start_biennium=biennium, valid_from=return_date)
+    return replace(span, start_biennium=biennium, valid_from=return_date, start_basis=BASIS_DERIVED)
 
 
 def _re_entry_after(

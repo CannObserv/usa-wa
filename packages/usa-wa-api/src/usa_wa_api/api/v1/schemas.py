@@ -34,7 +34,7 @@ accident.
 """
 
 from datetime import date, datetime
-from typing import Annotated, Any, Self
+from typing import Annotated, Any, Literal, Self
 from uuid import UUID
 
 from fastapi import HTTPException, Path, status
@@ -351,6 +351,11 @@ class PersonSummary(ApiModel):
     name_source: str | None = Field(
         default=None, description="Which source won the name — the audit trail."
     )
+    name_own: str | None = Field(
+        default=None,
+        description="Her own name where the roster prints a married-name form (#384); null "
+        "everywhere else — not a display name. Read `coalesce(name_own, name_full)`.",
+    )
 
 
 class PersonDetail(PersonSummary):
@@ -433,8 +438,36 @@ class AssignmentSummary(ApiModel):
     span_start_biennium: str
     span_end_biennium: str | None = None
     valid_from: date | None = None
-    valid_to: date | None = Field(default=None, description="`null` means open — still serving.")
+    valid_to: date | None = Field(
+        default=None,
+        description="`null` means open — still serving. A handoff date: a successor may open "
+        "on the same day.",
+    )
     is_active: bool | None = None
+    start_basis: Literal["dated", "derived", "observed"] | None = Field(
+        default=None,
+        description="Where `valid_from` came from: `dated` (a source states it), `derived` "
+        "(moved onto another tenure's boundary — an inference), `observed` (the first "
+        "attested biennium's first day).",
+    )
+    end_basis: Literal["dated", "derived", "observed", "open"] | None = Field(
+        default=None,
+        description="Where `valid_to` came from, as `start_basis`; `open` while serving.",
+    )
+    valid_from_latest: date | None = Field(
+        default=None,
+        description="The latest the true start can be: `[valid_from, valid_from_latest]` holds it.",
+    )
+    valid_to_earliest: date | None = Field(
+        default=None,
+        description="The earliest the true end can be: `[valid_to_earliest, valid_to]` holds "
+        "it; `null` while open.",
+    )
+    membership_type: Literal["principal", "substitute", "ex_officio", "acting"] | None = Field(
+        default=None,
+        description="How the tenure holds its role; only a `principal` counts toward a "
+        "seat's capacity.",
+    )
 
     @computed_field
     @property

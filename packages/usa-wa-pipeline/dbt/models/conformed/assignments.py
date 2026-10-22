@@ -7,6 +7,8 @@ are imported unchanged from the domain and the adapter; the 4-part span
 """
 
 from clearinghouse_core.registry import KIND_PERSON
+from usa_wa_pipeline.conformed.capacity import seat_capacity
+from usa_wa_pipeline.conformed.memberships import unmatched_memberships
 from usa_wa_pipeline.conformed.spans import (
     ASSIGNMENT_SCHEMA,
     SpanInputs,
@@ -22,6 +24,7 @@ from usa_wa_pipeline.registry_read import crosswalk_frame
 
 def model(dbt, session):
     dbt.config(materialized="table")
+    roster = dbt.ref("stg_roster_members").df().to_dict("records")
     # One resolve of the roster corpus feeds both families — see
     # `conformed.spans.build_families`, the sequence `registry_coverage` runs
     # too.
@@ -29,13 +32,21 @@ def model(dbt, session):
         SpanInputs(
             sponsors=dbt.ref("stg_wsl_sponsors").df().to_dict("records"),
             committee_members=dbt.ref("stg_wsl_committee_members").df().to_dict("records"),
-            roster=dbt.ref("stg_roster_members").df().to_dict("records"),
+            roster=roster,
             sos_results=dbt.ref("stg_sos_results").df().to_dict("records"),
             events=operator_events(),
         ),
         # USA_WA_BIENNIUM pins a scoped rebuild; shared with both probes
         current_biennium=current_biennium(),
     )
+    # An inert substitute entry is a stale adjudication (#501 D5): its span
+    # re-keyed or its member merged away. Refused here, where the whole corpus is
+    # in hand; a hermetic build has no spans to judge.
+    if any(families.values()) and (stale := unmatched_memberships(families)):
+        raise ValueError(
+            "SUBSTITUTE_TENURES entries match no built span — re-adjudicate them in "
+            f"usa_wa_pipeline/conformed/memberships.py: {[t.key for t in stale]}"
+        )
     # The join's counters — `unregistered_spans` above all — are reported by
     # `usa_wa_pipeline.registry_coverage`, not from here (CR 68; #412 PR B). A
     # `dbt build` never calls `configure_logging`, so a logger in a Python model
@@ -43,5 +54,8 @@ def model(dbt, session):
     # `logging.lastResort`, which prints the message and discards `extra`.
     # Round 4 logged from here and the counters reached no one; the probe
     # recomputes the same join under the job harness, after the registrar.
-    rows, _counters = assignment_rows(families, entity_index(crosswalk_frame(KIND_PERSON)))
+    # The clip reads the same capacity `role_periods` publishes (#501 D1/D4).
+    rows, _counters = assignment_rows(
+        families, entity_index(crosswalk_frame(KIND_PERSON)), capacity=seat_capacity(roster)
+    )
     return typed_relation(session, rows, ASSIGNMENT_SCHEMA)
