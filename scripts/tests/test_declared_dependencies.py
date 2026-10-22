@@ -33,6 +33,8 @@ from functools import cache
 from importlib.metadata import packages_distributions
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
 PYPROJECTS = sorted(REPO.glob("packages/*/pyproject.toml"))
 NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
@@ -49,7 +51,12 @@ def _project(pyproject: Path) -> dict:
 
 def _declared(pyproject: Path) -> set[str]:
     """The normalized distribution names ``[project].dependencies`` declares."""
-    return {_normalize(NAME.match(r).group(1)) for r in _project(pyproject).get("dependencies", [])}
+    names = set()
+    for requirement in _project(pyproject).get("dependencies", []):
+        match = NAME.match(requirement)
+        assert match, f"{pyproject}: no distribution name in requirement {requirement!r}"
+        names.add(_normalize(match.group(1)))
+    return names
 
 
 def _top_level_imports(src: Path) -> set[str]:
@@ -154,3 +161,9 @@ def test_an_import_no_distribution_provides_counts_as_undeclared(tmp_path):
         tmp_path, declares=[], modules={"a.py": "import not_installed_anywhere\n"}
     )
     assert undeclared(pyproject, {}, {"fake"}) == {"not_installed_anywhere"}
+
+
+def test_a_requirement_without_a_name_fails_naming_its_file(tmp_path):
+    pyproject = _fake_package(tmp_path, declares=["  "], modules={})
+    with pytest.raises(AssertionError, match="pyproject.toml"):
+        undeclared(pyproject, {}, {"fake"})
