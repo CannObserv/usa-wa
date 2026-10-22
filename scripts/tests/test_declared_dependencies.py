@@ -139,6 +139,16 @@ def test_the_check_sees_an_undeclared_import(tmp_path):
     assert undeclared(pyproject, distributions, workspace) == {"sqlalchemy", "yaml"}
 
 
+def test_a_namespace_import_passes_when_any_of_its_distributions_is_declared(tmp_path):
+    pyproject = _fake_package(
+        tmp_path,
+        declares=["google-cloud-storage>=2,<4"],
+        modules={"a.py": "from google.cloud import storage\n"},
+    )
+    distributions = {"google": ["google-api-core", "google-cloud-storage"]}
+    assert undeclared(pyproject, distributions, {"fake"}) == set()
+
+
 def test_an_import_no_distribution_provides_counts_as_undeclared(tmp_path):
     pyproject = _fake_package(
         tmp_path, declares=[], modules={"a.py": "import not_installed_anywhere\n"}
