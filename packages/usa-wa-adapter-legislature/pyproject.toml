@@ -8,13 +8,13 @@ dependencies = [
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
     "usa-wa-common",
+    # The roster PDF's download (roster_pdf/transport.py). Nothing else this package
+    # declares brings it: zeep speaks `requests`.
+    "httpx>=0.27,<1",
     # The roster-PDF source (#225) reads word bounding boxes: the source's year gutter is a
     # separate text block from the name block and pages are two-column, so rows reassemble by
     # y-coordinate. Text-only extraction cannot do this. A system `pdftotext` would be invisible
     # to uv.lock, and units run `uv run --frozen --no-sync`.
-    # The roster PDF's download (roster_pdf/transport.py). Nothing else this package
-    # declares brings it: zeep speaks `requests`.
-    "httpx>=0.27,<1",
     "pdfplumber>=0.11.4",
     "python-ulid>=3.0,<4",
     "sqlalchemy>=2.1.4,<3",
