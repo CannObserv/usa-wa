@@ -12,6 +12,9 @@ dependencies = [
     "google-cloud-storage>=2,<4",
     # The backup's dead-man check-in to co-status (#455).
     "httpx>=0.27,<1",
+    # Declared, not inherited from clearinghouse-core: `postgresql.distinct_on`
+    # (api/v1/ops.py) exists only in 2.1 (#527).
+    "sqlalchemy>=2.1.4,<3",
     "uvicorn>=0.34.0,<1",
 ]
 

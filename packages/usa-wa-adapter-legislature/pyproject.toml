@@ -13,6 +13,7 @@ dependencies = [
     # y-coordinate. Text-only extraction cannot do this. A system `pdftotext` would be invisible
     # to uv.lock, and units run `uv run --frozen --no-sync`.
     "pdfplumber>=0.11.4",
+    "sqlalchemy>=2.1.4,<3",
     "zeep>=4.3.1",
 ]
 

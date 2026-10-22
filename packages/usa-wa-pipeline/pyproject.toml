@@ -8,6 +8,7 @@ dependencies = [
     "dbt-core>=1.12.5,<2",
     "dbt-duckdb>=1.9,<2",
     "pandas>=2.0,<3",
+    "sqlalchemy>=2.1.4,<3",
     "clearinghouse-core",
     "usa-wa-adapter-legislature",
     "usa-wa-adapter-pdc",
