@@ -38,8 +38,7 @@ root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py
 **Declare what you import** (#527). Every third-party import under `packages/<p>/src` is
 declared in that package's own `[project].dependencies`, never inherited from a lower layer,
 because a floor you rely on has to be stated where you rely on it.
-`scripts/tests/test_declared_dependencies.py` enforces this. Its `EXEMPT` list is checked: an
-entry fails once it is no longer needed.
+`scripts/tests/test_declared_dependencies.py` enforces this, with no exemption list.
 
 Layers **2b** and **3b** were added by #189. Before them there was no home for composition, so
 it happened inside whichever target-keyed adapter package first needed it: `usa-wa-adapter-sos`

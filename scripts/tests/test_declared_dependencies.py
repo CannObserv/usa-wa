@@ -17,8 +17,9 @@ declarations.
 * **A namespace package passes when any of its distributions is declared**
   (``google`` → ``google-cloud-storage``). Coarse on purpose; no package here
   shares a namespace with a second, undeclared one.
-* **``EXEMPT`` is checked, not trusted.** An entry fails once its import is
-  declared or no longer used.
+* **No exemption list.** The rule found six more undeclared imports beside
+  ``sqlalchemy`` (``python-ulid`` ×3, ``pydantic``, ``httpx``, ``duckdb``);
+  #527 declared them all. A new finding gets declared, not excused.
 """
 
 from __future__ import annotations
@@ -35,19 +36,6 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 PYPROJECTS = sorted(REPO.glob("packages/*/pyproject.toml"))
 NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
-
-#: Undeclared imports #527 found beside ``sqlalchemy`` and left for a follow-up:
-#: the issue's lock change declares ``sqlalchemy`` only. Each is a one-line
-#: declaration that moves no version. ``(package, top-level import)``.
-EXEMPT = {
-    ("clearinghouse-domain-legislative", "ulid"),
-    # Not reachable from this package's own tree at all: zeep uses requests.
-    ("usa-wa-adapter-legislature", "httpx"),
-    ("usa-wa-adapter-legislature", "ulid"),
-    ("usa-wa-api", "pydantic"),
-    ("usa-wa-api", "ulid"),
-    ("usa-wa-pipeline", "duckdb"),
-}
 
 
 def _normalize(name: str) -> str:
@@ -112,27 +100,11 @@ def test_the_glob_found_the_workspace():
 
 
 def test_every_third_party_import_is_declared():
-    bad = sorted(
-        f"{package}: {top}"
-        for package, tops in _findings().items()
-        for top in tops
-        if (package, top) not in EXEMPT
-    )
+    bad = sorted(f"{package}: {top}" for package, tops in _findings().items() for top in tops)
     assert not bad, (
         "these packages import a third-party module they do not declare; add it to the "
         "package's [project].dependencies with the floor it needs and a <next-major cap:\n  "
         + "\n  ".join(bad)
-    )
-
-
-def test_every_exemption_is_still_needed():
-    findings = _findings()
-    stale = sorted(
-        f"{package}: {top}" for package, top in EXEMPT if top not in findings.get(package, set())
-    )
-    assert not stale, (
-        "these EXEMPT entries are declared now, or no longer imported; delete them:\n  "
-        + "\n  ".join(stale)
     )
 
 
