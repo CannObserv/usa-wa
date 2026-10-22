@@ -296,3 +296,6 @@ async def test_the_job_reads_the_build_and_the_registry(db_session, tmp_path):
     result = await _coverage_job(ctx)
     assert result.outcome == OUTCOME_FAILED
     assert result.counters["unregistered_spans"] == result.counters["spans"] > 0
+    # #501 CR 7: the annotation-window counts reach the operator here, reported only
+    assert isinstance(result.counters["annotation_windows"], dict)
+    assert "annotation_windows" not in GATED_COUNTERS

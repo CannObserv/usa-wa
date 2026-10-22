@@ -8,6 +8,7 @@ orchestration ORDER the Postgres-tier builders use. These tests pin that
 plumbing and the order, not the engine's own behavior.
 """
 
+from collections import Counter
 from dataclasses import replace
 from datetime import date
 
@@ -949,3 +950,45 @@ def test_build_families_applies_the_curated_memberships() -> None:
     )
     seat = next(s for s in families[SOURCE] if s.member_id == "232" and s.kind == KIND_SENATE)
     assert seat.membership_type == "substitute"
+
+
+def test_build_families_reads_the_annotation_windows() -> None:
+    """#501 D6a, after the overlay and before the clip: a month-dated appointment dates
+    the minted senator's observed start."""
+    roster = [
+        _roster(
+            "Wilbur Cranston",
+            1925,
+            district=30,
+            chamber="senate",
+            annotation="Appointed Oct. 1925",
+        ),
+        _roster("Wilbur Cranston", 1927, district=30, chamber="senate"),
+    ]
+    families = build_families(
+        SpanInputs(sponsors=[], committee_members=[], roster=roster), current_biennium=CURRENT
+    )
+    seat = next(s for s in families[ROSTER_SOURCE] if s.kind == KIND_SENATE)
+    assert (seat.valid_from, seat.start_basis, seat.valid_from_latest) == (
+        date(1925, 10, 1),
+        "dated",
+        date(1925, 10, 31),
+    )
+
+
+def test_build_families_hands_the_window_counts_to_its_caller() -> None:
+    """CR 7: a dbt model's log reaches nobody, so the counts leave by an out-parameter
+    for `registry_coverage` to report (the `applied_departures` idiom)."""
+    roster = [
+        _roster(
+            "Wilbur Cranston", 1925, district=30, chamber="senate", annotation="Appointed Oct. 1925"
+        ),
+        _roster("Wilbur Cranston", 1927, district=30, chamber="senate"),
+    ]
+    counts: Counter = Counter()
+    build_families(
+        SpanInputs(sponsors=[], committee_members=[], roster=roster),
+        current_biennium=CURRENT,
+        window_counts=counts,
+    )
+    assert counts["start"] == 1

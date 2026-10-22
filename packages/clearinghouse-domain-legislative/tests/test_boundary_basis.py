@@ -156,3 +156,42 @@ def test_a_substitute_is_a_membership_not_a_basis() -> None:
     span = _span(membership_type=MEMBERSHIP_SUBSTITUTE)
     assert span.membership_type == MEMBERSHIP_SUBSTITUTE
     assert span.source_id == "m:chamber-senate:29:1971-72"
+
+
+# #501 D6a: a dated edge can be a window — a month, a year, or an election opening a start.
+
+
+def test_a_dated_window_bounds_the_start() -> None:
+    """Rasmussen, LD-29, "Appointed Oct. 1971": dated, but only to the month."""
+    span = _span(frm=date(1971, 10, 1), start_basis="dated", start_window_end=date(1971, 10, 31))
+    assert (span.valid_from, span.valid_from_latest) == (date(1971, 10, 1), date(1971, 10, 31))
+
+
+def test_a_dated_window_bounds_the_end() -> None:
+    span = _span(to=date(1973, 12, 31), end_basis="dated", end_window_start=date(1973, 12, 1))
+    assert (span.valid_to_earliest, span.valid_to) == (date(1973, 12, 1), date(1973, 12, 31))
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"start_window_end": date(1971, 10, 31)},  # observed: no window
+        {"start_basis": "dated", "frm": date(1971, 10, 1), "start_window_end": date(1971, 9, 30)},
+        {"start_basis": "dated", "frm": date(1971, 10, 1), "start_window_end": date(1975, 1, 1)},
+        {"end_window_start": date(1973, 12, 1)},  # observed end: no window
+        {"end_basis": "dated", "to": date(1973, 12, 31), "end_window_start": date(1974, 1, 1)},
+        {"end_basis": "dated", "to": date(1973, 12, 31), "end_window_start": date(1970, 1, 1)},
+    ],
+)
+def test_a_window_only_sits_on_a_dated_edge_inside_the_span(fields: dict) -> None:
+    with pytest.raises(ValueError, match="window"):
+        _span(**fields)
+
+
+def test_moving_a_windowed_edge_must_drop_the_window() -> None:
+    """A writer that re-dates a windowed edge restates it whole, or the write fails."""
+    windowed = _span(
+        frm=date(1971, 10, 1), start_basis="dated", start_window_end=date(1971, 10, 31)
+    )
+    with pytest.raises(ValueError, match="window"):
+        replace(windowed, valid_from=date(1971, 8, 9), start_basis="derived")

@@ -224,7 +224,7 @@ the power-map cross-check and is informational in `build_warnings`;
 certain. `assignments_seat_kinds_covered.sql` fails if a `seat:*` role carries a
 `span_kind` the gate does not cover — an allow-list narrows silently. The
 predicate, the tiers, capacity and the counterpart clipping that drains the gate:
-[`PIPELINE-CONFORMED.md` § Seat occupancy and clipping](PIPELINE-CONFORMED.md#seat-occupancy-and-clipping-359-360-501).
+[`PIPELINE-CONFORMED-OCCUPANCY.md`](PIPELINE-CONFORMED-OCCUPANCY.md#seat-occupancy-and-clipping-359-360-501).
 
 ### A tenure has duration (#363)
 

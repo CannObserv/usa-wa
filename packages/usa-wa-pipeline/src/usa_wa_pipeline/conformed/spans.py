@@ -102,6 +102,7 @@ from usa_wa_pipeline.conformed.movers import (
 )
 from usa_wa_pipeline.conformed.roles import role_for_span
 from usa_wa_pipeline.conformed.span_key import span_key
+from usa_wa_pipeline.conformed.windows import apply_windows, edge_windows
 from usa_wa_pipeline.conformed.wire import committee_rosters, sponsor_wire_rows
 
 logger = get_logger(__name__)
@@ -256,6 +257,10 @@ class RosterResolution:
     #: Every parsed record, refused groups included — the seat-listing index the
     #: §5 truncation bound needs, and the oracle's partition denominator.
     records: list[RosterRecord]
+    #: Each resolved pre-1991 record → the member id its spans carry (the WSL id for a
+    #: joined identity, the roster key for a minted one): what the annotation windows
+    #: (#501 D6a) read to find the span a clause dates.
+    members: dict[RosterRecord, str] = field(default_factory=dict)
 
 
 def roster_resolution(
@@ -321,10 +326,16 @@ def roster_resolution(
             "edition introduced an abbreviation nobody has classified"
         )
     joined_members = {i.wsl_member_id for i in report.identities if i.disposition == IDENTITY_WSL}
+    members = {
+        record: str(identity.wsl_member_id or identity.key)
+        for identity in report.identities
+        for record in identity.records
+    }
     return RosterResolution(
         joined=[o for o in projection.observations if o.member_id in joined_members],
         minted=[o for o in projection.observations if o.member_id not in joined_members],
         records=records,
+        members=members,
     )
 
 
@@ -633,7 +644,9 @@ def without_non_legislator_committee_rows(inputs: SpanInputs) -> SpanInputs:
     return kept
 
 
-def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, list[TenureSpan]]:
+def build_families(
+    inputs: SpanInputs, *, current_biennium: str, window_counts: Counter | None = None
+) -> dict[str, list[TenureSpan]]:
     """Both span families, keyed by source — the one sequence every caller runs.
 
     The ``assignments`` model, ``parity_spans`` and ``registry_coverage`` (#412
@@ -647,9 +660,10 @@ def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, li
     current one are dropped first (:func:`without_future_bienniums`, #135), so
     no span is built from one — the guard's reach ends at the spans; see there.
     So are committee rows for a member no sponsor roster lists that biennium
-    (:func:`without_non_legislator_committee_rows`, #469). The curated substitute
-    tenures are marked last (:func:`~usa_wa_pipeline.conformed.memberships.
-    apply_memberships`, #501 D5) — after every overlay, before the clip.
+    (:func:`without_non_legislator_committee_rows`, #469). After every overlay and
+    before the clip, the roster's annotation windows date observed edges
+    (``conformed.windows``, #501 D6a) and the curated substitute tenures are marked
+    (``conformed.memberships``, #501 D5).
     """
     inputs = without_future_bienniums(inputs, current_biennium=current_biennium)
     inputs = without_non_legislator_committee_rows(inputs)
@@ -663,7 +677,15 @@ def build_families(inputs: SpanInputs, *, current_biennium: str) -> dict[str, li
     roster_spans = build_roster_spans(
         resolution, events=inputs.events, current_biennium=current_biennium, context_spans=spans
     )
-    return apply_memberships({SOURCE: spans, ROSTER_SOURCE: roster_spans})
+    # The roster's month/year/election dates, after every overlay and before the clip
+    # (#501 D6a): an observed edge a clause dates becomes that window.
+    families, counts = apply_windows(
+        {SOURCE: spans, ROSTER_SOURCE: roster_spans}, edge_windows(resolution.members)
+    )
+    # A model's log reaches nobody; a caller that reports passes a Counter (CR 7).
+    if window_counts is not None:
+        window_counts.update(counts)
+    return apply_memberships(families)
 
 
 def entity_index(crosswalk: list[dict[str, Any]]) -> dict[str, str]:

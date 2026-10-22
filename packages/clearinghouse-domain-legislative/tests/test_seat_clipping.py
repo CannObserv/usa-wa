@@ -1,5 +1,6 @@
 """Counterpart clipping (#360) — a dated succession moves BOTH sides, or neither."""
 
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -738,3 +739,169 @@ class TestMembership:
         result = clip_seat_counterparts([principal, substitute])
         assert list(result.spans) == [principal, substitute]
         assert result.unclipped == ()
+
+
+class TestWindowedEdges:
+    """usa-wa#501 D6a: a stated edge known only to a window moves its counterpart to the
+    window's FAR bound, so the derived claim (true start ≥ x, true end ≤ x) holds."""
+
+    def test_a_successor_start_moves_to_the_exit_windows_near_edge(self):
+        """Wooding, LD-24, "Resigned July 1900": the successor started no earlier than
+        July 1 — and possibly later in the month, which stays a may-overlap."""
+        pred = _span(
+            "wooding",
+            start="1899-00",
+            end="1899-00",
+            frm=date(1899, 1, 1),
+            to=date(1900, 7, 31),
+            end_basis="dated",
+        )
+        pred = replace(pred, end_window_start=date(1900, 7, 1))
+        succ = _span(
+            "smith", start="1899-00", end="1901-02", frm=date(1899, 1, 1), to=date(1902, 12, 31)
+        )
+        out = _by_member(clip_seat_counterparts([pred, succ]))
+        assert (out["smith"].valid_from, out["smith"].start_basis) == (date(1900, 7, 1), "derived")
+
+    def test_a_predecessor_end_moves_to_the_seating_windows_far_edge(self):
+        """Rasmussen, "Appointed Oct. 1971": his predecessor left no later than Oct 31."""
+        pred = _span(
+            "a", start="1967-68", end="1971-72", frm=date(1967, 1, 1), to=date(1972, 12, 31)
+        )
+        succ = _span(
+            "rasmussen",
+            start="1971-72",
+            end="1971-72",
+            frm=date(1971, 10, 1),
+            to=date(1972, 12, 31),
+            start_basis="dated",
+        )
+        succ = replace(succ, start_window_end=date(1971, 10, 31))
+        out = _by_member(clip_seat_counterparts([pred, succ]))
+        assert (out["a"].valid_to, out["a"].end_basis) == (date(1971, 10, 31), "derived")
+        assert out["a"].valid_to_earliest == date(1971, 1, 1)
+
+    def test_a_day_dated_edge_clips_as_before(self):
+        pred = _span(
+            "houghton", start="1897-98", end="1897-98", frm=date(1897, 1, 1), to=date(1897, 8, 25)
+        )
+        succ = _span(
+            "crow", start="1897-98", end="1903-04", frm=date(1897, 1, 1), to=date(1904, 12, 31)
+        )
+        out = _by_member(clip_seat_counterparts([pred, succ]))
+        assert out["crow"].valid_from == date(1897, 8, 25)
+
+    def test_a_member_move_closes_the_old_seat_at_the_new_windows_far_edge(self):
+        old = _span(
+            "m",
+            start="1971-72",
+            end="1973-74",
+            frm=date(1971, 1, 1),
+            to=date(1974, 12, 31),
+            kind=KIND_HOUSE,
+            disc="ld-1-position-1",
+        )
+        new = _span(
+            "m",
+            start="1973-74",
+            end="1973-74",
+            frm=date(1973, 11, 1),
+            to=date(1974, 12, 31),
+            start_basis="dated",
+        )
+        new = replace(new, start_window_end=date(1973, 11, 30))
+        out = {s.kind: s for s in clip_seat_counterparts([old, new]).spans}
+        assert out[KIND_HOUSE].valid_to == date(1973, 11, 30)
+
+    def test_closing_a_span_clamps_its_own_start_window(self):
+        """A predecessor whose start is only an election window, closed by a dated
+        seating inside that window: it started no later than it ended. The write once
+        failed TenureSpan's window guard (#501 D6a, measured on the corpus)."""
+        pred = _span(
+            "a",
+            start="1977-78",
+            end="1977-78",
+            frm=date(1977, 5, 17),
+            to=date(1978, 12, 31),
+            start_basis="dated",
+        )
+        pred = replace(pred, start_window_end=date(1978, 12, 31))
+        succ = _span(
+            "b",
+            start="1977-78",
+            end="1979-80",
+            frm=date(1977, 6, 30),
+            to=date(1980, 12, 31),
+            start_basis="dated",
+        )
+        out = _by_member(clip_seat_counterparts([pred, succ]))
+        assert out["a"].valid_to == date(1977, 6, 30)
+        assert out["a"].valid_from_latest == date(1977, 6, 30)
+
+    def test_a_day_inside_the_successors_window_opens_it(self):
+        """Happy, LD-6: John H. Happy died June 21, 1962 (a day); Marjorie was "Appointed
+        1962" (a year). One holder at a time, so she opened no earlier than his death:
+        the day wins over the window, and the pair no longer may-overlap."""
+        john = _span(
+            "john", start="1947-48", end="1961-62", frm=date(1947, 1, 1), to=date(1962, 6, 21)
+        )
+        marjorie = _span(
+            "marjorie",
+            start="1961-62",
+            end="1961-62",
+            frm=date(1962, 1, 1),
+            to=date(1962, 12, 31),
+            start_basis="dated",
+        )
+        marjorie = replace(marjorie, start_window_end=date(1962, 12, 31))
+        result = clip_seat_counterparts([john, marjorie])
+        out = _by_member(result)
+        assert (out["marjorie"].valid_from, out["marjorie"].start_basis) == (
+            date(1962, 6, 21),
+            "derived",
+        )
+        assert out["john"].valid_to == date(1962, 6, 21)
+        assert result.unclipped == ()
+
+    def test_a_day_inside_the_predecessors_window_closes_it(self):
+        """LD-48: a resignation dated to January 1967, a successor seated Jan 5."""
+        pred = _span(
+            "thompson",
+            start="1959-60",
+            end="1967-68",
+            frm=date(1959, 1, 1),
+            to=date(1967, 1, 31),
+            end_basis="dated",
+        )
+        pred = replace(pred, end_window_start=date(1967, 1, 1))
+        succ = _span(
+            "andersen", start="1967-68", end="1971-72", frm=date(1967, 1, 5), to=date(1972, 12, 27)
+        )
+        out = _by_member(clip_seat_counterparts([pred, succ]))
+        assert (out["thompson"].valid_to, out["thompson"].end_basis) == (
+            date(1967, 1, 5),
+            "derived",
+        )
+
+    def test_two_coarse_windows_still_both_stand(self):
+        """Neither side is precise enough to move the other: a may-overlap, reported."""
+        pred = _span(
+            "a",
+            start="1975-76",
+            end="1977-78",
+            frm=date(1975, 1, 1),
+            to=date(1977, 6, 30),
+            end_basis="dated",
+        )
+        pred = replace(pred, end_window_start=date(1977, 6, 1))
+        succ = _span(
+            "b",
+            start="1977-78",
+            end="1977-78",
+            frm=date(1977, 6, 1),
+            to=date(1978, 12, 31),
+            start_basis="dated",
+        )
+        succ = replace(succ, start_window_end=date(1977, 6, 30))
+        result = clip_seat_counterparts([pred, succ])
+        assert [u.reason for u in result.unclipped] == ["both_dated"]

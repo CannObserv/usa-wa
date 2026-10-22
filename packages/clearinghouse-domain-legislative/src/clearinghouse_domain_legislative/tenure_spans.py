@@ -96,6 +96,12 @@ class TenureSpan:
     #: ``None`` only as a constructor default: resolved to ``open`` or ``observed``.
     end_basis: str | None = None
     membership_type: str = MEMBERSHIP_PRINCIPAL
+    #: A dated start known only to a window (#501 D6a: a month, a year, or an election
+    #: opening it) — the window's far edge, which ``valid_from_latest`` reports. ``None``
+    #: for a start dated to the day, and always for any other basis.
+    start_window_end: date | None = None
+    #: The mirror for a dated end known only to a window: its near edge.
+    end_window_start: date | None = None
 
     def __post_init__(self) -> None:
         if self.end_basis is None:
@@ -114,6 +120,28 @@ class TenureSpan:
             raise ValueError(
                 f"membership_type {self.membership_type!r} is not one of {MEMBERSHIP_TYPES}"
             )
+        self._check_windows()
+
+    def _check_windows(self) -> None:
+        """A window sits on a DATED edge, inside the span — so a writer that moves a
+        windowed edge must restate it, or the write fails here."""
+        if self.start_window_end is not None:
+            if self.start_basis != BASIS_DATED:
+                raise ValueError(f"a start window needs a dated start, not {self.start_basis!r}")
+            end = self.valid_to or date.max
+            if not self.valid_from <= self.start_window_end <= end:
+                raise ValueError(
+                    f"start window end {self.start_window_end} lies outside "
+                    f"[{self.valid_from}, {self.valid_to}]"
+                )
+        if self.end_window_start is not None:
+            if self.end_basis != BASIS_DATED or self.valid_to is None:
+                raise ValueError(f"an end window needs a dated end, not {self.end_basis!r}")
+            if not self.valid_from <= self.end_window_start <= self.valid_to:
+                raise ValueError(
+                    f"end window start {self.end_window_start} lies outside "
+                    f"[{self.valid_from}, {self.valid_to}]"
+                )
 
     @property
     def valid_from_latest(self) -> date:
@@ -124,7 +152,7 @@ class TenureSpan:
         earlier than the moved date; either way the bound is that biennium's last day,
         clamped by the span's own end (#501 D6)."""
         if self.start_basis == BASIS_DATED:
-            return self.valid_from
+            return self.start_window_end or self.valid_from
         ceiling = biennium_end_date(self.start_biennium)
         bound = ceiling if self.valid_to is None else min(ceiling, self.valid_to)
         return max(self.valid_from, bound)
@@ -140,7 +168,7 @@ class TenureSpan:
         if self.valid_to is None:
             return None
         if self.end_basis == BASIS_DATED:
-            return self.valid_to
+            return self.end_window_start or self.valid_to
         floor = max(biennium_start_date(self.end_biennium), self.valid_from)
         return min(self.valid_to, floor)
 
