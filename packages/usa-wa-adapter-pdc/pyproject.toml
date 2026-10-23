@@ -10,6 +10,7 @@ dependencies = [
     "usa-wa-common",
     "usa-wa-adapter-legislature",
     "httpx>=0.27,<1",
+    "sqlalchemy>=2.1.4,<3",
 ]
 
 [tool.uv.sources]

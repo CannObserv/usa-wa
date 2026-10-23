@@ -395,6 +395,7 @@ source = { editable = "packages/clearinghouse-domain-legislative" }
 dependencies = [
     { name = "clearinghouse-core" },
     { name = "greenlet" },
+    { name = "python-ulid" },
     { name = "sqlalchemy" },
 ]
 
@@ -402,6 +403,7 @@ dependencies = [
 requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "greenlet", specifier = ">=1,<4" },
+    { name = "python-ulid", specifier = ">=3.0,<4" },
     { name = "sqlalchemy", specifier = ">=2.1.4,<3" },
 ]
 
@@ -2651,7 +2653,10 @@ source = { editable = "packages/usa-wa-adapter-legislature" }
 dependencies = [
     { name = "clearinghouse-core" },
     { name = "clearinghouse-domain-legislative" },
+    { name = "httpx" },
     { name = "pdfplumber" },
+    { name = "python-ulid" },
+    { name = "sqlalchemy" },
     { name = "usa-wa-common" },
     { name = "zeep" },
 ]
@@ -2660,7 +2665,10 @@ dependencies = [
 requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
+    { name = "httpx", specifier = ">=0.27,<1" },
     { name = "pdfplumber", specifier = ">=0.11.4" },
+    { name = "python-ulid", specifier = ">=3.0,<4" },
+    { name = "sqlalchemy", specifier = ">=2.1.4,<3" },
     { name = "usa-wa-common", editable = "packages/usa-wa-common" },
     { name = "zeep", specifier = ">=4.3.1" },
 ]
@@ -2673,6 +2681,7 @@ dependencies = [
     { name = "clearinghouse-core" },
     { name = "clearinghouse-domain-legislative" },
     { name = "httpx" },
+    { name = "sqlalchemy" },
     { name = "usa-wa-adapter-legislature" },
     { name = "usa-wa-common" },
 ]
@@ -2682,6 +2691,7 @@ requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
     { name = "httpx", specifier = ">=0.27,<1" },
+    { name = "sqlalchemy", specifier = ">=2.1.4,<3" },
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
     { name = "usa-wa-common", editable = "packages/usa-wa-common" },
 ]
@@ -2694,6 +2704,7 @@ dependencies = [
     { name = "clearinghouse-core" },
     { name = "clearinghouse-domain-legislative" },
     { name = "httpx" },
+    { name = "sqlalchemy" },
     { name = "usa-wa-adapter-legislature" },
     { name = "usa-wa-adapter-pdc" },
     { name = "usa-wa-common" },
@@ -2704,6 +2715,7 @@ requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
     { name = "httpx", specifier = ">=0.27,<1" },
+    { name = "sqlalchemy", specifier = ">=2.1.4,<3" },
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
     { name = "usa-wa-adapter-pdc", editable = "packages/usa-wa-adapter-pdc" },
     { name = "usa-wa-common", editable = "packages/usa-wa-common" },
@@ -2719,6 +2731,9 @@ dependencies = [
     { name = "fastapi" },
     { name = "google-cloud-storage" },
     { name = "httpx" },
+    { name = "pydantic" },
+    { name = "python-ulid" },
+    { name = "sqlalchemy" },
     { name = "uvicorn" },
 ]
 
@@ -2729,6 +2744,9 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.143.0,<1" },
     { name = "google-cloud-storage", specifier = ">=2,<4" },
     { name = "httpx", specifier = ">=0.27,<1" },
+    { name = "pydantic", specifier = ">=2,<3" },
+    { name = "python-ulid", specifier = ">=3.0,<4" },
+    { name = "sqlalchemy", specifier = ">=2.1.4,<3" },
     { name = "uvicorn", specifier = ">=0.34.0,<1" },
 ]
 
@@ -2739,12 +2757,14 @@ source = { editable = "packages/usa-wa-common" }
 dependencies = [
     { name = "clearinghouse-core" },
     { name = "clearinghouse-domain-legislative" },
+    { name = "sqlalchemy" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
+    { name = "sqlalchemy", specifier = ">=2.1.4,<3" },
 ]
 
 [[package]]
@@ -2778,7 +2798,9 @@ dependencies = [
     { name = "clearinghouse-core" },
     { name = "dbt-core" },
     { name = "dbt-duckdb" },
+    { name = "duckdb" },
     { name = "pandas" },
+    { name = "sqlalchemy" },
     { name = "usa-wa-adapter-legislature" },
     { name = "usa-wa-adapter-pdc" },
     { name = "usa-wa-adapter-sos" },
@@ -2789,7 +2811,9 @@ requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "dbt-core", specifier = ">=1.12.5,<2" },
     { name = "dbt-duckdb", specifier = ">=1.9,<2" },
+    { name = "duckdb", specifier = ">=1,<2" },
     { name = "pandas", specifier = ">=2.0,<3" },
+    { name = "sqlalchemy", specifier = ">=2.1.4,<3" },
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
     { name = "usa-wa-adapter-pdc", editable = "packages/usa-wa-adapter-pdc" },
     { name = "usa-wa-adapter-sos", editable = "packages/usa-wa-adapter-sos" },

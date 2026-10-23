@@ -10,6 +10,7 @@ dependencies = [
     # extra makes Dependabot drop the monthly PR (dependabot-core#16431, #499).
     "sqlalchemy>=2.1.4,<3",
     "greenlet>=1,<4",
+    "python-ulid>=3.0,<4",
 ]
 
 [tool.uv.sources]
