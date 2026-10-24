@@ -33,6 +33,7 @@ root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py
   their pure seat logic, so `usa_wa_facts_* ↛ usa_wa_pipeline` (#533). Sibling packages within
   a layer (the adapters) may import each other as far as the layer order is concerned. Their
   independence is the separate contract in the first bullet, and every such group must have one
+  (pinned in `test_import_contracts.py`)
 - *The pipeline, the API and the raw harvests never import the retired Postgres tier* — by
   any chain. Since #412 PR F most of its entries are tombstones that refuse a deleted module's
   name if it ever returns; the live ones are the two operator stores, which the pipeline reads
