@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
-    "sqlalchemy>=2.1.4,<3",
+    "sqlalchemy>=2.1.6,<3",
 ]
 
 [tool.uv.sources]
