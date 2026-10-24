@@ -6,14 +6,17 @@ symbols from two peer adapters and the PM sync sidecar imported a SOAP transport
 restructure only stays done if it is checkable, so `import-linter` is the durable half of
 this issue — and a fitness function nobody proved fires is itself a claim.
 
-These tests pin three things:
+These tests pin four things:
 
 1. every contract this issue wrote is still declared (a deleted contract is the silent way to
    "fix" a violation),
-2. the contracts are wired into the same pre-commit gate ruff runs in, and
+2. the contracts are wired into the same pre-commit gate ruff runs in,
 3. **the linter genuinely rejects a violation** — proved by injecting one temporary illegal
    import and watching the named contract break, rather than by trusting that a green run
-   means anything.
+   means anything, and
+4. **the layer order says what it means** (#533): the pipeline is its own layer directly above
+   facts, and every ``:`` sibling group is backed by an independence contract, because ``:``
+   alone permits imports between the siblings it groups.
 """
 
 from __future__ import annotations
@@ -35,11 +38,12 @@ PYPROJECT = REPO / "pyproject.toml"
 PRECOMMIT = REPO / ".pre-commit-config.yaml"
 
 TIER_CONTRACT = "The pipeline, the API and the raw harvests never import the retired Postgres tier"
+LAYERS_CONTRACT = "Layers: core < domain < common < adapter < facts < pipeline < deployment"
 
 #: Every contract #189 wrote. Named individually so deleting one fails here, which is the
 #: cheapest way a future change could make a violation "go away".
 EXPECTED_CONTRACTS = {
-    "Layers: core < domain < common < adapter < facts < deployment",
+    LAYERS_CONTRACT,
     "No adapter imports a peer adapter",
     "Deployment packages never touch an adapter transport",
     "Facts and the pipeline never depend on a transport",
@@ -59,6 +63,38 @@ def _contracts() -> list[dict]:
 
 def test_every_layering_contract_is_declared():
     assert {c["name"] for c in _contracts()} == EXPECTED_CONTRACTS
+
+
+def _layers() -> list[str]:
+    return next(c for c in _contracts() if c["name"] == LAYERS_CONTRACT)["layers"]
+
+
+def test_every_sibling_group_is_backed_by_an_independence_contract():
+    """A ``:`` in a layers entry is not a claim that its members are independent (#533).
+
+    import-linter separates *non-independent* siblings with ``:`` and independent ones with
+    ``|``, so ``usa_wa_facts_seats : usa_wa_pipeline`` let both import each other from #303
+    until #533 while its comment said "neither may import the other". The adapter line's ``:``
+    is fine only because "No adapter imports a peer adapter" says it separately. Pin that
+    pairing, so a sibling group's independence is always a contract and never a comment.
+    """
+    independent = [frozenset(c["modules"]) for c in _contracts() if c["type"] == "independence"]
+    for entry in _layers():
+        siblings = frozenset(m.strip() for m in entry.split(":"))
+        if len(siblings) > 1:
+            assert siblings in independent, (
+                f"layers entry {entry!r} groups siblings with ':' (which allows imports "
+                "between them) and no independence contract covers exactly that group"
+            )
+
+
+def test_the_pipeline_is_the_layer_above_facts():
+    """#533 (option A): the pipeline composes facts' pure logic (#309 ``conformed.house``,
+    #490 ``conformed.movers``), so it is a layer of its own directly above facts — which
+    makes the edge that matters, facts → pipeline, a back-edge the contract refuses."""
+    layers = _layers()
+    assert "usa_wa_pipeline" in layers and "usa_wa_facts_seats" in layers, layers
+    assert layers.index("usa_wa_pipeline") == layers.index("usa_wa_facts_seats") - 1, layers
 
 
 def test_the_facts_transport_contract_carries_no_exceptions():
@@ -177,6 +213,14 @@ def test_contracts_are_currently_kept():
             "packages/usa-wa-facts-seats/src/usa_wa_facts_seats/_contract_probe.py",
             "from usa_wa_adapter_pdc.transport import PDCClient  # noqa: F401",
             "Facts and the pipeline never depend on a transport",
+        ),
+        # A fact reaching up into the pipeline that composes it (#533). Until then the
+        # layers entry grouped the two with ':', which permits exactly this, and no probe
+        # had ever proved the layers contract fires at all.
+        (
+            "packages/usa-wa-facts-seats/src/usa_wa_facts_seats/_contract_probe_layers.py",
+            "from usa_wa_pipeline.conformed import house  # noqa: F401",
+            LAYERS_CONTRACT,
         ),
         # The pipeline reaching a Postgres writer directly (#412 PR D) — the shape
         # conformed.spans had with roster_pdf.build. PR F deleted that builder; the operator

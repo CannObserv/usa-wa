@@ -174,7 +174,7 @@ include_external_packages = false
 
 [[tool.importlinter.contracts]]
 # The spine. Higher layers may import lower ones; never the reverse.
-name = "Layers: core < domain < common < adapter < facts < deployment"
+name = "Layers: core < domain < common < adapter < facts < pipeline < deployment"
 type = "layers"
 layers = [
     # `usa_wa_sync_powermap` was the second Layer-4 package until #314 retired
@@ -183,10 +183,19 @@ layers = [
     # package to arrive should have to justify sitting beside the API rather
     # than inherit a slot.
     "usa_wa_api",
-    # facts and pipeline are independent siblings: both compose across adapters
-    # (the pipeline's dbt Python models may import adapter parsers, never a
-    # transport), neither may import the other (#302/#303).
-    "usa_wa_facts_seats : usa_wa_pipeline",
+    # The pipeline sits above facts (#533). Its models import adapter parsers
+    # (never a transport), and its conformed models compose facts' pure seat
+    # logic (`conformed.house` since #309, `conformed.movers` since #490).
+    # Facts may not import the pipeline. Until #533 the two shared one entry as
+    # "usa_wa_facts_seats : usa_wa_pipeline", commented as "neither may import
+    # the other", but `:` separates *non-independent* siblings (`|` is the
+    # independent separator), so the claim was never enforced.
+    "usa_wa_pipeline",
+    "usa_wa_facts_seats",
+    # `:` here does NOT claim independence: it lets the adapters import each
+    # other as far as this contract goes. Their independence is the separate
+    # contract "No adapter imports a peer adapter" below, and
+    # `test_import_contracts.py` requires every `:` group to have one.
     "usa_wa_adapter_legislature : usa_wa_adapter_pdc : usa_wa_adapter_sos",
     "usa_wa_common",
     "clearinghouse_domain_legislative",
@@ -277,6 +286,7 @@ forbidden_modules = [
     "usa_wa_adapter_pdc",
     "usa_wa_adapter_sos",
     "usa_wa_facts_seats",
+    "usa_wa_pipeline",
     "usa_wa_api",
 ]
 

@@ -48,10 +48,12 @@ packages/
 
 ## Layering rules
 
-May import Layer 1, Layer 2, `usa-wa-common` and any `usa-wa-adapter-*`. May **not** import an
+May import Layer 1, Layer 2, `usa-wa-common` and any `usa-wa-adapter-*` (today it imports no
+adapter: the pipeline parses the rows and hands them in). May **not** import an
 adapter's `transport` — a fact composes archived rows, never a live wire — and may not be
-imported by an adapter. Enforced by the `import-linter` contracts in the root `pyproject.toml`,
-**with no exceptions**; `scripts/tests/test_import_contracts.py` asserts the `ignore_imports`
+imported by an adapter. May **not** import `usa-wa-pipeline` either: the pipeline is the
+layer above, and imports facts (#533). Enforced by the `import-linter` contracts in the root
+`pyproject.toml`, **with no exceptions**; `scripts/tests/test_import_contracts.py` asserts the `ignore_imports`
 list stays empty. The pipeline sits under the same transport rule.
 
 ## Why one package, not three

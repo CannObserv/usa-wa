@@ -2796,6 +2796,7 @@ version = "0.1.0"
 source = { editable = "packages/usa-wa-pipeline" }
 dependencies = [
     { name = "clearinghouse-core" },
+    { name = "clearinghouse-domain-legislative" },
     { name = "dbt-core" },
     { name = "dbt-duckdb" },
     { name = "duckdb" },
@@ -2804,11 +2805,14 @@ dependencies = [
     { name = "usa-wa-adapter-legislature" },
     { name = "usa-wa-adapter-pdc" },
     { name = "usa-wa-adapter-sos" },
+    { name = "usa-wa-common" },
+    { name = "usa-wa-facts-seats" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
+    { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
     { name = "dbt-core", specifier = ">=1.12.5,<2" },
     { name = "dbt-duckdb", specifier = ">=1.9,<2" },
     { name = "duckdb", specifier = ">=1,<2" },
@@ -2817,6 +2821,8 @@ requires-dist = [
     { name = "usa-wa-adapter-legislature", editable = "packages/usa-wa-adapter-legislature" },
     { name = "usa-wa-adapter-pdc", editable = "packages/usa-wa-adapter-pdc" },
     { name = "usa-wa-adapter-sos", editable = "packages/usa-wa-adapter-sos" },
+    { name = "usa-wa-common", editable = "packages/usa-wa-common" },
+    { name = "usa-wa-facts-seats", editable = "packages/usa-wa-facts-seats" },
 ]
 
 [[package]]

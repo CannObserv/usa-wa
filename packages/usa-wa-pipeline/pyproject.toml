@@ -1,7 +1,7 @@
 [project]
 name = "usa-wa-pipeline"
 version = "0.1.0"
-description = "The dataset-publication pipeline (#302/#303): the dbt-core + dbt-duckdb project holding the staging / matching / conformed layers of the replatform spec (docs/specs/2026-09-02-dataset-publication-replatform-design.md), plus the Python surface around it (publisher and dbt Python-model support land in later sub-issues). Sits beside usa-wa-facts-seats in the layer order: above the adapters whose parsers its models may import, below the deployments."
+description = "The dataset-publication pipeline (#302/#303): the dbt-core + dbt-duckdb project holding the staging / matching / conformed layers of the replatform spec (docs/specs/2026-09-02-dataset-publication-replatform-design.md), plus the Python surface around it (publisher and dbt Python-model support land in later sub-issues). Sits directly above usa-wa-facts-seats in the layer order (#533), whose pure seat logic its conformed models compose, and above the adapters whose parsers they may import; below the deployments."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,16 +11,22 @@ dependencies = [
     "pandas>=2.0,<3",
     "sqlalchemy>=2.1.4,<3",
     "clearinghouse-core",
+    "clearinghouse-domain-legislative",
+    "usa-wa-common",
     "usa-wa-adapter-legislature",
     "usa-wa-adapter-pdc",
     "usa-wa-adapter-sos",
+    "usa-wa-facts-seats",
 ]
 
 [tool.uv.sources]
 clearinghouse-core = { workspace = true }
+clearinghouse-domain-legislative = { workspace = true }
+usa-wa-common = { workspace = true }
 usa-wa-adapter-legislature = { workspace = true }
 usa-wa-adapter-pdc = { workspace = true }
 usa-wa-adapter-sos = { workspace = true }
+usa-wa-facts-seats = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
