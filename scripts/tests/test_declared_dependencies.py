@@ -130,7 +130,13 @@ def _findings() -> dict[str, set[str]]:
 
 
 def _ignored_imports(root_pyproject: Path) -> set[tuple[str, str]]:
-    """The layers contract's ``ignore_imports``, as ``(importer, imported top-level name)``."""
+    """The layers contract's ``ignore_imports``, as ``(importer, imported top-level name)``.
+
+    Coarser than import-linter on one side and stricter on the other, because the scan
+    keeps only top-level imported names: an ignored ``a -> b.c`` excuses every import of
+    ``b`` from ``a``, and a wildcard importer (``a.*``) matches no module, so it excuses
+    nothing and fails loudly. The one entry today is exact on both sides.
+    """
     contracts = tomllib.loads(root_pyproject.read_text())["tool"]["importlinter"]["contracts"]
     return {
         (importer.strip(), imported.strip().split(".")[0])
