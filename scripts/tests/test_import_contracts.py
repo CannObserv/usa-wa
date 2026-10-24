@@ -70,8 +70,8 @@ def test_every_sibling_group_is_backed_by_an_independence_contract():
     """A ``:`` in a layers entry is not a claim that its members are independent (#533).
 
     import-linter separates *non-independent* siblings with ``:`` and independent ones with
-    ``|``, so ``usa_wa_facts_seats : usa_wa_pipeline`` let both import each other for six
-    releases while its comment said "neither may import the other". The adapter line's ``:``
+    ``|``, so ``usa_wa_facts_seats : usa_wa_pipeline`` let both import each other from #303
+    until #533 while its comment said "neither may import the other". The adapter line's ``:``
     is fine only because "No adapter imports a peer adapter" says it separately. Pin that
     pairing, so a sibling group's independence is always a contract and never a comment.
     """
