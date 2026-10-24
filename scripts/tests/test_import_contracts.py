@@ -6,14 +6,17 @@ symbols from two peer adapters and the PM sync sidecar imported a SOAP transport
 restructure only stays done if it is checkable, so `import-linter` is the durable half of
 this issue — and a fitness function nobody proved fires is itself a claim.
 
-These tests pin three things:
+These tests pin four things:
 
 1. every contract this issue wrote is still declared (a deleted contract is the silent way to
    "fix" a violation),
-2. the contracts are wired into the same pre-commit gate ruff runs in, and
+2. the contracts are wired into the same pre-commit gate ruff runs in,
 3. **the linter genuinely rejects a violation** — proved by injecting one temporary illegal
    import and watching the named contract break, rather than by trusting that a green run
-   means anything.
+   means anything, and
+4. **the layer order says what it means** (#533): the pipeline is its own layer directly above
+   facts, and every ``:`` sibling group is backed by an independence contract, because ``:``
+   alone permits imports between the siblings it groups.
 """
 
 from __future__ import annotations
