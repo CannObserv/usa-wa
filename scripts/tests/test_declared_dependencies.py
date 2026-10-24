@@ -93,14 +93,19 @@ def _top_level_imports(src: Path) -> set[str]:
     return {top for _, top in _imports(src)}
 
 
-def _workspace_modules(pyprojects: list[Path]) -> set[str]:
-    """The import names the workspace members themselves provide."""
+def _workspace_distributions(pyprojects: list[Path]) -> dict[str, str]:
+    """Each workspace import name → the normalized distribution that provides it."""
     return {
-        d.name
+        d.name: _normalize(_project(p)["name"])
         for p in pyprojects
         for d in (p.parent / "src").iterdir()
         if (d / "__init__.py").is_file()
     }
+
+
+def _workspace_modules(pyprojects: list[Path]) -> set[str]:
+    """The import names the workspace members themselves provide."""
+    return set(_workspace_distributions(pyprojects))
 
 
 def undeclared(
@@ -122,16 +127,6 @@ def _findings() -> dict[str, set[str]]:
     distributions = packages_distributions()
     workspace = _workspace_modules(PYPROJECTS)
     return {_project(p)["name"]: undeclared(p, distributions, workspace) for p in PYPROJECTS}
-
-
-def _workspace_distributions(pyprojects: list[Path]) -> dict[str, str]:
-    """Each workspace import name → the normalized distribution that provides it."""
-    return {
-        d.name: _normalize(_project(p)["name"])
-        for p in pyprojects
-        for d in (p.parent / "src").iterdir()
-        if (d / "__init__.py").is_file()
-    }
 
 
 def _ignored_imports(root_pyproject: Path) -> set[tuple[str, str]]:
