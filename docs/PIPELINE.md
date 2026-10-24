@@ -26,8 +26,9 @@ packages/usa-wa-pipeline/
 
 Layer rules are the spec's: staging never joins across sources and never sees a ULID;
 matching proposes and never writes identity; conformed is a stateless join against the
-registry crosswalk. `usa_wa_pipeline` sits beside `usa_wa_facts_seats` in the
-import-linter layer order and, like it, may never import an adapter `transport` —
+registry crosswalk. `usa_wa_pipeline` sits directly above `usa_wa_facts_seats` in the
+import-linter layer order (#533). The conformed House and movers models compose its pure seat
+logic, and facts may never import the pipeline. Like facts, it may never import an adapter `transport` —
 models re-parse the archive, they do not drive wires. Nor may it import the retired Postgres
 tier by any chain: the contract *The pipeline, the API and the raw harvests never import the
 retired Postgres tier* refuses a deleted module's name if it comes back (ARCHITECTURE.md lists

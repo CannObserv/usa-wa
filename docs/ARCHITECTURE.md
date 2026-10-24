@@ -29,7 +29,10 @@ root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py
 - `usa_wa_adapter_* ↛ usa_wa_adapter_*` — an adapter never imports a peer
 - `usa_wa_api`, `usa_wa_facts_*`, `usa_wa_pipeline ↛ usa_wa_adapter_*.transport`
 - `usa_wa_common ↛` any adapter, fact or deployment package
-- the layer order above, with no back-edges
+- the layer order above, with no back-edges: the pipeline sits *above* facts and composes
+  their pure seat logic, so `usa_wa_facts_* ↛ usa_wa_pipeline` (#533). Sibling packages within
+  a layer (the adapters) may import each other as far as the layer order is concerned. Their
+  independence is the separate contract in the first bullet, and every such group must have one
 - *The pipeline, the API and the raw harvests never import the retired Postgres tier* — by
   any chain. Since #412 PR F most of its entries are tombstones that refuse a deleted module's
   name if it ever returns; the live ones are the two operator stores, which the pipeline reads
@@ -37,8 +40,10 @@ root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py
 
 **Declare what you import** (#527). Every third-party import under `packages/<p>/src` is
 declared in that package's own `[project].dependencies`, never inherited from a lower layer,
-because a floor you rely on has to be stated where you rely on it.
-`scripts/tests/test_declared_dependencies.py` enforces this, with no exemption list.
+because a floor you rely on has to be stated where you rely on it. Workspace siblings too
+(#533): the pipeline got facts only through the root `dev` group. The single exception is
+the one the layers contract already names in `ignore_imports`.
+`scripts/tests/test_declared_dependencies.py` enforces this, with no exemption list of its own.
 
 Layers **2b** and **3b** were added by #189. Before them there was no home for composition, so
 it happened inside whichever target-keyed adapter package first needed it: `usa-wa-adapter-sos`
