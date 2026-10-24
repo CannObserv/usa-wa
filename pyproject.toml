@@ -183,10 +183,10 @@ layers = [
     # package to arrive should have to justify sitting beside the API rather
     # than inherit a slot.
     "usa_wa_api",
-    # The pipeline sits above facts (#533). Its conformed models compose facts'
-    # pure seat logic (`conformed.house` since #309, `conformed.movers` since
-    # #490) and import adapter parsers, never a transport. Facts may not import
-    # the pipeline. Until #533 the two shared one entry as
+    # The pipeline sits above facts (#533). Its models import adapter parsers
+    # (never a transport), and its conformed models compose facts' pure seat
+    # logic (`conformed.house` since #309, `conformed.movers` since #490).
+    # Facts may not import the pipeline. Until #533 the two shared one entry as
     # "usa_wa_facts_seats : usa_wa_pipeline", commented as "neither may import
     # the other", but `:` separates *non-independent* siblings (`|` is the
     # independent separator), so the claim was never enforced.
