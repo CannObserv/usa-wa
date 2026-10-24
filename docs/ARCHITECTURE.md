@@ -28,7 +28,7 @@ root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py
 
 - `usa_wa_adapter_* ↛ usa_wa_adapter_*` — an adapter never imports a peer
 - `usa_wa_api`, `usa_wa_facts_*`, `usa_wa_pipeline ↛ usa_wa_adapter_*.transport`
-- `usa_wa_common ↛` any adapter, fact or deployment package
+- `usa_wa_common ↛` any adapter, fact, pipeline or deployment package
 - the layer order above, with no back-edges: the pipeline sits *above* facts and composes
   their pure seat logic, so `usa_wa_facts_* ↛ usa_wa_pipeline` (#533). Sibling packages within
   a layer (the adapters) may import each other as far as the layer order is concerned. Their

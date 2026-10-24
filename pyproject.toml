@@ -286,6 +286,7 @@ forbidden_modules = [
     "usa_wa_adapter_pdc",
     "usa_wa_adapter_sos",
     "usa_wa_facts_seats",
+    "usa_wa_pipeline",
     "usa_wa_api",
 ]
 
