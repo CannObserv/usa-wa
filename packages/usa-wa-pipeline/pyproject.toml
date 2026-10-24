@@ -9,7 +9,7 @@ dependencies = [
     "dbt-duckdb>=1.9,<2",
     "duckdb>=1,<2",
     "pandas>=2.0,<3",
-    "sqlalchemy>=2.1.4,<3",
+    "sqlalchemy>=2.1.6,<3",
     "clearinghouse-core",
     "clearinghouse-domain-legislative",
     "usa-wa-common",

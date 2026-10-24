@@ -17,7 +17,7 @@ dependencies = [
     # to uv.lock, and units run `uv run --frozen --no-sync`.
     "pdfplumber>=0.11.4",
     "python-ulid>=3.0,<4",
-    "sqlalchemy>=2.1.4,<3",
+    "sqlalchemy>=2.1.6,<3",
     "zeep>=4.3.1",
 ]
 
