@@ -95,11 +95,14 @@ def test_an_audit_that_did_not_run_never_reads_as_clean(tmp_path, uv_exit):
 
 
 def test_the_warning_names_the_remedy_that_moves_a_transitive_package(tmp_path):
-    """Dependabot's grouped uv PR moves direct dependencies only
+    """Dependabot's grouped uv PR targets direct dependencies only
     (dependabot-core#14073): 34 of #499's 43 advisories sat in transitive ones
-    (starlette, urllib3, mako, virtualenv). So the warning names
+    (starlette, urllib3, mako, virtualenv). It still moves transitive ones as a
+    side effect (#526: 22 moved against 12 named), just never for an advisory,
+    so the warning says "targets", not "moves" (#530). It names
     ``uv lock --upgrade-package`` and never promises the monthly PR carries it."""
     result, _ = _run(tmp_path, 1, "- PYSEC-2026-4175: urllib3\n")
     assert "uv lock --upgrade-package <name>" in result.stderr
-    assert "direct dependencies only" in result.stderr
+    assert "targets direct dependencies only" in result.stderr
+    assert "moves direct dependencies" not in result.stderr
     assert "carry it" not in result.stderr

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Audit uv.lock against OSV and report what it finds. Never fail (#499).
 #
-# Dependabot moves the direct dependencies (.github/dependabot.yml: monthly, one
-# grouped PR, landed in the patching-hosts window), and only those: its uv
-# updater leaves transitive ones alone (dependabot-core#14073). This report is
+# Dependabot targets the direct dependencies (.github/dependabot.yml: monthly, one
+# grouped PR, landed in the patching-hosts window), and only those: a transitive
+# one moves only as a side effect of a direct bump, never for its own advisory
+# (dependabot-core#14073; #526 measured 22 moved against 12 named). This report is
 # what shows a disclosure between its runs and in whatever it can't move;
 # scripts/pre-ship.sh runs it before every ship.
 # It is report-only on purpose. A gate that failed on a finding would block
@@ -28,7 +29,7 @@ printf '%s\n' "$out"
 
 case $rc in
 0) ;;
-1) echo "WARNING: uv.lock advisories: uv audit found advisories in uv.lock (listed above). Report-only; bump each with uv lock --upgrade-package <name>. The monthly Dependabot PR moves direct dependencies only (dependabot-core#14073), so a transitive one waits for this (#499)." >&2 ;;
+1) echo "WARNING: uv.lock advisories: uv audit found advisories in uv.lock (listed above). Report-only; bump each with uv lock --upgrade-package <name>. The monthly Dependabot PR targets direct dependencies only (dependabot-core#14073), so a transitive advisory waits for this (#499)." >&2 ;;
 *) echo "WARNING: uv audit did not run: uv audit exited $rc; the lock was not audited (output above)." >&2 ;;
 esac
 exit 0
