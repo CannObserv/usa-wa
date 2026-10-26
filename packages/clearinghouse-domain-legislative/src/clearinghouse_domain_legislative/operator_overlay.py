@@ -6,8 +6,10 @@ facts as precise sub-biennium boundaries the wire can't supply:
 
 - ``departed`` (person-scoped) — close every open span of the member at the date, **except one
   the member re-enters** (usa-wa#267): ``build_tenure_spans`` merges contiguous biennia into a
-  single span, so for a member who left and later returned that one span covers both tenures
-  and truncating it discards the second. Skipped-and-logged, never silent.
+  single span (unless the source flags the return ``opens_tenure``, usa-wa#517), so for a
+  member who left and later returned that one span covers both tenures and truncating it
+  discards the second. Split at the return and logged, never silent; a span on the same
+  seat is never the re-entry (the builder already split that one).
 - ``vacated`` (seat-scoped) — close the member's **one** named seat span at the date.
 - ``seated`` (seat-scoped) — open the member's named seat span at the date (adjust the
   built span's ``valid_from`` — the span whose window holds the date, else one opening on
