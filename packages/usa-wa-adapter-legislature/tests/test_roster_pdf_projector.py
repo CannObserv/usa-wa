@@ -435,3 +435,39 @@ def test_consecutive_listings_with_no_one_between_are_one_tenure() -> None:
         [_minted("aincumbent:1933", rows[0], rows[1], rows[3])], rows
     )
     assert not _breaks(projection)
+
+
+def test_a_return_inside_the_members_own_last_biennium_is_not_split() -> None:
+    """CR 6: "Resigned Feb. 19, 1944", then "Appointed Oct. 1944" in the same term.
+    Both stints share 1943-44, and a biennium belongs to one span, so a flag there
+    would move it into the tail and split the first tenure at a false boundary.
+    The key cannot separate a same-biennium return (``_split_tail`` refuses the
+    same collision); it stays one tenure."""
+    rows = [
+        _rec("A. Member", 1939, district=8),
+        _rec("A. Member", 1943, district=8, annotation="Resigned Feb. 19, 1944"),
+        _rec("B. Interim", 1943, district=8, order=2, annotation="Appointed Feb. 28, 1944"),
+        _rec("A. Member", 1943, district=8, order=3, annotation="Appointed Oct. 1944"),
+        _rec("Next", 1947, district=8),
+    ]
+    projection = build_pre1991_observations(
+        [_minted("amember:1939", rows[0], rows[1], rows[3])], rows
+    )
+    assert not _breaks(projection)
+
+
+def test_a_return_row_with_no_coverage_hands_the_break_to_the_next_row() -> None:
+    """CR 9: the interlude is measured from the member's previous COVERING row. A
+    return row that covers nothing (it died before the term, say) must not swallow
+    the break the member's next row on the seat still needs."""
+    rows = [
+        _rec("A. Member", 1931, district=8),
+        _rec("B. Interim", 1931, district=8, order=2, annotation="Appointed Feb. 2, 1934"),
+        _rec("A. Member", 1931, district=8, order=3, annotation="Deceased Dec. 1, 1930"),
+        _rec("A. Member", 1935, district=8),
+        _rec("Next", 1939, district=8),
+    ]
+    projection = build_pre1991_observations(
+        [_minted("amember:1931", rows[0], rows[2], rows[3])], rows
+    )
+    assert _breaks(projection) == {("amember:1931", KIND_SENATE, "8", "1935-36")}

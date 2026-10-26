@@ -207,9 +207,17 @@ def _covered_years(
 def _returns(
     ordered: list[RosterRecord],
     seat_rows: dict[tuple[str, int], list[RosterRecord]],
+    coverage: dict[RosterRecord, list[int]],
 ) -> set[RosterRecord]:
     """The member's rows that RETURN to a seat: another identity's row is listed on it
-    between the member's previous row there and this one, by ``(year, order)`` (#517).
+    between the member's previous COVERING row there and this one, by ``(year, order)``
+    (#517). A row that covers nothing is skipped either way, so it cannot swallow the
+    break the member's next row still needs (CR 9).
+
+    Not a return when its first biennium is one the previous covering row already
+    holds: one biennium belongs to one span, and flagging it would split the first
+    tenure at a false boundary under the return's key — the collision
+    ``_split_tail`` refuses (``operator_departed_split_same_biennium``, CR 6).
 
     Binzer's 1947 row returns after Tenney and Waters, both listed under his own 1943
     term; Malstrom's 1937 row (order 2) returns after Brown's (order 1).
@@ -223,14 +231,19 @@ def _returns(
     previous: dict[tuple[str, int], RosterRecord] = {}
     returns: set[RosterRecord] = set()
     for record in ordered:
+        if not coverage[record]:
+            continue
         seat = (record.chamber, record.district)
         before = previous.get(seat)
         previous[seat] = record
         if before is None:
             continue
         low, high = (before.year, before.order), (record.year, record.order)
-        if any(low < (q.year, q.order) < high and q not in mine for q in seat_rows[seat]):
-            returns.add(record)
+        if not any(low < (q.year, q.order) < high and q not in mine for q in seat_rows[seat]):
+            continue
+        if _biennium(coverage[record][0]) in {_biennium(y) for y in coverage[before]}:
+            continue
+        returns.add(record)
     return returns
 
 
@@ -287,9 +300,10 @@ def build_pre1991_observations(
         if member is None:
             raise ValueError(f"identity {identity.fold!r} has neither WSL member id nor key")
         ordered = sorted(identity.records, key=lambda r: (r.year, r.order))
-        returns = _returns(ordered, seat_rows)
+        covered = {record: _covered_years(record, listings) for record in ordered}
+        returns = _returns(ordered, seat_rows, {r: years for r, (years, _) in covered.items()})
         for index, record in enumerate(ordered):
-            years, empty_reason = _covered_years(record, listings)
+            years, empty_reason = covered[record]
             if empty_reason is not None:
                 uncovered.append(UncoveredRow(member=member, record=record, reason=empty_reason))
             if record.chamber == "senate":
