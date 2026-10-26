@@ -226,7 +226,7 @@ def build_tenure_spans(
     spans: list[TenureSpan] = []
     for (member_id, kind, discriminator), biennia in grouped.items():
         ordered = sorted(biennia, key=lambda b: parse_biennium(b)[0])
-        for run in _consecutive_runs(ordered, breaks[(member_id, kind, discriminator)]):
+        for run in _consecutive_runs(ordered, breaks.get((member_id, kind, discriminator), ())):
             start, end = run[0], run[-1]
             reaches_current = end == current_biennium
             spans.append(
