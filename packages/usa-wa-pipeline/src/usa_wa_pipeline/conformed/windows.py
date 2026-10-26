@@ -119,11 +119,16 @@ def _on_seat(span: TenureSpan, window: EdgeWindow) -> bool:
 
 
 def _starts_with(span: TenureSpan, window: EdgeWindow) -> bool:
-    """The span whose start this window dates: keyed in the window's biennium, or — an
-    appointment only — the one after it (``_opens_after_seating``)."""
+    """The span whose start this window dates: keyed in the window's biennium."""
+    return span.start_biennium == biennium_for_date(window.window[0])
+
+
+def _starts_after(span: TenureSpan, window: EdgeWindow) -> bool:
+    """The fallback, an appointment only: the span keyed the biennium AFTER the window's
+    (``_opens_after_seating``). Read only when no span is keyed in the window's own: a
+    return split from its head (#517) puts both on one seat, and the head is the one the
+    window dates (CR 7)."""
     biennium = biennium_for_date(window.window[0])
-    if span.start_biennium == biennium:
-        return True
     return not window.election and previous_biennium(span.start_biennium) == biennium
 
 
@@ -201,13 +206,17 @@ def apply_windows(
     counts: Counter = Counter()
     out = {source: list(spans) for source, spans in families.items()}
     for window in windows:
-        matches = _starts_with if window.edge == EDGE_START else _ends_with
-        hits = [
-            (source, i)
-            for source, spans in out.items()
-            for i, span in enumerate(spans)
-            if _on_seat(span, window) and matches(span, window)
-        ]
+        rules = (_starts_with, _starts_after) if window.edge == EDGE_START else (_ends_with,)
+        hits: list[tuple[str, int]] = []
+        for matches in rules:
+            hits = [
+                (source, i)
+                for source, spans in out.items()
+                for i, span in enumerate(spans)
+                if _on_seat(span, window) and matches(span, window)
+            ]
+            if hits:
+                break
         if len(hits) != 1:
             counts["unmatched" if not hits else "ambiguous"] += 1
             continue
