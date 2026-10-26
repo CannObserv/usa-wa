@@ -158,7 +158,9 @@ biennium)`. The resolution of the whole model is therefore **one biennium**:
 
 - consecutive biennia (each 2 years after the last) merge; a gap splits the span in two (dormancy
   is a genuine tenure break — the opposite of the "absence ≠ retirement" rule that governs entity
-  existence, because a span models a *served-this-biennium* fact);
+  existence, because a span models a *served-this-biennium* fact). A return inside contiguous
+  biennia has no gap to split on, so a source that sees the interlude flags the return's first
+  observation `opens_tenure` and the span splits there too (#517: the roster's listing order);
 - a span reaching the current biennium is open — `valid_to=None`, `is_active=True`; otherwise it
   closes at Dec 31 of its last biennium's even year;
 - `valid_from` is Jan 1 of the start biennium's odd year.

@@ -359,3 +359,115 @@ def test_an_election_to_another_office_does_not_key_the_row() -> None:
     projection = build_pre1991_observations([_minted("jackcunningham:1975", rows[0])], rows)
     senate = {o.biennium for o in projection.observations if o.kind == KIND_SENATE}
     assert "1975-76" in senate
+
+
+def _breaks(projection) -> set[tuple[str, str, str, str]]:
+    return {
+        (o.member_id, o.kind, o.discriminator, o.biennium)
+        for o in projection.observations
+        if o.opens_tenure
+    }
+
+
+def test_a_return_after_another_holder_opens_a_new_tenure() -> None:
+    """usa-wa#517, Malstrom's shape (LD-27): her 1933 term, then Brown's 1937 term,
+    then Malstrom again, "Elected Nov. 8, 1938 to serve unexpired term" after his
+    death. Her coverage is contiguous, 1933-34 through 1943-44, so only the listing
+    order shows she was gone. Her return row's first biennium opens a new tenure."""
+    rows = [
+        _rec("Kathryn Malstrom", 1933, district=27),
+        _rec("Harry Brown", 1937, district=27, annotation="Deceased November 7, 1937"),
+        _rec(
+            "Kathryn Malstrom",
+            1937,
+            district=27,
+            order=2,
+            annotation="Elected Nov. 8, 1938 to serve unexpired term",
+        ),
+        _rec("Kathryn Malstrom", 1941, district=27),
+        _rec("Next", 1945, district=27),
+    ]
+    malstrom = _minted("kathrynmalstrom:1933", rows[0], rows[2], rows[3])
+    projection = build_pre1991_observations([malstrom, _minted("harrybrown:1937", rows[1])], rows)
+    assert _breaks(projection) == {("kathrynmalstrom:1933", KIND_SENATE, "27", "1937-38")}
+
+
+def test_a_return_after_successors_in_the_members_own_term_opens_a_new_tenure() -> None:
+    """Binzer's shape (LD-42): "Entered military service", undated, so his 1943 row
+    covers its whole term. Tenney and Waters follow him in that term, and he is
+    listed again for 1947. The biennium arithmetic is contiguous; the listing is not."""
+    rows = [
+        _rec("Harry Binzer", 1943, district=42),
+        _rec(
+            "Ralph Tenney",
+            1943,
+            district=42,
+            order=2,
+            annotation="Appointed February 15, 1944 to serve 1944 Ex. S.",
+        ),
+        _rec(
+            "Thomas Waters",
+            1943,
+            district=42,
+            order=3,
+            annotation="Elected Nov. 7, 1944 to serve unexpired term",
+        ),
+        _rec("Harry Binzer", 1947, district=42),
+        _rec("Next", 1951, district=42),
+    ]
+    projection = build_pre1991_observations(
+        [_minted("harrybinzer:1943", rows[0], rows[3]), _minted("ralphtenney:1943", rows[1])],
+        rows,
+    )
+    assert _breaks(projection) == {("harrybinzer:1943", KIND_SENATE, "42", "1947-48")}
+
+
+def test_consecutive_listings_with_no_one_between_are_one_tenure() -> None:
+    """Re-election is not a return: nobody else is listed on the seat between the
+    member's rows, so nothing is flagged, and party is never flagged at all."""
+    rows = [
+        _rec("A. Incumbent", 1933, district=5),
+        _rec("A. Incumbent", 1937, district=5),
+        _rec("Other Seat", 1937, district=6),
+        _rec("A. Incumbent", 1941, district=5),
+    ]
+    projection = build_pre1991_observations(
+        [_minted("aincumbent:1933", rows[0], rows[1], rows[3])], rows
+    )
+    assert not _breaks(projection)
+
+
+def test_a_return_inside_the_members_own_last_biennium_is_not_split() -> None:
+    """CR 6: "Resigned Feb. 19, 1944", then "Appointed Oct. 1944" in the same term.
+    Both stints share 1943-44, and a biennium belongs to one span, so a flag there
+    would move it into the tail and split the first tenure at a false boundary.
+    The key cannot separate a same-biennium return (``_split_tail`` refuses the
+    same collision); it stays one tenure."""
+    rows = [
+        _rec("A. Member", 1939, district=8),
+        _rec("A. Member", 1943, district=8, annotation="Resigned Feb. 19, 1944"),
+        _rec("B. Interim", 1943, district=8, order=2, annotation="Appointed Feb. 28, 1944"),
+        _rec("A. Member", 1943, district=8, order=3, annotation="Appointed Oct. 1944"),
+        _rec("Next", 1947, district=8),
+    ]
+    projection = build_pre1991_observations(
+        [_minted("amember:1939", rows[0], rows[1], rows[3])], rows
+    )
+    assert not _breaks(projection)
+
+
+def test_a_return_row_with_no_coverage_hands_the_break_to_the_next_row() -> None:
+    """CR 9: the interlude is measured from the member's previous COVERING row. A
+    return row that covers nothing (it died before the term, say) must not swallow
+    the break the member's next row on the seat still needs."""
+    rows = [
+        _rec("A. Member", 1931, district=8),
+        _rec("B. Interim", 1931, district=8, order=2, annotation="Appointed Feb. 2, 1934"),
+        _rec("A. Member", 1931, district=8, order=3, annotation="Deceased Dec. 1, 1930"),
+        _rec("A. Member", 1935, district=8),
+        _rec("Next", 1939, district=8),
+    ]
+    projection = build_pre1991_observations(
+        [_minted("amember:1931", rows[0], rows[2], rows[3])], rows
+    )
+    assert _breaks(projection) == {("amember:1931", KIND_SENATE, "8", "1935-36")}

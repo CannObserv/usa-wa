@@ -182,6 +182,34 @@ def test_a_joined_member_is_dated_in_the_wsl_family() -> None:
     assert (span.valid_from, span.start_basis) == (date(1973, 11, 1), "dated")
 
 
+def test_a_window_its_own_biennium_holds_never_reaches_the_next_span() -> None:
+    """CR 7 (#517): a split return puts a one-biennium head and its tail side by side
+    on one seat. The head's appointment window matches it exactly; the one-biennium
+    fallback is for a span keyed AFTER its seating, and must not make the tail a
+    second candidate that drops the window as ambiguous."""
+    windows = _windows("Appointed Oct. 1971")
+    head = _span(start="1971-72", end="1971-72")
+    tail = _span(start="1973-74", end="1973-74")
+    (dated, untouched), counters = _apply([head, tail], windows)
+    assert "ambiguous" not in counters
+    assert (dated.valid_from, dated.start_basis) == (date(1971, 10, 1), "dated")
+    assert untouched == tail
+
+
+def test_an_appointment_before_its_term_never_dates_the_head_it_returns_from() -> None:
+    """CR 12 (#517): the mirror of CR 7. "Appointed Dec. 1972" on a 1973 row dates
+    the span the projector keys at that term (1973-74), never the member's split head
+    keyed in the window's own biennium — the biennium alone cannot tell them apart;
+    the window's row can."""
+    windows = _windows("Appointed Dec. 1972", year=1973)
+    head = _span(start="1971-72", end="1971-72")
+    tail = _span(start="1973-74", end="1973-74")
+    (untouched, dated), counters = _apply([head, tail], windows)
+    assert untouched == head
+    assert (dated.valid_from, dated.start_basis) == (date(1972, 12, 1), "dated")
+    assert counters["start"] == 1
+
+
 def test_a_window_matching_no_span_is_counted() -> None:
     _spans, counters = _apply([], _windows("Appointed Oct. 1971"))
     assert counters["unmatched"] == 1

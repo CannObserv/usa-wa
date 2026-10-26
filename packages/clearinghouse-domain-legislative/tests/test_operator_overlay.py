@@ -1206,3 +1206,44 @@ def test_a_split_tail_starts_derived():
         "derived",
         "observed",
     )
+
+
+def test_a_same_seat_return_is_never_the_re_entry_of_its_own_head():
+    """CR 8 (#517): the builder now splits a roster return onto its own span, so a
+    member's head and tail can sit on one seat, the tail's start back-dated into the
+    head's last biennium (here as `_opens_after_seating` would leave it after a
+    `vacated` had closed the head's window early). Read as the head's re-entry, the
+    departure mints a second tail keyed 1943-44 over the real one. The tail already
+    exists; the departure only closes the head. Not reachable in today's events."""
+    head = _span(
+        "m",
+        "chamber-senate",
+        "39",
+        start="1941-42",
+        frm=date(1941, 1, 1),
+        to=date(1944, 12, 31),
+        active=False,
+    )
+    tail = replace(
+        _span(
+            "m",
+            "chamber-senate",
+            "39",
+            start="1945-46",
+            frm=date(1944, 10, 15),
+            to=date(1948, 12, 31),
+            active=False,
+        ),
+        start_basis="dated",
+    )
+    out = apply_operator_events(
+        [head, tail],
+        [SuccessionEvent("m", "departed", date(1944, 2, 19))],
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-senate"},
+    )
+    seats = sorted(out, key=lambda s: s.valid_from)
+    assert [(s.start_biennium, s.valid_from, s.valid_to) for s in seats] == [
+        ("1941-42", date(1941, 1, 1), date(1944, 2, 19)),
+        ("1945-46", date(1944, 10, 15), date(1948, 12, 31)),
+    ]
