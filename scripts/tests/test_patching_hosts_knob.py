@@ -207,7 +207,8 @@ OWNER_WINDOWS = [["Tue", "16:00-23:30"], ["Wed", "16:00-23:30"]]
 # An out-of-cycle window for a security bulletin (policy.md § two lanes), each
 # keyed to the issue whose closing PR removes it again.
 TEMPORARY_WINDOWS = {
-    ("Sun", "17:00-23:30"): "#534",  # Tailscale 1.104.2, TS-2026-013 (owner, 2026-10-25)
+    # Tailscale 1.104.2, TS-2026-013 (owner, 2026-10-26): Sun 10-25's closed unused.
+    ("Mon", "16:00-23:30"): "#534",
 }
 
 
