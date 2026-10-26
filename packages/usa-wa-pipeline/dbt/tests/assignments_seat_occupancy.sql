@@ -15,14 +15,14 @@
 -- normalises the same way), with a category from a closed vocabulary (the seed's
 -- `accepted_values`) and the roster evidence for it. Adjudicated against the
 -- roster PDF on #360, 2026-10-17: every residue the clip declines and that no
--- operator event dates. Two categories retired with their last rows in #501:
+-- operator event dates. Three categories retired with their last rows:
 -- `substitute` (now `membership_type`) and `basis_inferred` (now an explicit
--- boundary basis). The categories:
+-- boundary basis) in #501, and `merged_tenure` in #517 (a return to the seat
+-- now opens its own span). The categories:
 --
 --   election_only    the successor is dated only by an election, which is not
 --                    a seating (#226: the ballot date would open the span early)
 --   coarse_date      the only stated boundary is month or year precision
---   merged_tenure    one span is two tenures merged around the other (#267)
 --   undated          the successor's start is undated in the roster
 --   never_served     a span for someone the roster says never served
 --
