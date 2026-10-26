@@ -202,9 +202,24 @@ def test_only_public_callers_and_no_image_owner() -> None:
     assert _named("image-owner") == []
 
 
+OWNER_WINDOWS = [["Tue", "16:00-23:30"], ["Wed", "16:00-23:30"]]
+
+# An out-of-cycle window for a security bulletin (policy.md § two lanes), each
+# keyed to the issue whose closing PR removes it again. Empty between bulletins;
+# the last one held Mon 16:00-23:30 for #534 (Tailscale TS-2026-013).
+TEMPORARY_WINDOWS: dict[tuple[str, str], str] = {}
+
+
 def test_the_window_is_the_owners() -> None:
     """Tue and Wed, 16:00-23:30 UTC (owner, 2026-10-14): 09:00-16:30 PDT, 08:00-15:30 PST."""
-    assert _named("window") == [["Tue", "16:00-23:30"], ["Wed", "16:00-23:30"]]
+    windows = _named("window")
+    assert [w for w in windows if w in OWNER_WINDOWS] == OWNER_WINDOWS
+
+
+def test_every_other_window_is_a_listed_temporary_one() -> None:
+    """A window beyond the owner's is temporary, named here with its issue."""
+    others = {tuple(w) for w in _named("window") if w not in OWNER_WINDOWS}
+    assert others == set(TEMPORARY_WINDOWS)
 
 
 def test_tailscale_is_followed_scoped_and_its_own_step() -> None:
