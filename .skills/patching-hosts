@@ -13,11 +13,6 @@ posture scheduled
 # below, or apply.sh refuses it.
 window Tue 16:00-23:30
 window Wed 16:00-23:30
-# TEMPORARY, out of cycle (owner, 2026-10-26): Tailscale 1.104.2 for
-# TS-2026-013, through --lane origin:pkgs.tailscale.com. It replaces Sun
-# 10-25's window, which closed before the bulk. #534's closing PR removes it;
-# the test lists it until then.
-window Mon 16:00-23:30
 
 # The host's timers (deploy/*.timer): each range runs from 5 min before
 # OnCalendar to its RandomizedDelaySec plus the service's TimeoutStartSec, so
