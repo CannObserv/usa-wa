@@ -24,8 +24,11 @@ What reads which clause (the projector's priority, ``_start_date``/``_end_date``
 
 An edge an operator event already dates **wins**; a date outside the window is counted
 as a contradiction and logged, never moved. A ``derived`` edge is left alone. An
-appointment a biennium before its span follows ``_opens_after_seating``'s one-biennium
-rule; the key is unchanged either way, so no span re-keys here.
+appointment dated before its row's term dates the span keyed at that term, one biennium
+on (``_opens_after_seating``'s rule; the projector keys the row there, §5); any other
+start dates the span keyed in its own biennium first. The window's row picks the rule,
+because a return split from its head (#517) puts both keys on one seat. The key is
+unchanged either way, so no span re-keys here.
 
 Seat spans only, Senate only: no House span starts before 2001, and party follows the
 seat's attestation rather than its dates. Pre-1991 rows only — the roster's later rows
@@ -72,6 +75,9 @@ class EdgeWindow:
     window: tuple[date, date]
     election: bool
     clause: str
+    #: The clause dates a day before its row's term opens, so the projector keyed the row
+    #: at the term (§5): the span it starts is keyed the biennium after the window's.
+    before_term: bool = False
 
 
 def _first(clauses, verbs: tuple[str, ...]):
@@ -100,6 +106,7 @@ def edge_windows(members: dict[RosterRecord, str]) -> list[EdgeWindow]:
                     start.parsed.window,
                     start.verb == _ELECTED,
                     start.text,
+                    start.parsed.window[0].year < record.year,
                 )
             )
         end = _first(clauses, END_VERBS)
@@ -124,10 +131,8 @@ def _starts_with(span: TenureSpan, window: EdgeWindow) -> bool:
 
 
 def _starts_after(span: TenureSpan, window: EdgeWindow) -> bool:
-    """The fallback, an appointment only: the span keyed the biennium AFTER the window's
-    (``_opens_after_seating``). Read only when no span is keyed in the window's own: a
-    return split from its head (#517) puts both on one seat, and the head is the one the
-    window dates (CR 7)."""
+    """An appointment only: the span keyed the biennium AFTER the window's
+    (``_opens_after_seating``)."""
     biennium = biennium_for_date(window.window[0])
     return not window.election and previous_biennium(span.start_biennium) == biennium
 
@@ -197,6 +202,20 @@ def _date_end(span: TenureSpan, window: EdgeWindow, counts: Counter) -> TenureSp
     )
 
 
+def _rules(window: EdgeWindow) -> tuple:
+    """The match rules for ``window``, tried in order until one hits.
+
+    The window's row decides, never the biennium alone: a return split from its head
+    (#517) keys both on one seat, a biennium apart. A start before the row's term can
+    only be the span keyed at that term (CR 12); any other start is the span keyed in
+    its own biennium, else — the #282 fallback — the one after it (CR 7)."""
+    if window.edge != EDGE_START:
+        return (_ends_with,)
+    if window.before_term:
+        return (_starts_after,)
+    return (_starts_with, _starts_after)
+
+
 def apply_windows(
     families: dict[str, list[TenureSpan]], windows: list[EdgeWindow]
 ) -> tuple[dict[str, list[TenureSpan]], Counter]:
@@ -206,7 +225,7 @@ def apply_windows(
     counts: Counter = Counter()
     out = {source: list(spans) for source, spans in families.items()}
     for window in windows:
-        rules = (_starts_with, _starts_after) if window.edge == EDGE_START else (_ends_with,)
+        rules = _rules(window)
         hits: list[tuple[str, int]] = []
         for matches in rules:
             hits = [
