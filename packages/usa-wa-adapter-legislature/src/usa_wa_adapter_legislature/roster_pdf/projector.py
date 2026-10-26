@@ -225,8 +225,10 @@ def _returns(
     **Any** other row is an interlude, an unresolved one included, and so is a holder
     who never sat (Mulligan, "Did not serve"; Westman, "not seated"). An accepted limit:
     an incumbent re-seated over a winner the Senate refused would split with no gap
-    between the halves — a spurious key, never a lost tenure. None of the corpus's four
-    contiguous returns has that shape (#517)."""
+    between the halves — a spurious key, never a lost tenure. Likewise a co-holder in a
+    multi-member period (1889's LD-19 seats five): the capacity rule that would tell
+    them apart is the pipeline's (``conformed.capacity``), above this layer (CR 10).
+    None of the corpus's four contiguous returns has either shape (#517)."""
     mine = set(ordered)
     previous: dict[tuple[str, int], RosterRecord] = {}
     returns: set[RosterRecord] = set()
