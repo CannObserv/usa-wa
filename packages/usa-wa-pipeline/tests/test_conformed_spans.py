@@ -460,6 +460,103 @@ def test_a_roster_family_event_logs_nothing_from_the_wsl_family(caplog) -> None:
     assert (seat.valid_from, seat.valid_to) == (date(1925, 3, 2), date(1928, 6, 1))
 
 
+def _senate(families, member: str) -> list[TenureSpan]:
+    return sorted(
+        (s for s in families[ROSTER_SOURCE] if s.member_id == member and s.kind == KIND_SENATE),
+        key=lambda s: s.valid_from,
+    )
+
+
+def test_a_resignation_no_longer_erases_the_members_return() -> None:
+    """usa-wa#517, Keiron Reardon, LD-39: "Resigned Feb. 19, 1944", Mulligan appointed
+    and never served, Reardon listed again for 1945. Merged, the departure closed the
+    one row covering both terms, and 1945-48 published no holder at all. Split, the
+    departure closes the first tenure and the return stands; the #267 split then finds
+    it, so his party span reaches 1948 again."""
+    roster = [
+        _roster(
+            "Keiron Reardon",
+            1943,
+            district=39,
+            chamber="senate",
+            annotation="Resigned Feb. 19, 1944",
+        ),
+        _roster(
+            "William Mulligan",
+            1943,
+            district=39,
+            chamber="senate",
+            order="2",
+            annotation="Appointed Feb. 28, 1944 to serve Ex. Session. Did not serve",
+        ),
+        _roster("Keiron Reardon", 1945, district=39, chamber="senate"),
+        _roster("Next Holder", 1949, district=39, chamber="senate"),
+    ]
+    events = [SuccessionEvent("keironreardon:1943", "departed", date(1944, 2, 19))]
+    families = build_families(
+        SpanInputs(sponsors=[], committee_members=[], roster=roster, events=events),
+        current_biennium=CURRENT,
+    )
+    head, tail = _senate(families, "keironreardon:1943")
+    assert (head.start_biennium, head.valid_to) == ("1943-44", date(1944, 2, 19))
+    assert (tail.start_biennium, tail.valid_from, tail.valid_to) == (
+        "1945-46",
+        date(1945, 1, 1),
+        date(1948, 12, 31),
+    )
+    (party,) = [
+        s
+        for s in families[ROSTER_SOURCE]
+        if s.member_id == "keironreardon:1943" and s.kind == KIND_PARTY
+    ]
+    assert (party.valid_from, party.valid_to) == (date(1943, 1, 1), date(1948, 12, 31))
+
+
+def test_a_return_takes_its_own_election_window_and_clears_the_seat() -> None:
+    """usa-wa#517, Kathryn Malstrom, LD-27: one row 1933-44 wrapped Harry Brown's 1937
+    tenure. Split, the return is keyed 1937-38 and "Elected Nov. 8, 1938" — unmatched
+    while no span was keyed there — dates it (#501 D6a): Brown's death and her
+    election never meet, and the seat needs no clip."""
+    roster = [
+        _roster("Kathryn Malstrom", 1933, district=27, chamber="senate", party_token="D"),
+        _roster(
+            "Harry Brown",
+            1937,
+            district=27,
+            chamber="senate",
+            party_token="D",
+            annotation="Deceased November 7, 1937",
+        ),
+        _roster(
+            "Kathryn Malstrom",
+            1937,
+            district=27,
+            chamber="senate",
+            order="2",
+            party_token="D",
+            annotation="Elected Nov. 8, 1938 to serve unexpired term",
+        ),
+        _roster("Kathryn Malstrom", 1941, district=27, chamber="senate", party_token="D"),
+        _roster("Next Holder", 1945, district=27, chamber="senate"),
+    ]
+    events = [SuccessionEvent("harrybrown:1937", "departed", date(1937, 11, 7))]
+    families = build_families(
+        SpanInputs(sponsors=[], committee_members=[], roster=roster, events=events),
+        current_biennium=CURRENT,
+    )
+    head, tail = _senate(families, "kathrynmalstrom:1933")
+    assert (head.start_biennium, head.valid_to) == ("1933-34", date(1936, 12, 31))
+    assert (tail.start_biennium, tail.valid_from, tail.start_basis) == (
+        "1937-38",
+        date(1938, 11, 8),
+        "dated",
+    )
+    assert tail.valid_from_latest == date(1938, 12, 31)
+    entities = {f"{ROSTER_SOURCE}:{s.member_id}": s.member_id for s in families[ROSTER_SOURCE]}
+    _rows, counters = assignment_rows(families, entities)
+    assert counters["seat_overlaps_unclipped"] == 0
+
+
 def test_an_event_no_family_owns_still_logs_its_miss(caplog) -> None:
     """The scoping drops only a member another family holds: a typo'd id belongs to
     no family, so its miss is still the WSL family's to report."""

@@ -26,6 +26,13 @@ correction is not this module's: it arrives as operator events, entered through
 ``operators.cli`` and applied by the overlay (#226's roster backfill, which proposed them, is
 gone — #412 PR F, #471). This module emits spans and no events (§5).
 
+**A return opens a new tenure (#517).** A member listed on a seat, then another holder,
+then the member again, left and came back. Where the coverage is contiguous anyway
+(Malstrom: her 1933 term, Brown's 1937 term, her "Elected Nov. 8, 1938" return), only the
+listing order shows the interlude, so the return row's first Senate biennium is flagged
+``opens_tenure`` and the span builder breaks the run there. Keyed on the order, never on
+an annotation's wording. Party is not flagged: it rejoins across any gap (#289).
+
 **Party follows the seat coverage (§4)**, split where a change annotation says so. The
 dated-no-token family names no new party; the member's next listing does, and only this
 module can see that row. A token #227 declines (the two power-map#442 adjudications)
@@ -197,6 +204,30 @@ def _covered_years(
     return [], "empty_horizon"
 
 
+def _returns(
+    ordered: list[RosterRecord],
+    seat_rows: dict[tuple[str, int], list[RosterRecord]],
+) -> set[RosterRecord]:
+    """The member's rows that RETURN to a seat: another identity's row is listed on it
+    between the member's previous row there and this one, by ``(year, order)`` (#517).
+
+    Binzer's 1947 row returns after Tenney and Waters, both listed under his own 1943
+    term; Malstrom's 1937 row (order 2) returns after Brown's (order 1)."""
+    mine = set(ordered)
+    previous: dict[tuple[str, int], RosterRecord] = {}
+    returns: set[RosterRecord] = set()
+    for record in ordered:
+        seat = (record.chamber, record.district)
+        before = previous.get(seat)
+        previous[seat] = record
+        if before is None:
+            continue
+        low, high = (before.year, before.order), (record.year, record.order)
+        if any(low < (q.year, q.order) < high and q not in mine for q in seat_rows[seat]):
+            returns.add(record)
+    return returns
+
+
 def _party_slug(
     token: str,
     year: int,
@@ -229,8 +260,10 @@ def build_pre1991_observations(
     must see every parsed record, refused groups included.
     """
     listings: dict[tuple[str, int], list[int]] = defaultdict(list)
+    seat_rows: dict[tuple[str, int], list[RosterRecord]] = defaultdict(list)
     for record in all_records:
         key = (record.chamber, record.district)
+        seat_rows[key].append(record)
         if record.year not in listings[key]:
             listings[key].append(record.year)
     for years in listings.values():
@@ -248,6 +281,7 @@ def build_pre1991_observations(
         if member is None:
             raise ValueError(f"identity {identity.fold!r} has neither WSL member id nor key")
         ordered = sorted(identity.records, key=lambda r: (r.year, r.order))
+        returns = _returns(ordered, seat_rows)
         for index, record in enumerate(ordered):
             years, empty_reason = _covered_years(record, listings)
             if empty_reason is not None:
@@ -256,7 +290,13 @@ def build_pre1991_observations(
                 for year in years:
                     biennium = _biennium(year)
                     observations.append(
-                        Observation(member, KIND_SENATE, str(record.district), biennium)
+                        Observation(
+                            member,
+                            KIND_SENATE,
+                            str(record.district),
+                            biennium,
+                            opens_tenure=record in returns and year == years[0],
+                        )
                     )
                     senate_cover[(record.district, biennium)].add(member)
 
