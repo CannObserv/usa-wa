@@ -42,7 +42,8 @@ only, one unordered span_key pair per row (`lo < hi`), a category from a closed
 vocabulary, and the roster evidence (#360 part A). #501 emptied two categories —
 the substitutes (`membership_type`) and Woodall's edge-dated seating (the basis) —
 and dropped every pair the re-key, the basis-aware clip or the tiers took out of
-the certain tier; the seed itself is the count. `assignments_seat_occupancy_stale`
+the certain tier; #517 retired `merged_tenure` once a roster return opened its own
+span. The seed itself is the count. `assignments_seat_occupancy_stale`
 warns by name on an entry no longer certain — resolved, narrowed to a
 may-overlap, or re-keyed (a start re-dated across a biennium, a person merge) —
 and `build_warnings` fails the stage on it until it is removed. It skips the
