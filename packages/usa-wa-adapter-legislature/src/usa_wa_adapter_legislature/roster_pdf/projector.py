@@ -212,7 +212,13 @@ def _returns(
     between the member's previous row there and this one, by ``(year, order)`` (#517).
 
     Binzer's 1947 row returns after Tenney and Waters, both listed under his own 1943
-    term; Malstrom's 1937 row (order 2) returns after Brown's (order 1)."""
+    term; Malstrom's 1937 row (order 2) returns after Brown's (order 1).
+
+    **Any** other row is an interlude, an unresolved one included, and so is a holder
+    who never sat (Mulligan, "Did not serve"; Westman, "not seated"). An accepted limit:
+    an incumbent re-seated over a winner the Senate refused would split with no gap
+    between the halves — a spurious key, never a lost tenure. None of the corpus's four
+    contiguous returns has that shape (#517)."""
     mine = set(ordered)
     previous: dict[tuple[str, int], RosterRecord] = {}
     returns: set[RosterRecord] = set()
