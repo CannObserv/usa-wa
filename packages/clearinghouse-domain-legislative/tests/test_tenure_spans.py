@@ -62,6 +62,54 @@ def test_dormancy_gap_splits_into_two_spans():
     assert span_list[1].valid_to == date(2022, 12, 31) and span_list[1].is_active is False
 
 
+def test_a_return_inside_contiguous_biennia_opens_a_second_span():
+    """usa-wa#517: a member who left and came back within adjacent biennia (Malstrom,
+    LD-27: 1933-36, then elected Nov. 8, 1938 after Brown's death) has no biennium gap
+    to split on. A source that can see the return flags it, and the run breaks there:
+    the first tenure keeps its key, the return gets its own."""
+    obs = _obs("m", "chamber-senate", "27", "1933-34", "1935-36", "1939-40") + [
+        Observation("m", "chamber-senate", "27", "1937-38", opens_tenure=True)
+    ]
+    head, tail = sorted(_spans(obs), key=lambda s: s.start_biennium)
+    assert (head.start_biennium, head.end_biennium) == ("1933-34", "1935-36")
+    assert head.valid_to == date(1936, 12, 31)
+    assert (tail.start_biennium, tail.end_biennium) == ("1937-38", "1939-40")
+    assert tail.valid_from == date(1937, 1, 1)
+    assert tail.source_id == "m:chamber-senate:27:1937-38"
+
+
+def test_the_break_wins_over_an_unflagged_duplicate_of_its_biennium():
+    """Observations are a set per biennium; the flag is too, so a second, unflagged
+    observation of the return biennium cannot quietly re-merge the two tenures."""
+    obs = _obs("m", "chamber-senate", "9", "1913-14", "1915-16", "1917-18") + [
+        Observation("m", "chamber-senate", "9", "1917-18", opens_tenure=True)
+    ]
+    assert [s.start_biennium for s in sorted(_spans(obs), key=lambda s: s.start_biennium)] == [
+        "1913-14",
+        "1917-18",
+    ]
+
+
+def test_a_break_on_a_run_head_changes_nothing():
+    """A flag where a run starts anyway — the first biennium, or after a gap — is
+    the same tenure the builder would have opened."""
+    flagged = [Observation("m", "chamber-senate", "5", "2017-18", opens_tenure=True)]
+    plain = _obs("m", "chamber-senate", "5", "2021-22")
+    gap = [Observation("m", "chamber-senate", "5", "2021-22", opens_tenure=True)]
+    assert _spans(flagged + plain) == _spans(_obs("m", "chamber-senate", "5", "2017-18") + gap)
+    assert len(_spans(flagged + plain)) == 2
+
+
+def test_a_break_is_scoped_to_its_own_tenure_key():
+    """The flag is per (member, kind, discriminator): a seat return never splits the
+    member's party run, which merges across gaps anyway (#289)."""
+    obs = _obs("m", "party", "democratic", "1933-34", "1935-36", "1937-38") + [
+        Observation("m", "chamber-senate", "27", "1937-38", opens_tenure=True)
+    ]
+    (party,) = [s for s in _spans(obs) if s.kind == "party"]
+    assert (party.start_biennium, party.end_biennium) == ("1933-34", "1937-38")
+
+
 def test_empty_observations_yield_no_spans():
     assert build_tenure_spans([], current_biennium=CURRENT) == []
 

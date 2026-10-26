@@ -24,6 +24,9 @@ builder. It knows only biennium arithmetic:
   biennium's even year.
 - The `source_id` keys on the tenure **start** biennium, so an extending span keeps its id
   (idempotent upsert updates `valid_to`) while a post-gap tenure opens a new-start span.
+- An observation flagged ``opens_tenure`` **breaks** a run even with no gap (#517): a
+  member who left and came back inside adjacent biennia has none to split on, so the
+  source that can see the return says so, and the return is a new-start span too.
 
 **One kind is exempt from the dormancy rule, and the module knows its name** (#289):
 `merge_party_continuity` rejoins a member's same-party spans across ANY gap. This is the
@@ -40,7 +43,7 @@ this module imports; any other kind-specific rule belongs to its caller.
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, replace
 from datetime import date
 
@@ -68,6 +71,10 @@ class Observation:
     kind: str
     discriminator: str
     biennium: str
+    #: This biennium opens a NEW tenure even if the previous one was held too (#517): a
+    #: return to the seat after someone else held it, inside contiguous biennia. Only a
+    #: source that can see the interlude knows; the builder cannot infer it.
+    opens_tenure: bool = False
 
 
 @dataclass(frozen=True)
@@ -184,13 +191,14 @@ def biennium_end_date(label: str) -> date:
     return date(parse_biennium(label)[1], 12, 31)
 
 
-def _consecutive_runs(ordered: list[str]) -> list[list[str]]:
+def _consecutive_runs(ordered: list[str], breaks: Collection[str] = ()) -> list[list[str]]:
     """Split biennia (ordered oldest→newest) into maximal runs of adjacent biennia (each 2
-    years after the previous); a larger gap starts a new run."""
+    years after the previous); a larger gap, or a biennium in ``breaks``, starts a new run."""
     runs: list[list[str]] = []
     current: list[str] = []
     for biennium in ordered:
-        if current and parse_biennium(biennium)[0] != parse_biennium(current[-1])[0] + 2:
+        gap = current and parse_biennium(biennium)[0] != parse_biennium(current[-1])[0] + 2
+        if current and (gap or biennium in breaks):
             runs.append(current)
             current = []
         current.append(biennium)
@@ -205,16 +213,20 @@ def build_tenure_spans(
     """Collapse ``observations`` into merged :class:`TenureSpan`s (deterministically ordered).
 
     Groups by ``(member_id, kind, discriminator)``, orders each group's biennia, splits on
-    dormancy gaps, and resolves each run's validity window — the run reaching
-    ``current_biennium`` stays open (``is_active``)."""
+    dormancy gaps and ``opens_tenure`` breaks, and resolves each run's validity window — the
+    run reaching ``current_biennium`` stays open (``is_active``)."""
     grouped: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+    breaks: dict[tuple[str, str, str], set[str]] = defaultdict(set)
     for obs in observations:
-        grouped[(obs.member_id, obs.kind, obs.discriminator)].add(obs.biennium)
+        key = (obs.member_id, obs.kind, obs.discriminator)
+        grouped[key].add(obs.biennium)
+        if obs.opens_tenure:
+            breaks[key].add(obs.biennium)
 
     spans: list[TenureSpan] = []
     for (member_id, kind, discriminator), biennia in grouped.items():
         ordered = sorted(biennia, key=lambda b: parse_biennium(b)[0])
-        for run in _consecutive_runs(ordered):
+        for run in _consecutive_runs(ordered, breaks[(member_id, kind, discriminator)]):
             start, end = run[0], run[-1]
             reaches_current = end == current_biennium
             spans.append(
