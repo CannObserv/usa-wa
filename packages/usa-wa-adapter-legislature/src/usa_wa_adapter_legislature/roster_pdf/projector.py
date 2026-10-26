@@ -31,7 +31,9 @@ then the member again, left and came back. Where the coverage is contiguous anyw
 (Malstrom: her 1933 term, Brown's 1937 term, her "Elected Nov. 8, 1938" return), only the
 listing order shows the interlude, so the return row's first Senate biennium is flagged
 ``opens_tenure`` and the span builder breaks the run there. Keyed on the order, never on
-an annotation's wording. Party is not flagged: it rejoins across any gap (#289).
+an annotation's wording. Measured from the member's previous row that covers anything,
+and never at a biennium that row already holds: a same-biennium return stays one tenure
+(``_returns``). Party is not flagged: it rejoins across any gap (#289).
 
 **Party follows the seat coverage (§4)**, split where a change annotation says so. The
 dated-no-token family names no new party; the member's next listing does, and only this
