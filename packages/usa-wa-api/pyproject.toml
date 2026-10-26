@@ -16,7 +16,7 @@ dependencies = [
     "python-ulid>=3.0,<4",
     # Declared, not inherited from clearinghouse-core: `postgresql.distinct_on`
     # (api/v1/ops.py) exists only in 2.1 (#527).
-    "sqlalchemy>=2.1.4,<3",
+    "sqlalchemy>=2.1.6,<3",
     "uvicorn>=0.34.0,<1",
 ]
 
