@@ -618,3 +618,14 @@ def test_the_initial_guard_ignores_annotation_text_in_the_name() -> None:
     (identity,) = report.identities
     assert identity.disposition == IDENTITY_WSL
     assert identity.wsl_member_id == "233"
+
+
+def test_widow_split_refuses_her_row_on_his_side_after_hers_begin() -> None:
+    """CR 1: one of her rows printed without the ``Mrs.`` lands on his side — a 1945 row two
+    years after his death. Only a total loss emptied a side; a partial one must be loud too."""
+    rows = [
+        *[r for r in _smith_rows() if r.year < 1945],
+        _rec("Jurie B. (Nettie Luella) Smith", 1945, district=32, order=2),
+    ]
+    with pytest.raises(ValueError, match="juriebsmith"):
+        resolve_identities(rows, seatings=(), widow_splits={"juriebsmith": "his widow"})

@@ -131,8 +131,10 @@ IDENTITY_SPLITS: dict[str, int] = {
 #: Read only for a listed fold. Measured on edition 2025-06-05 with this module's fold: 20
 #: rows lead with ``Mrs.`` across 8 folds, and ``juriebsmith`` is the only one mixing them
 #: with rows that do not — the other seven are one woman each (``OWN_NAMES`` in the
-#: pipeline). A listed fold whose split leaves either side empty raises: a new edition that
-#: drops the honorific must not fold her back into him silently.
+#: pipeline). A listed fold raises unless his rows all precede-or-share her first year and
+#: both sides are present (:func:`_widow_shape_holds`): a new edition that drops the
+#: honorific from all of her rows, or from a later one, must not hand them back to him
+#: silently. A dropped honorific on her FIRST row is not caught — it reads as his last.
 IDENTITY_WIDOW_SPLITS: dict[str, str] = {
     "juriebsmith": (
         "LD-32 House: Jurie B. Smith 'Deceased November 17, 1942' on his 1943 row; "
@@ -375,6 +377,14 @@ class _Join:
         return "candidates " + ", ".join(parts)
 
 
+def _widow_shape_holds(his: list[RosterRecord], hers: list[RosterRecord]) -> bool:
+    """The adjudicated widow shape: both sides present, and none of his rows listed after
+    her first (CR 1). His death and her appointment may share a year (Smith's 1943); a row
+    of his past that is one of hers printed without the ``Mrs.`` — total loss empties a
+    side, partial loss lands here."""
+    return bool(his) and bool(hers) and max(r.year for r in his) <= min(r.year for r in hers)
+
+
 def _boundary_probes(pre: list[RosterRecord], floor: int) -> list[RosterRecord]:
     """Rows to ask the join about when a fold has no listing at or above ``floor`` (#259).
 
@@ -417,8 +427,8 @@ def resolve_identities(
     ``records`` should be the whole parse: rows at or above the floor are consumed as join
     evidence for their fold group and are never carried in an identity.
 
-    Raises ``ValueError`` for a widow split that finds one side empty
-    (:data:`IDENTITY_WIDOW_SPLITS`).
+    Raises ``ValueError`` for a widow split whose rows no longer hold the adjudicated
+    shape (:func:`_widow_shape_holds`).
     """
     groups: dict[str, list[RosterRecord]] = defaultdict(list)
     for record in records:
@@ -457,11 +467,12 @@ def resolve_identities(
             for r in pre:
                 side = split_part(fold, r.name, r.year, splits=splits, widow_splits=widow_splits)
                 sides[bool(side)].append(r)
-            if fold in widow_splits and not all(sides.values()):
+            if fold in widow_splits and not _widow_shape_holds(sides[False], sides[True]):
                 raise ValueError(
-                    f"widow split {fold!r} finds {len(sides[False])} rows for him and "
-                    f"{len(sides[True])} printed 'Mrs.' for her — the edition no longer "
-                    "prints the adjudicated shape; re-adjudicate IDENTITY_WIDOW_SPLITS"
+                    f"widow split {fold!r} finds his rows "
+                    f"{sorted(r.year for r in sides[False])} and her 'Mrs.' rows "
+                    f"{sorted(r.year for r in sides[True])} — the edition no longer prints "
+                    "the adjudicated shape; re-adjudicate IDENTITY_WIDOW_SPLITS"
                 )
             for part in sides.values():
                 if part:
