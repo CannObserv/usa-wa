@@ -72,7 +72,11 @@ from clearinghouse_domain_legislative.span_kinds import KIND_COMMITTEE
 from clearinghouse_domain_legislative.terms import bienniums_in_range
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
-from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold
+from usa_wa_adapter_legislature.roster_pdf.identity import (
+    identity_fold,
+    identity_keys,
+    split_folds,
+)
 from usa_wa_adapter_pdc.coverage import PDC_KEY_NAMESPACE
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
@@ -166,6 +170,9 @@ def _roster_folds(crosswalk: list[dict[str, Any]]) -> tuple[dict[str, str], int]
     A roster staging row carries a printed name, not a natural key, so the fold
     is the only join available — and where it is ambiguous, citing either half
     of a Jr/Sr pair would attribute one man's career to the other.
+
+    An adjudicated split's fold is shared on purpose and is not counted: its rows
+    cite through their own keys (:func:`_split_row_entities`, #525).
     """
     by_fold: dict[str, set[str]] = {}
     resolved = _resolve_tombstones(crosswalk)
@@ -176,7 +183,32 @@ def _roster_folds(crosswalk: list[dict[str, Any]]) -> tuple[dict[str, str], int]
         entity = resolved.get(row["entity_id"], row["entity_id"])
         by_fold.setdefault(fold, set()).add(entity)
     unique = {fold: next(iter(ids)) for fold, ids in by_fold.items() if len(ids) == 1}
-    return unique, len(by_fold) - len(unique)
+    ambiguous = {fold for fold, ids in by_fold.items() if len(ids) > 1} - split_folds()
+    return unique, len(ambiguous)
+
+
+def _split_row_entities(
+    roster: list[dict[str, Any]], person_by_key: dict[str, str]
+) -> dict[int, str | None]:
+    """Roster row index → entity, for the rows of adjudicated split folds only.
+
+    The split's own rule (``identity_keys``) tells his rows from hers — or the
+    1899 Elmer E. Johnston's from the 1947 one's — so the fold guard need not
+    leave both people uncited (#525). Every other fold keeps the guard. A row
+    whose side is unregistered maps to ``None``, never to the fold's other
+    person.
+    """
+    split = split_folds()
+    named = [
+        (index, name, int(row["year"]))
+        for index, row in enumerate(roster)
+        if (name := _text(row.get("name"))) and identity_fold(name) in split
+    ]
+    keys = identity_keys((name, year) for _, name, year in named)
+    return {
+        index: person_by_key.get(f"{_ROSTER_NAMESPACE}:{key}")
+        for (index, _, _), key in zip(named, keys, strict=True)
+    }
 
 
 def _span_source_id(assignment: dict[str, Any]) -> str:
@@ -224,12 +256,13 @@ def citation_rows(inputs: CitationInputs) -> tuple[list[dict[str, Any]], dict[st
             if entity:
                 cite(ENTITY_PERSON, entity, wire)
 
-    for row in inputs.roster:
+    split_rows = _split_row_entities(inputs.roster, person_by_key)
+    for index, row in enumerate(inputs.roster):
         wire = _wire(row, what="roster")
         name = _text(row.get("name"))
         if not name:
             continue
-        entity = folds.get(identity_fold(name))
+        entity = split_rows[index] if index in split_rows else folds.get(identity_fold(name))
         if entity:
             cite(ENTITY_PERSON, entity, wire)
 
