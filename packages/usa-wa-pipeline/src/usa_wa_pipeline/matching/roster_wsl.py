@@ -13,7 +13,10 @@ Two guards (#302 CR):
   ``WIDE_GAP_YEARS`` is withheld entirely — the Jr/Sr signature. ``min(year)``
   would hand the younger member the ELDER's seeded roster key and propose a
   silent cross-person merge; the resolve path refuses exactly these folds
-  (``RefusedIdentity``), so they are adjudication material here too.
+  (``RefusedIdentity``), so they are adjudication material here too. An
+  adjudicated split's fold (``split_folds``) is withheld the same way: it is two
+  people with no gap to betray them, and the resolver never joins a split group
+  (#525 CR 8).
 """
 
 from __future__ import annotations
@@ -22,7 +25,11 @@ import pandas as pd
 
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
-from usa_wa_adapter_legislature.roster_pdf.identity import WIDE_GAP_YEARS, identity_fold
+from usa_wa_adapter_legislature.roster_pdf.identity import (
+    WIDE_GAP_YEARS,
+    identity_fold,
+    split_folds,
+)
 
 LINK_SCHEMA = {
     "kind": "VARCHAR",
@@ -59,7 +66,7 @@ def roster_wsl_links(roster: pd.DataFrame, sponsors: pd.DataFrame) -> pd.DataFra
 
     roster = roster[roster["name"].notna()].copy()
     roster["fold"] = roster["name"].map(identity_fold)
-    roster = roster[~roster["fold"].isin(ambiguous_folds(roster))]
+    roster = roster[~roster["fold"].isin(ambiguous_folds(roster) | split_folds())]
     if roster.empty:
         return _empty()
     first_year = roster.groupby("fold")["year"].min().rename("first_year")
