@@ -27,7 +27,11 @@ would keep every contract vacuously.
 from __future__ import annotations
 
 import ast
+import contextlib
+import io
+import re
 import shutil
+from collections.abc import Set
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -48,6 +52,9 @@ PYPROJECT = REPO / "pyproject.toml"
 DBT_PROJECT = REPO / "packages" / "usa-wa-pipeline" / "dbt"
 #: The package the models are grafted under — the one whose contracts bind them.
 PACKAGE = "usa_wa_pipeline"
+#: A terminal escape sequence. Rich styles the report (``FORCE_COLOR``, a TTY), and a styled
+#: ``BROKEN`` would no longer follow its contract's name as plain text.
+ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 
 def model_module(dbt_project: Path, path: Path) -> str:
@@ -66,22 +73,25 @@ def _imported_names(node: ast.Import | ast.ImportFrom, path: Path) -> list[str]:
     return [f"{node.module}.{alias.name}" for alias in node.names]
 
 
-def _resolve(name: str, graph: ImportGraph) -> str | None:
-    """The deepest module in the graph that ``name`` names or lies inside, as grimp resolves
+def _resolve(name: str, modules: Set[str]) -> str | None:
+    """The deepest of ``modules`` that ``name`` names or lies inside, as grimp resolves
     ``from a.b import c`` to ``a.b.c`` only when that is a module. ``None`` for a name outside
     the root packages — stdlib and third-party, which the contracts exclude anyway."""
     parts = name.split(".")
-    while parts and ".".join(parts) not in graph.modules:
+    while parts and ".".join(parts) not in modules:
         parts.pop()
     return ".".join(parts) or None
 
 
 def graft(graph: ImportGraph, dbt_project: Path) -> list[str]:
     """Add every model under ``dbt_project`` to ``graph`` with its imports; return their names."""
+    # Resolved against the real modules only, snapshotted once: grimp rebuilds
+    # `graph.modules` after every `add_import`, and no model is importable as a module.
+    real = frozenset(graph.modules)
     grafted = []
     for path in model_files(dbt_project):
         module = model_module(dbt_project, path)
-        assert module not in graph.modules, f"{module} already names a real module"
+        assert module not in real, f"{module} already names a real module"
         graph.add_module(module)
         source = path.read_text()
         lines = source.splitlines()
@@ -89,7 +99,7 @@ def graft(graph: ImportGraph, dbt_project: Path) -> list[str]:
             if not isinstance(node, ast.Import | ast.ImportFrom):
                 continue
             for name in _imported_names(node, path):
-                if imported := _resolve(name, graph):
+                if imported := _resolve(name, real):
                     graph.add_import(
                         importer=module,
                         imported=imported,
@@ -133,9 +143,10 @@ class GraftingGraphBuilder(GraphBuilder):
         return graph
 
 
-def lint(dbt_project: Path) -> tuple[bool, GraftingGraphBuilder]:
+def lint(dbt_project: Path) -> tuple[bool, GraftingGraphBuilder, str]:
     """Run every contract in the root ``pyproject.toml`` with ``dbt_project``'s models grafted
-    in. The report goes to stdout, as ``lint-imports`` prints it.
+    in. Returns the verdict, the builder, and the report as ``lint-imports`` prints it, with
+    any terminal styling stripped.
 
     Debug mode, so an exception — a graft assertion, or an internals move in import-linter —
     raises with its traceback instead of being rendered and reported as a broken contract."""
@@ -143,23 +154,31 @@ def lint(dbt_project: Path) -> tuple[bool, GraftingGraphBuilder]:
     real = settings.GRAPH_BUILDER
     builder = GraftingGraphBuilder(real, dbt_project)
     settings.configure(GRAPH_BUILDER=builder)
+    report = io.StringIO()
     try:
-        passed = use_cases.lint_imports(
-            config_filename=str(PYPROJECT), cache_dir=None, is_debug_mode=True, no_logo=True
-        )
+        with contextlib.redirect_stdout(report):
+            passed = use_cases.lint_imports(
+                config_filename=str(PYPROJECT), cache_dir=None, is_debug_mode=True, no_logo=True
+            )
     finally:
         settings.configure(GRAPH_BUILDER=real)
-    return passed, builder
+    return passed, builder, ANSI.sub("", report.getvalue())
+
+
+@pytest.fixture(scope="module")
+def linted() -> tuple[bool, GraftingGraphBuilder, str]:
+    """The real models, linted once for every test that reads the result."""
+    return lint(DBT_PROJECT)
 
 
 def test_the_model_scan_found_the_models():
     assert len(model_files(DBT_PROJECT)) > 1, "found no dbt Python models - the scan broke"
 
 
-def test_every_model_is_grafted():
+def test_every_model_is_grafted(linted):
     """Each model is in the graph with at least one edge — every model imports
     ``usa_wa_pipeline.frames``, so a model with none means the graft lost its imports."""
-    _, builder = lint(DBT_PROJECT)
+    _, builder, _ = linted
     assert builder.graph is not None, "import-linter never asked the builder for a graph"
     assert builder.grafted == [model_module(DBT_PROJECT, p) for p in model_files(DBT_PROJECT)]
     graph = builder.graph
@@ -167,11 +186,9 @@ def test_every_model_is_grafted():
     assert not edgeless, f"grafted with no imports: {edgeless}"
 
 
-def test_the_dbt_models_keep_every_import_contract(capsys):
-    passed, _ = lint(DBT_PROJECT)
-    assert passed, (
-        "a dbt Python model breaks an import contract; the report:\n" + capsys.readouterr().out
-    )
+def test_the_dbt_models_keep_every_import_contract(linted):
+    passed, _, report = linted
+    assert passed, "a dbt Python model breaks an import contract; the report:\n" + report
 
 
 def test_a_model_outside_model_paths_is_not_scanned(tmp_path):
@@ -206,7 +223,7 @@ def test_a_model_outside_model_paths_is_not_scanned(tmp_path):
         ),
     ],
 )
-def test_a_real_violation_in_a_model_is_rejected(tmp_path, capsys, probe, contract):
+def test_a_real_violation_in_a_model_is_rejected(tmp_path, probe, contract):
     """The real models plus one illegal one, linted as the gate lints them.
 
     A copy, unlike ``test_import_contracts``'s probes, because the models are parsed rather
@@ -217,12 +234,13 @@ def test_a_real_violation_in_a_model_is_rejected(tmp_path, capsys, probe, contra
     shutil.copy(DBT_PROJECT / "dbt_project.yml", tmp_path)
     for path in model_paths(DBT_PROJECT):
         shutil.copytree(DBT_PROJECT / path, tmp_path / path)
-    (tmp_path / "models" / "staging" / "_contract_probe.py").write_text(probe)
+    probe_path = tmp_path / model_paths(DBT_PROJECT)[0] / "staging" / "_contract_probe.py"
+    probe_path.write_text(probe)
 
-    passed, builder = lint(tmp_path)
+    passed, builder, report = lint(tmp_path)
 
-    output = " ".join(capsys.readouterr().out.split())
+    output = " ".join(report.split())
     assert not passed, f"the linter accepted an illegal model import:\n{output}"
     assert f"{contract} BROKEN" in output, output
-    assert "usa_wa_pipeline.dbt.models.staging._contract_probe" in output, output
+    assert model_module(tmp_path, probe_path) in output, output
     assert len(builder.grafted) == len(model_files(DBT_PROJECT)) + 1
