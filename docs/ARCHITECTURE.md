@@ -43,8 +43,9 @@ pipeline's dbt Python models sit outside `src/`, where `lint-imports` never look
   through SQL and never imports
 
 **Declare what you import** (#527). Every third-party import under `packages/<p>/src`, and in
-the pipeline's dbt models (#535), is declared in that package's own `[project].dependencies`, never inherited from a lower layer,
-because a floor you rely on has to be stated where you rely on it. Workspace siblings too
+the pipeline's dbt models (#535), is declared in that package's own `[project].dependencies`,
+never inherited from a lower layer, because a floor you rely on has to be stated where you rely
+on it. Workspace siblings too
 (#533): the pipeline got facts only through the root `dev` group. The single exception is
 the one the layers contract already names in `ignore_imports`.
 `scripts/tests/test_declared_dependencies.py` enforces this, with no exemption list of its own.

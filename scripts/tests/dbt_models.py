@@ -18,8 +18,12 @@ import yaml
 DEFAULT_MODEL_PATHS = ["models"]
 
 
+def model_paths(dbt_project: Path) -> list[str]:
+    """The project's ``model-paths`` (relative to ``dbt_project``), as its config names them."""
+    config = yaml.safe_load((dbt_project / "dbt_project.yml").read_text())
+    return config.get("model-paths", DEFAULT_MODEL_PATHS)
+
+
 def model_files(dbt_project: Path) -> list[Path]:
     """Every Python model under the project's ``model-paths``, sorted."""
-    config = yaml.safe_load((dbt_project / "dbt_project.yml").read_text())
-    paths = config.get("model-paths", DEFAULT_MODEL_PATHS)
-    return sorted(f for p in paths for f in (dbt_project / p).rglob("*.py"))
+    return sorted(f for p in model_paths(dbt_project) for f in (dbt_project / p).rglob("*.py"))

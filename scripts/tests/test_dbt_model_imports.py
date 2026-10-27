@@ -29,14 +29,19 @@ from __future__ import annotations
 import ast
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
-from dbt_models import model_files
-from grimp import ImportGraph
+from dbt_models import model_files, model_paths
 from importlinter.application import use_cases
 from importlinter.application.app_config import settings
 from importlinter.application.ports.building import GraphBuilder
 from importlinter.configuration import configure
+
+if TYPE_CHECKING:
+    # Annotations only: grimp is import-linter's dependency, not the root dev group's, so
+    # this test does not import it at runtime and needs no declaration of its own.
+    from grimp import ImportGraph
 
 REPO = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO / "pyproject.toml"
@@ -111,6 +116,12 @@ class GraftingGraphBuilder(GraphBuilder):
         include_external_packages: bool = False,
         exclude_type_checking_imports: bool = False,
     ) -> ImportGraph:
+        """The inner builder's graph, with every model grafted in (see :func:`graft`)."""
+        # The graft keeps every import, `if TYPE_CHECKING:` ones included; a config that
+        # excludes them from `src/` would hold the models to a stricter rule than `src/`.
+        assert not exclude_type_checking_imports, (
+            "exclude_type_checking_imports is set: teach graft() to drop TYPE_CHECKING imports"
+        )
         graph = self._inner.build(
             root_package_names=root_package_names,
             cache_dir=cache_dir,
@@ -124,14 +135,17 @@ class GraftingGraphBuilder(GraphBuilder):
 
 def lint(dbt_project: Path) -> tuple[bool, GraftingGraphBuilder]:
     """Run every contract in the root ``pyproject.toml`` with ``dbt_project``'s models grafted
-    in. The report goes to stdout, as ``lint-imports`` prints it."""
+    in. The report goes to stdout, as ``lint-imports`` prints it.
+
+    Debug mode, so an exception — a graft assertion, or an internals move in import-linter —
+    raises with its traceback instead of being rendered and reported as a broken contract."""
     configure()
     real = settings.GRAPH_BUILDER
     builder = GraftingGraphBuilder(real, dbt_project)
     settings.configure(GRAPH_BUILDER=builder)
     try:
         passed = use_cases.lint_imports(
-            config_filename=str(PYPROJECT), cache_dir=None, no_logo=True
+            config_filename=str(PYPROJECT), cache_dir=None, is_debug_mode=True, no_logo=True
         )
     finally:
         settings.configure(GRAPH_BUILDER=real)
@@ -201,7 +215,8 @@ def test_a_real_violation_in_a_model_is_rejected(tmp_path, capsys, probe, contra
     ``dbt run`` would load it.
     """
     shutil.copy(DBT_PROJECT / "dbt_project.yml", tmp_path)
-    shutil.copytree(DBT_PROJECT / "models", tmp_path / "models")
+    for path in model_paths(DBT_PROJECT):
+        shutil.copytree(DBT_PROJECT / path, tmp_path / path)
     (tmp_path / "models" / "staging" / "_contract_probe.py").write_text(probe)
 
     passed, builder = lint(tmp_path)
