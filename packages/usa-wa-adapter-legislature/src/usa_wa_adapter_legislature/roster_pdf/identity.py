@@ -428,7 +428,8 @@ def resolve_identities(
     evidence for their fold group and are never carried in an identity.
 
     Raises ``ValueError`` for a widow split whose rows no longer hold the adjudicated
-    shape (:func:`_widow_shape_holds`).
+    shape (:func:`_widow_shape_holds`), and for any split whose two sides share a first
+    year — both would mint as one ``<fold>:<year>`` key.
     """
     groups: dict[str, list[RosterRecord]] = defaultdict(list)
     for record in records:
