@@ -29,6 +29,7 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
     IDENTITY_ALIASES,
     IDENTITY_MINTED,
     IDENTITY_SPLITS,
+    IDENTITY_WIDOW_SPLITS,
     IDENTITY_WSL,
     JOIN_ADJUDICATIONS,
     REFUSED_JOIN_AMBIGUOUS,
@@ -37,7 +38,10 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
     WIDE_GAP_YEARS,
     Seating,
     identity_fold,
+    identity_keys,
     resolve_identities,
+    split_folds,
+    split_part,
     strip_position_suffix,
 )
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
@@ -150,6 +154,99 @@ def test_split_adjudication_partitions_at_the_boundary_year() -> None:
     by_key = {i.key: i for i in report.identities}
     assert len(by_key["elmerejohnston:1899"].records) == 1
     assert len(by_key["elmerejohnston:1947"].records) == 2
+
+
+def _smith_rows() -> list[RosterRecord]:
+    """LD-32 House as edition 2025-06-05 prints it: his five terms, his 1943 row closed by
+    his death, and his widow's two rows under his name with a leading ``Mrs.`` (#525)."""
+    his = [_rec("Jurie B. Smith", year, district=32, order=2) for year in range(1933, 1943, 2)]
+    return [
+        *his,
+        _rec("Jurie B. Smith", 1943, district=32, order=2, annotation="Deceased November 17, 1942"),
+        _rec(
+            "Mrs. Jurie B. Smith",
+            1943,
+            district=32,
+            order=3,
+            annotation="Appointed to serve unexpired term",
+        ),
+        _rec("Mrs. Jurie B.(Nettie Luella) Smith", 1945, district=32, order=2),
+    ]
+
+
+def test_widow_split_partitions_on_the_leading_honorific_not_the_year() -> None:
+    """1943 holds a row for each of them, so no boundary year separates them (#525): the
+    year split would hand his death-dated 1943 row to her. The printed ``Mrs.`` does."""
+    report = resolve_identities(
+        _smith_rows(), seatings=(), widow_splits={"juriebsmith": "his widow (#525)"}
+    )
+    by_key = {i.key: i for i in report.identities}
+    assert sorted(by_key) == ["juriebsmith:1933", "juriebsmith:1943"]
+    his = by_key["juriebsmith:1933"].records
+    hers = by_key["juriebsmith:1943"].records
+    assert [(r.year, r.name) for r in his][-1] == (1943, "Jurie B. Smith")
+    assert len(his) == 6
+    assert [(r.year, r.name) for r in hers] == [
+        (1943, "Mrs. Jurie B. Smith"),
+        (1945, "Mrs. Jurie B.(Nettie Luella) Smith"),
+    ]
+
+
+def test_widow_split_never_reaches_an_unlisted_fold() -> None:
+    """The honorific is read only inside an adjudicated fold: a fold whose rows all lead
+    with ``Mrs.`` — or that mixes them, unlisted — resolves exactly as before."""
+    report = resolve_identities(_smith_rows(), seatings=(), widow_splits={})
+    (identity,) = report.identities
+    assert identity.key == "juriebsmith:1933"
+    assert len(identity.records) == 8
+
+
+def test_widow_split_with_an_empty_side_refuses_to_resolve() -> None:
+    """An edition that stops printing the ``Mrs.`` would fold her rows back into his
+    identity without a sound — the #525 defect, restored. Loud instead, like a stale
+    ``OWN_NAMES`` entry: the build fails and the last good catalog stands."""
+    rows = [r for r in _smith_rows() if not r.name.startswith("Mrs.")]
+    with pytest.raises(ValueError, match="juriebsmith"):
+        resolve_identities(rows, seatings=(), widow_splits={"juriebsmith": "his widow"})
+
+
+def test_split_part_is_the_one_partition_rule() -> None:
+    """Every reader of a split — the resolver, the departures probe, survivorship, the
+    citer — asks this, so none restates a boundary (#525 correction 3)."""
+    widow = {"juriebsmith": "his widow"}
+    year = {"elmerejohnston": 1947}
+    assert split_part("juriebsmith", "Mrs. Jurie B. Smith", 1943, splits={}, widow_splits=widow)
+    assert not split_part("juriebsmith", "Jurie B. Smith", 1943, splits={}, widow_splits=widow)
+    assert split_part("elmerejohnston", "Elmer E. Johnston", 1947, splits=year, widow_splits={})
+    assert not split_part("elmerejohnston", "Elmer E. Johnston", 1899, splits=year, widow_splits={})
+    assert split_part("juriebsmith", "Mrs. Jurie B. Smith", 1943, splits={}, widow_splits={}) is (
+        None
+    )
+
+
+def test_identity_keys_match_the_keys_the_resolver_mints() -> None:
+    """Row → registry key value, aligned with the input: an alias spelling keys as its
+    canonical fold, and each side of a split by its own earliest year."""
+    rows = [*_smith_rows(), _rec("Phillip McDonough", 1925), _rec("Philip McDonough", 1927)]
+    keys = identity_keys(
+        [(r.name, r.year) for r in rows], widow_splits={"juriebsmith": "his widow"}
+    )
+    assert keys == [
+        *["juriebsmith:1933"] * 6,
+        "juriebsmith:1943",
+        "juriebsmith:1943",
+        "philipmcdonough:1925",
+        "philipmcdonough:1925",
+    ]
+    minted = resolve_identities(rows, seatings=(), widow_splits={"juriebsmith": "his widow"})
+    assert set(keys) == {i.key for i in minted.identities}
+
+
+def test_split_folds_unions_both_tables() -> None:
+    """A fold two live entities may share by adjudication — the name-collision allowlist
+    derives from this, so a new widow entry cannot break the nightly from a second file."""
+    assert split_folds() == frozenset(IDENTITY_SPLITS) | frozenset(IDENTITY_WIDOW_SPLITS)
+    assert not set(IDENTITY_SPLITS) & set(IDENTITY_WIDOW_SPLITS)
 
 
 def test_wide_gap_without_adjudication_is_refused_with_subject() -> None:
@@ -364,6 +461,7 @@ def test_shipped_adjudication_tables_have_the_measured_shape() -> None:
     assert JOIN_ADJUDICATIONS["bobbasich"] == "23"
     assert JOIN_ADJUDICATIONS["shirleygalloway"] is None
     assert IDENTITY_SPLITS["elmerejohnston"] == 1947
+    assert set(IDENTITY_WIDOW_SPLITS) == {"juriebsmith"}
     assert IDENTITY_ALIASES["phillipmcdonough"] == "philipmcdonough"
     assert CORROBORATION_FLOOR == 2
     assert WIDE_GAP_YEARS == 20
@@ -520,3 +618,35 @@ def test_the_initial_guard_ignores_annotation_text_in_the_name() -> None:
     (identity,) = report.identities
     assert identity.disposition == IDENTITY_WSL
     assert identity.wsl_member_id == "233"
+
+
+def test_widow_split_refuses_her_row_on_his_side_after_hers_begin() -> None:
+    """CR 1: one of her rows printed without the ``Mrs.`` lands on his side — a 1945 row two
+    years after his death. Only a total loss emptied a side; a partial one must be loud too."""
+    rows = [
+        *[r for r in _smith_rows() if r.year < 1945],
+        _rec("Jurie B. (Nettie Luella) Smith", 1945, district=32, order=2),
+    ]
+    with pytest.raises(ValueError, match="juriebsmith"):
+        resolve_identities(rows, seatings=(), widow_splits={"juriebsmith": "his widow"})
+
+
+def test_a_split_whose_sides_share_a_first_year_refuses() -> None:
+    """CR 2: a husband who died in his first term and the widow appointed to it are both
+    first listed in one year, so both sides would mint ``<fold>:<year>`` — two people
+    behind one registry key. Loud, naming the fold, rather than merged downstream."""
+    rows = [
+        _rec("John Doe", 1943, order=1, annotation="Deceased November 17, 1942"),
+        _rec("Mrs. John Doe", 1943, order=2, annotation="Appointed to serve unexpired term"),
+    ]
+    with pytest.raises(ValueError, match="johndoe:1943"):
+        resolve_identities(rows, seatings=(), widow_splits={"johndoe": "his widow"})
+
+
+def test_no_alias_reaches_a_split_fold() -> None:
+    """CR 3: the resolver aliases a fold before asking ``split_part``; the pipeline's
+    survivorship and citer test split membership on the printed fold. They agree only
+    while no alias maps a spelling into — or out of — a split fold. Adding one must
+    teach those readers to alias first."""
+    aliased = set(IDENTITY_ALIASES) | set(IDENTITY_ALIASES.values())
+    assert not aliased & split_folds()

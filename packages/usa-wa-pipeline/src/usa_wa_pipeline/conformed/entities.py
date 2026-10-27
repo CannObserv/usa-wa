@@ -29,7 +29,12 @@ from typing import Any
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
-from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold, strip_position_suffix
+from usa_wa_adapter_legislature.roster_pdf.identity import (
+    identity_fold,
+    identity_keys,
+    split_part,
+    strip_position_suffix,
+)
 from usa_wa_adapter_pdc.coverage import PDC_KEY_NAMESPACE
 from usa_wa_common.names import strip_tenure_notes
 from usa_wa_common.orgs import STRUCTURAL_ORGS
@@ -177,6 +182,19 @@ def _display_name(value: Any) -> str | None:
     return _name(strip_position_suffix(strip_tenure_notes(named)))
 
 
+def _split_side_of_keys(rows: list[tuple[str, int]]) -> dict[str, bool]:
+    """Roster key value → its split side, over the ``(name, year)`` rows of the
+    adjudicated split folds — ``identity_keys`` keys them as the resolver mints.
+
+    Only split folds are asked: every other fold keeps the fold-only lookup it
+    has always had, which matches a registered key whatever its year half says."""
+    keys = identity_keys(rows)
+    return {
+        key: bool(split_part(identity_fold(name), name, year))
+        for key, (name, year) in zip(keys, rows, strict=True)
+    }
+
+
 def person_rows(
     crosswalk: list[dict[str, Any]],
     *,
@@ -195,7 +213,12 @@ def person_rows(
             if current is None or row["biennium"] > current[0]:
                 wsl_latest[member_id] = (row["biennium"], name)
 
-    roster_latest: dict[str, tuple[int, str]] = {}
+    # Keyed by (fold, split side). The side is None for every fold but an
+    # adjudicated split's, whose two people share the fold: keyed by fold alone,
+    # both read its newest row, and Jurie B. Smith published his widow's name
+    # (#525). `_split_side_of_keys` says which side a registry key holds.
+    roster_latest: dict[tuple[str, bool | None], tuple[int, str]] = {}
+    split_rows: list[tuple[str, int]] = []
     for row in roster:
         name = _name(row.get("name"))
         if not name:
@@ -214,9 +237,13 @@ def person_rows(
             # `''` too, and a registry key of `:<year>` selects it.
             continue
         year = int(row["year"])
-        current = roster_latest.get(fold)
+        side = split_part(fold, name, year)
+        if side is not None:
+            split_rows.append((name, year))
+        current = roster_latest.get((fold, side))
         if current is None or year > current[0]:
-            roster_latest[fold] = (year, display)
+            roster_latest[(fold, side)] = (year, display)
+    split_side = _split_side_of_keys(split_rows)
 
     pdc_names = {
         row["person_id"]: _display_name(row.get("filer_name"))
@@ -231,8 +258,9 @@ def person_rows(
         for key in keys:
             if key["key_namespace"] == ROSTER_SOURCE_SLUG:
                 fold = key["key_value"].rsplit(":", 1)[0]
-                if fold in roster_latest:
-                    name_full, name_source = roster_latest[fold][1], "roster"
+                hit = roster_latest.get((fold, split_side.get(key["key_value"])))
+                if hit:
+                    name_full, name_source = hit[1], "roster"
                     break
         if name_full is None:
             for key in keys:

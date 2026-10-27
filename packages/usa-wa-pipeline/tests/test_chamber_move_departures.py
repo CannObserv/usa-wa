@@ -102,6 +102,23 @@ def test_an_adjudicated_split_keys_each_part_by_its_own_first_year():
     ]
 
 
+def test_a_widow_split_keys_her_rows_apart_from_his_in_their_shared_year():
+    """IDENTITY_WIDOW_SPLITS (#525): his death-dated 1943 row stays his; her `Mrs.` rows
+    key under her own first year. The probe reads the resolver's rule, not a copy."""
+    rows = [
+        _row("Jurie B. Smith", "house", 1941, 32),
+        _row("Jurie B. Smith", "house", 1943, 32),
+        _row("Mrs. Jurie B. Smith", "house", 1943, 32),
+        _row("Mrs. Jurie B.(Nettie Luella) Smith", "house", 1945, 32),
+    ]
+    assert roster_keys(rows) == [
+        f"{ROSTER_NS}:juriebsmith:1941",
+        f"{ROSTER_NS}:juriebsmith:1941",
+        f"{ROSTER_NS}:juriebsmith:1943",
+        f"{ROSTER_NS}:juriebsmith:1943",
+    ]
+
+
 def test_a_nameless_row_has_no_key():
     assert roster_keys([{**_row("x", "house", 1953), "name": None}]) == [None]
 

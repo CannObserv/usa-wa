@@ -94,12 +94,13 @@ OWN_NAMES: tuple[OwnName, ...] = (
         "her given name follows her husband's in parentheses",
     ),
     OwnName(
-        "juriebsmith:1933",
+        "juriebsmith:1943",
         "Mrs. Jurie B.(Nettie Luella) Smith",
         "Nettie Luella Smith",
         "A",
         "owner 2026-10-13 (#384): the legislature's own page is titled with this form, "
-        + _SMITH_PAGE,
+        + _SMITH_PAGE
+        + "; her own key since the widow split (#525), not her husband's juriebsmith:1933",
     ),
     OwnName(
         "vincentfjones:1949",

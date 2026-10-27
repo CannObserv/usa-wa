@@ -67,6 +67,16 @@ def test_wide_gap_fold_is_withheld_entirely() -> None:
     assert out.empty
 
 
+def test_adjudicated_split_fold_is_withheld_entirely() -> None:
+    """A split fold holds two people with no wide gap to betray them (CR 8):
+    min(year) would key the later one's WSL link by the earlier one's roster
+    key. The resolver never joins a split group; neither does the matcher."""
+    his = {"name": "Jurie B. Smith", "year": 1989, "chamber": "House", "district": "13"}
+    hers = {"name": "Mrs. Jurie B. Smith", "year": 1991, "chamber": "House", "district": "13"}
+    sponsor = {**SMITH_SPONSOR, "name": "Jurie B. Smith", "biennium": "1991-92"}
+    assert roster_wsl_links(_roster([his, hers]), _sponsors([sponsor])).empty
+
+
 def test_continuous_service_is_not_ambiguous() -> None:
     """A genuine long tenure (no wide gap) keys on the true first year."""
     rows = [

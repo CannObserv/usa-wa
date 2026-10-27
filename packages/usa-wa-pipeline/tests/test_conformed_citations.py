@@ -183,6 +183,51 @@ class TestPersons:
         assert _cited(rows, "person", PERSON_A) == set()
         assert counters["ambiguous_roster_folds"] == 1
 
+    def test_an_adjudicated_split_cites_each_side_through_its_own_key(self) -> None:
+        """A split fold is shared by two entities on purpose, so the fold guard
+        left both uncited — and `uncited_persons` above its ratchet (#525). The
+        split's own rule tells the rows apart: his cite him, hers cite her, and
+        the fold is not counted ambiguous."""
+
+        def _row(name: str, year: int, resource: str) -> dict:
+            return {"name": name, "year": year, "source": ROSTER_SOURCE, "resource_id": resource}
+
+        rows, counters = citation_rows(
+            _inputs(
+                person_crosswalk=[
+                    _key(f"{ROSTER_SOURCE}:juriebsmith:1933", PERSON_A),
+                    _key(f"{ROSTER_SOURCE}:juriebsmith:1943", PERSON_B),
+                ],
+                roster=[
+                    _row("Jurie B. Smith", 1933, "legroster:his"),
+                    _row("Jurie B. Smith", 1943, "legroster:his"),
+                    _row("Mrs. Jurie B. Smith", 1943, "legroster:hers"),
+                ],
+            )
+        )
+        assert _cited(rows, "person", PERSON_A) == {(ROSTER_SOURCE, "legroster:his")}
+        assert _cited(rows, "person", PERSON_B) == {(ROSTER_SOURCE, "legroster:hers")}
+        assert counters["ambiguous_roster_folds"] == 0
+        assert counters["uncited_persons"] == 0
+
+    def test_an_unregistered_side_of_a_split_never_cites_the_other(self) -> None:
+        """Her key unregistered (the window before `register`): her rows cite
+        nobody. The fold alone would name him — the defect this split fixes."""
+        rows, _ = citation_rows(
+            _inputs(
+                person_crosswalk=[_key(f"{ROSTER_SOURCE}:juriebsmith:1933", PERSON_A)],
+                roster=[
+                    {
+                        "name": "Mrs. Jurie B. Smith",
+                        "year": 1943,
+                        "source": ROSTER_SOURCE,
+                        "resource_id": "legroster:hers",
+                    }
+                ],
+            )
+        )
+        assert _cited(rows, "person", PERSON_A) == set()
+
     def test_a_key_no_staging_row_names_leaves_the_person_uncited(self) -> None:
         _, counters = citation_rows(
             _inputs(person_crosswalk=[_key(f"{WSL}:100", PERSON_A)], sponsors=[])

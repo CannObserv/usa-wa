@@ -317,10 +317,13 @@ no ULID has nothing to be cited *by*. Gating that at zero would have failed the
 nightly and emailed the operator every time a committee was created. Those roles
 are counted apart as `unregistered_roles` and reported, not gated; the
 **persistent** case is caught by `registry_coverage`, which re-reads the registry
-after the registrar rather than the artifact built before it. Ratcheted — `uncited_persons`, baseline **2**: the two Elmer E.
-Johnstons sharing the fold `elmerejohnston`, which the citer refuses to guess
-between. Was 3 — the registered WSL member no wire names left the count when
-#366 merged him with the roster entity that cites him. Counted only —
+after the registrar rather than the artifact built before it. Ratcheted — `uncited_persons`, baseline **0** since #525. It was 2, the two
+Elmer E. Johnstons sharing the fold `elmerejohnston`, which the citer refuses to
+guess between; a fold an adjudicated split shares (`identity.split_folds`) now
+cites each row through its own key instead, so they and the `juriebsmith` widow
+split are cited, and every other shared fold keeps the guard. Was 3 before that
+— the registered WSL member no wire names left the count when #366 merged him
+with the roster entity that cites him. Counted only —
 `structural_organizations` (11: the Legislature, both chambers, eight parties),
 definitional rows from `usa_wa_common.orgs` that no wire could attest, kept out
 of `uncited_organizations` so a zero gate stays meaningful. Measured clean

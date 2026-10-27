@@ -99,6 +99,14 @@ power-map-resolved legislator — the #364 shape again, one issue later. The fol
 still reads the RAW printed name, so no registry key moves; only what publishes
 is stripped. `tests/persons_unannotated.sql` gates it at zero.
 
+**A split fold names each side from its own rows** (#525). Roster survivorship
+picks the newest row *per fold*, which is one person everywhere but an
+adjudicated split: there both entities read the fold's newest row, and Jurie B.
+Smith published his widow's printed form. A split fold now selects per side
+(`identity.split_part`), matched to the registry key through `identity_keys`;
+every other fold keeps the fold-only lookup, so no other name moves. Her
+`OWN_NAMES` entry is keyed `juriebsmith:1943`, her own key.
+
 **Nor is a seat designator** (#367). The roster prints #229's Position signal
 into the name cell on LD-19/LD-39 — `John Wynne – 39A` — and 8 of 3,117 rows
 published it. `_display_name` applies `strip_position_suffix` *after*
@@ -149,13 +157,14 @@ build the table is the hand-review work order — both sides of every pair, sinc
 which id survives a merge is an adjudication and not something a gate may
 presume.
 
-**14 of the 17, and the allowlist is three.** The fold keeps middle initials, so
+**14 of the 17, and the allowlist is four.** The fold keeps middle initials, so
 `Stanley Johnson` / `Stanley C. Johnson` and the two Salings are invisible here.
 Loosening it to first-given-plus-surname recovers two and collides 42 groups over
 88 rows — including `N. B. Atkinson` / `N. P. Atkinson`, which
 `roster_pdf/identity.py` documents as distinct on five grounds; the miss is the
-bought half of that trade. What legitimately collides is three folds: every
-`IDENTITY_SPLITS` key **by derivation**, since a roster split mints two entities
+bought half of that trade. What legitimately collides is four folds: every
+adjudicated split's fold **by derivation** (`split_folds`: `elmerejohnston`, and
+the `juriebsmith` widow split, #525), since a roster split mints two entities
 from one fold on purpose and restating them here would break the nightly the next
 time one is added; plus `bobmccaslin` and `briansullivan`, each carrying the
 evidence that settled it — an allowlist entry tells the build to stop looking
