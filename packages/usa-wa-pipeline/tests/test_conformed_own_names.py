@@ -92,3 +92,25 @@ def test_an_entry_whose_key_is_unregistered_is_reported() -> None:
     table = (OwnName("gone:1953", "Mrs. Gone", "Gone", "C", "e"),)
     rows = person_rows([], sponsors=[], roster=[], pdc=[], own_names=table)
     assert unmatched_own_names(rows, [], table) == list(table)
+
+
+def test_nettie_luella_smiths_entry_names_her_key_not_her_husbands() -> None:
+    """#525: the widow split mints her under `juriebsmith:1943`. The entry follows her, so
+    his entity publishes his own name with no `name_own`, and hers carries both."""
+    (entry,) = [e for e in OWN_NAMES if e.own == "Nettie Luella Smith"]
+    assert entry.roster_key == "juriebsmith:1943"
+    crosswalk = [_crosswalk("01H", "juriebsmith:1933"), _crosswalk("01W", "juriebsmith:1943")]
+    roster = [
+        _roster("Jurie B. Smith", 1933),
+        _roster("Jurie B. Smith", 1943),
+        _roster("Mrs. Jurie B. Smith", 1943),
+        _roster("Mrs. Jurie B.(Nettie Luella) Smith", 1945),
+    ]
+    rows = person_rows(crosswalk, sponsors=[], roster=roster, pdc=[])
+    by_id = {r["entity_id"]: r for r in rows}
+    assert (by_id["01H"]["name_full"], by_id["01H"]["name_own"]) == ("Jurie B. Smith", None)
+    assert (by_id["01W"]["name_full"], by_id["01W"]["name_own"]) == (
+        "Mrs. Jurie B.(Nettie Luella) Smith",
+        "Nettie Luella Smith",
+    )
+    assert entry not in unmatched_own_names(rows, crosswalk)

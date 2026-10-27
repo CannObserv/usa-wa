@@ -621,3 +621,54 @@ def test_a_retired_committee_reads_inactive_on_a_current_roster_too() -> None:
         retired={ORG_CROSSWALK[0]["entity_id"]},
     )
     assert row["active"] is False
+
+
+# --- an adjudicated split names each side from its own rows (#525) ------------
+
+
+def _roster_key(entity_id: str, key_value: str) -> dict:
+    return {
+        "entity_id": entity_id,
+        "key_namespace": "usa_wa_legislature_roster",
+        "key_value": key_value,
+        "merged_into": None,
+    }
+
+
+def _roster_row(year: int, name: str, district: int = 32) -> dict:
+    return {"year": year, "name": name, "district": district, "chamber": "house"}
+
+
+def test_a_widow_split_names_him_from_his_rows_and_her_from_hers() -> None:
+    """Survivorship was keyed by fold, so both sides of a split read the fold's newest
+    row: his entity published her printed form. Each side now reads its own rows."""
+    crosswalk = [_roster_key("01H", "juriebsmith:1941"), _roster_key("01W", "juriebsmith:1943")]
+    roster = [
+        _roster_row(1941, "Jurie B. Smith"),
+        _roster_row(1943, "Jurie B. Smith"),
+        _roster_row(1943, "Mrs. Jurie B. Smith"),
+        _roster_row(1945, "Mrs. Jurie B.(Nettie Luella) Smith"),
+    ]
+
+    by_id = {r["entity_id"]: r for r in person_rows(crosswalk, sponsors=[], roster=roster, pdc=[])}
+
+    assert by_id["01H"]["name_full"] == "Jurie B. Smith"
+    assert by_id["01W"]["name_full"] == "Mrs. Jurie B.(Nettie Luella) Smith"
+
+
+def test_a_year_split_names_each_side_from_its_own_rows() -> None:
+    """The latent half of the same defect: the two Elmer E. Johnstons print alike today,
+    which is all that hid it. A printed difference must stay on its own side."""
+    crosswalk = [
+        _roster_key("01E", "elmerejohnston:1899"),
+        _roster_key("01F", "elmerejohnston:1947"),
+    ]
+    roster = [
+        _roster_row(1899, "Elmer E. Johnston", 44),
+        _roster_row(1947, "Hon. Elmer E. Johnston", 6),
+    ]
+
+    by_id = {r["entity_id"]: r for r in person_rows(crosswalk, sponsors=[], roster=roster, pdc=[])}
+
+    assert by_id["01E"]["name_full"] == "Elmer E. Johnston"
+    assert by_id["01F"]["name_full"] == "Hon. Elmer E. Johnston"
