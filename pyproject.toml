@@ -53,8 +53,17 @@ markers = [
     "integration: marks tests that hit live external services or a real database; excluded by default (run with -m integration)",
     "db: marks tests that need PostgreSQL; applied automatically to anything resolving the test_engine/db_session fixtures, and by hand where a test opens its own engine. The unit tier is `-m 'not db and not integration'` and needs no database (#185) — spell out both, since -m is last-wins against addopts and the bare `-m 'not db'` form silently re-enables the integration tier",
 ]
+# A deprecation fails the suite, whichever class carries it (#544). DeprecationWarning
+# alone misses two kinds: its siblings Pending/Future, and the UserWarning subclasses
+# starlette, fastapi, uvicorn and cryptography use for theirs (starlette 1.3's "install
+# httpx2" notice is one). All of UserWarning is an error, not a list of subclasses, so a
+# new dependency's own subclass is caught too. The suite emits none today (2026-10-27).
+# ResourceWarning stays off: it fires at garbage collection, in whichever test runs then.
 filterwarnings = [
     "error::DeprecationWarning",
+    "error::PendingDeprecationWarning",
+    "error::FutureWarning",
+    "error::UserWarning",
 ]
 # The unit tier's coverage profile (#198), applied by `conftest_coverage.py` whenever a
 # run selects the whole workspace minus every `db`/`integration` test. Scope is a glob,
