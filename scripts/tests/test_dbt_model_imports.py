@@ -239,8 +239,11 @@ def test_a_real_violation_in_a_model_is_rejected(tmp_path, probe, contract):
 
     passed, builder, report = lint(tmp_path)
 
-    output = " ".join(report.split())
-    assert not passed, f"the linter accepted an illegal model import:\n{output}"
-    assert f"{contract} BROKEN" in output, output
-    assert model_module(tmp_path, probe_path) in output, output
+    # Rich wraps the report to the console width (COLUMNS, or the terminal pytest runs in),
+    # dropping the space before a wrapped verdict and folding a long module name mid-word,
+    # so compare with every whitespace character removed.
+    squashed = "".join(report.split())
+    assert not passed, f"the linter accepted an illegal model import:\n{report}"
+    assert "".join(f"{contract} BROKEN".split()) in squashed, report
+    assert model_module(tmp_path, probe_path) in squashed, report
     assert len(builder.grafted) == len(model_files(DBT_PROJECT)) + 1

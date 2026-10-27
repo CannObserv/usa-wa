@@ -183,8 +183,10 @@ def test_the_glob_found_the_workspace():
 def test_the_scan_reaches_the_pipeline_models():
     """The pipeline's dbt models are in its scan (#535) — one entry per model."""
     pipeline = REPO / "packages" / "usa-wa-pipeline"
-    scanned = {module for module, _ in _imports(pipeline) if module.startswith("models.")}
-    assert len(scanned) == len(model_files(pipeline / "dbt")) > 1
+    dbt = pipeline / "dbt"
+    models = {_module_name(dbt, path) for path in model_files(dbt)}
+    scanned = {module for module, _ in _imports(pipeline)}
+    assert len(models) > 1 and models <= scanned, sorted(models - scanned)
 
 
 def test_every_third_party_import_is_declared():

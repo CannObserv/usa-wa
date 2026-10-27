@@ -283,5 +283,6 @@ def test_a_real_violation_is_rejected(module, illegal_import, contract):
     output = result.stdout + result.stderr
     assert result.returncode != 0, f"the linter accepted an illegal import:\n{output}"
     # The report wraps at the terminal width, so a long contract name can break across
-    # lines; compare with whitespace folded.
-    assert f"{contract} BROKEN" in " ".join(output.split()), output
+    # lines — and a verdict wrapped onto the next line loses its leading space (#535:
+    # "…a transportBROKEN" at COLUMNS=50). Compare with all whitespace removed.
+    assert "".join(f"{contract} BROKEN".split()) in "".join(output.split()), output

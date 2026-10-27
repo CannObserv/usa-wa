@@ -15,13 +15,14 @@ from pathlib import Path
 import yaml
 
 #: dbt's own default when ``dbt_project.yml`` names no ``model-paths``.
-DEFAULT_MODEL_PATHS = ["models"]
+DEFAULT_MODEL_PATHS = ("models",)
 
 
 def model_paths(dbt_project: Path) -> list[str]:
     """The project's ``model-paths`` (relative to ``dbt_project``), as its config names them."""
     config = yaml.safe_load((dbt_project / "dbt_project.yml").read_text()) or {}
-    return config.get("model-paths", DEFAULT_MODEL_PATHS)
+    paths = config.get("model-paths")
+    return list(DEFAULT_MODEL_PATHS if paths is None else paths)
 
 
 def model_files(dbt_project: Path) -> list[Path]:
