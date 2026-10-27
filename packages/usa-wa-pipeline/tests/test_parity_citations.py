@@ -124,29 +124,23 @@ def test_a_sourced_org_with_no_citation_fails(tmp_path) -> None:
     assert "uncited_organizations" in failures
 
 
-def test_uncited_persons_are_ratcheted_not_gated(tmp_path) -> None:
-    """Two today, both understood: the Elmer E. Johnstons whose shared fold the
-    citer refuses to guess at. A zero gate would be a lie; an unwatched counter
-    would let the number grow. Was three — #366 merged the WSL member no
+def test_uncited_persons_ratchet_is_zero(tmp_path) -> None:
+    """Zero since #525: the two Elmer E. Johnstons, whose shared fold the citer
+    refused to guess at, are cited through their own keys now that a split
+    fold resolves by its split rule. Was three — #366 merged the WSL member no
     staging row named into the roster entity that does cite him."""
-    path = _db(tmp_path, citations=[], fetches=[], persons=["01A", "01B"])
+    assert parity_citations.BASELINE_UNCITED_PERSONS == 0
+    path = _db(tmp_path, citations=[], fetches=[], persons=[])
     counters, failures = parity_citations.audit(path)
-    assert counters["uncited_persons"] == 2
+    assert counters["uncited_persons"] == 0
     assert failures == []
 
 
 def test_a_person_gap_past_the_baseline_fails(tmp_path) -> None:
-    path = _db(tmp_path, citations=[], fetches=[], persons=["01A", "01B", "01C"])
-    counters, failures = parity_citations.audit(path)
-    assert counters["uncited_persons"] == 3
-    assert "uncited_persons" in failures
-
-
-def test_the_baseline_is_a_ceiling_not_an_expectation(tmp_path) -> None:
-    """A run that cites MORE than the baseline expects is progress, not drift."""
     path = _db(tmp_path, citations=[], fetches=[], persons=["01A"])
-    _, failures = parity_citations.audit(path)
-    assert failures == []
+    counters, failures = parity_citations.audit(path)
+    assert counters["uncited_persons"] == 1
+    assert "uncited_persons" in failures
 
 
 def test_a_missing_artifact_is_a_failure_not_an_empty_pass(tmp_path) -> None:

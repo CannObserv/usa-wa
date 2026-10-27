@@ -17,7 +17,7 @@ published is unreachable from a citation.
 **Gated at zero** (:data:`INTEGRITY_COUNTERS`): a citation naming a resource
 ``stg_raw_fetches`` does not carry, and any uncited assignment, *registered*
 role or sourced organization. **Ratcheted** against a documented baseline:
-uncited persons — see :data:`BASELINE_UNCITED_PERSONS`. **Counted only**:
+uncited persons — see :data:`BASELINE_UNCITED_PERSONS` (zero since #525). **Counted only**:
 structural organizations, which are definitional and uncitable by construction,
 and unregistered roles, which are one build behind the registrar by design.
 
@@ -73,20 +73,19 @@ INTEGRITY_COUNTERS = (
     "uncited_organizations",
 )
 
-#: Persons no staging row names, measured 2026-09-10 against the live corpus:
+#: Persons no staging row names. **Zero since #525** (2026-10-27): the two
+#: **Elmer E. Johnston** entities (1899 and 1947) share the fold
+#: ``elmerejohnston``, and the citer refused an ambiguous fold rather than
+#: attribute one man's career to the other — the Jr/Sr guard doing its job. An
+#: adjudicated split now cites through its own rule (``identity.split_part``),
+#: so both are cited, and so are Jurie B. Smith and his widow.
 #:
-#: - the two **Elmer E. Johnston** entities (1899 and 1947), which share the
-#:   fold ``elmerejohnston``. The citer refuses an ambiguous fold rather than
-#:   attributing one man's career to the other — the Jr/Sr guard doing its job.
-#:
-#: Was 3. ``usa_wa_legislature:31656`` — registered, and still named by no
+#: Was 3, then 2. ``usa_wa_legislature:31656`` — registered, and named by no
 #: sponsor or committee wire — left this count when #366 merged him with the
-#: roster entity that his 1977-85 listings had minted: the merged entity is
-#: cited at the roster wire, so the cause was resolved rather than excused.
+#: roster entity that his 1977-85 listings had minted.
 #:
-#: A ceiling, not an expectation: citing more than this is progress. Lower it
-#: when the causes are fixed; never raise it without naming the new one.
-BASELINE_UNCITED_PERSONS = 2
+#: A ceiling: never raise it without naming the new cause.
+BASELINE_UNCITED_PERSONS = 0
 
 
 class ArtifactMissing(RuntimeError):
