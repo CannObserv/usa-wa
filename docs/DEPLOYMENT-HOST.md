@@ -300,6 +300,9 @@ git diff origin/main -- uv.lock | grep -E '^[ +-](name|version) = '   # every ve
 bash scripts/audit-lock.sh    # each package still listed: uv lock --upgrade-package <name>, commit, push
 # lock moved ruff? bump .pre-commit-config.yaml's ruff-pre-commit rev to match, commit, or
 #   scripts/tests/test_ruff_pin.py fails pre-ship (#504: hook 0.15.14, lock 0.17.0)
+# lock moved pre-commit's tree (#530: filelock, virtualenv)? the commit hook still runs the
+#   prod venv's pre-commit on cached hook envs, so gate the hooks on this lock, fresh:
+PRE_COMMIT_HOME=$(mktemp -d) uv run pre-commit run --all-files
 bash scripts/pre-ship.sh      # the PR's only gate
 git push                      # the PR head must be the tree pre-ship gated
 ```
