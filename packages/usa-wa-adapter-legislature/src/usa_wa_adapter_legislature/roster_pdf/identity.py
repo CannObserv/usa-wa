@@ -474,6 +474,15 @@ def resolve_identities(
                     f"{sorted(r.year for r in sides[True])} — the edition no longer prints "
                     "the adjudicated shape; re-adjudicate IDENTITY_WIDOW_SPLITS"
                 )
+            firsts = [min(r.year for r in part) for part in sides.values() if part]
+            if len(firsts) != len(set(firsts)):
+                # A key is `<fold>:<first year>`: two sides first listed in one year would
+                # put two people behind one registry key (CR 2). A year split cannot; a
+                # widow whose husband died in his first term can.
+                raise ValueError(
+                    f"split {fold!r} mints both sides as {fold}:{firsts[0]} — two people "
+                    "under one key; adjudicate a distinguishable key before splitting"
+                )
             for part in sides.values():
                 if part:
                     mint(fold, part)

@@ -629,3 +629,15 @@ def test_widow_split_refuses_her_row_on_his_side_after_hers_begin() -> None:
     ]
     with pytest.raises(ValueError, match="juriebsmith"):
         resolve_identities(rows, seatings=(), widow_splits={"juriebsmith": "his widow"})
+
+
+def test_a_split_whose_sides_share_a_first_year_refuses() -> None:
+    """CR 2: a husband who died in his first term and the widow appointed to it are both
+    first listed in one year, so both sides would mint ``<fold>:<year>`` — two people
+    behind one registry key. Loud, naming the fold, rather than merged downstream."""
+    rows = [
+        _rec("John Doe", 1943, order=1, annotation="Deceased November 17, 1942"),
+        _rec("Mrs. John Doe", 1943, order=2, annotation="Appointed to serve unexpired term"),
+    ]
+    with pytest.raises(ValueError, match="johndoe:1943"):
+        resolve_identities(rows, seatings=(), widow_splits={"johndoe": "his widow"})
