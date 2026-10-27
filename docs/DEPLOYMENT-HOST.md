@@ -302,7 +302,7 @@ bash scripts/audit-lock.sh    # each package still listed: uv lock --upgrade-pac
 #   scripts/tests/test_ruff_pin.py fails pre-ship (#504: hook 0.15.14, lock 0.17.0)
 # lock moved pre-commit's tree (#530: filelock, virtualenv)? the commit hook still runs the
 #   prod venv's pre-commit on cached hook envs, so gate the hooks on this lock, fresh:
-PRE_COMMIT_HOME=$(mktemp -d) uv run pre-commit run --all-files
+h=$(mktemp -d); PRE_COMMIT_HOME=$h uv run --frozen --no-sync pre-commit run --all-files; rm -rf "$h"
 bash scripts/pre-ship.sh      # the PR's only gate
 git push                      # the PR head must be the tree pre-ship gated
 ```
