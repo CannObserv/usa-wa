@@ -213,7 +213,8 @@ async def adjudicate_register(
     earlier row re-keys a person already registered under the same fold (CR 1).
     That shape is refused too, naming the bound keys — it is a ``move`` — unless
     ``distinct_person`` records that a human judged the namesake a different
-    person (the ``IDENTITY_SPLITS`` shape).
+    person (the ``IDENTITY_SPLITS`` year shape, or the ``IDENTITY_WIDOW_SPLITS``
+    shape: a widow printed under her husband's name, #525).
 
     Only that key shape is accepted (CR 9): ``persons`` publishes one row per live
     entity, so minting for a mistyped or out-of-scope key — a WSL id is the
