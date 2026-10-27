@@ -641,3 +641,12 @@ def test_a_split_whose_sides_share_a_first_year_refuses() -> None:
     ]
     with pytest.raises(ValueError, match="johndoe:1943"):
         resolve_identities(rows, seatings=(), widow_splits={"johndoe": "his widow"})
+
+
+def test_no_alias_reaches_a_split_fold() -> None:
+    """CR 3: the resolver aliases a fold before asking ``split_part``; the pipeline's
+    survivorship and citer test split membership on the printed fold. They agree only
+    while no alias maps a spelling into — or out of — a split fold. Adding one must
+    teach those readers to alias first."""
+    aliased = set(IDENTITY_ALIASES) | set(IDENTITY_ALIASES.values())
+    assert not aliased & split_folds()
