@@ -12,7 +12,8 @@ not every deprecation is a ``DeprecationWarning``:
 
 So ``filterwarnings`` in the root ``pyproject.toml`` turns all four stdlib
 categories into errors. Each case below emits its warning inside a test, under the
-live filters, and passes only if the filter raised it.
+live filters: a deprecation passes only if the filter raised it, and pytest's own
+out-of-band warnings pass only if it did not.
 """
 
 from __future__ import annotations
@@ -50,17 +51,33 @@ def test_any_user_warning_subclass_fails_the_suite() -> None:
         warnings.warn("#544 tripwire", _NewDependencyWarning, stacklevel=1)
 
 
-@pytest.mark.parametrize(
-    "category",
-    [
-        # Raised before conftest_coverage registers its ini keys under --noconftest.
-        pytest.PytestConfigWarning,
-        # Both fire where the collector or thread happens to land, not in their own test.
-        pytest.PytestUnraisableExceptionWarning,
-        pytest.PytestUnhandledThreadExceptionWarning,
-    ],
-)
-def test_pytests_own_out_of_band_warnings_stay_warnings(category: type[Warning]) -> None:
+def _pytest_warnings(*, deprecations: bool) -> list[type[Warning]]:
+    """pytest's exported warning classes, its own deprecations or everything else."""
+    found = [
+        obj
+        for obj in vars(pytest).values()
+        if isinstance(obj, type) and issubclass(obj, pytest.PytestWarning)
+    ]
+    return sorted(
+        (c for c in found if issubclass(c, pytest.PytestDeprecationWarning) == deprecations),
+        key=lambda c: c.__name__,
+    )
+
+
+@pytest.mark.parametrize("category", _pytest_warnings(deprecations=False), ids=lambda c: c.__name__)
+def test_pytests_own_warnings_stay_warnings(category: type[Warning]) -> None:
+    """PytestWarning subclasses UserWarning, but stays what it was before #544.
+
+    Several land out of band, where an error is an INTERNALERROR or fails an unrelated
+    test: a config warning under --noconftest, an unwritable cache at session end, an
+    unraisable or thread exception wherever the collector or thread reaches.
+    """
     with warnings.catch_warnings(record=True) as caught:
         warnings.warn("#544 not a deprecation", category, stacklevel=1)
     assert [w.category for w in caught] == [category]
+
+
+@pytest.mark.parametrize("category", _pytest_warnings(deprecations=True), ids=lambda c: c.__name__)
+def test_pytests_own_deprecations_still_fail_the_suite(category: type[Warning]) -> None:
+    with pytest.raises(category):
+        warnings.warn("#544 tripwire", category, stacklevel=1)

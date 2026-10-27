@@ -59,18 +59,18 @@ markers = [
 # httpx2" notice is one). All of UserWarning is an error, not a list of subclasses, so a
 # new dependency's own subclass is caught too. The suite emits none today (2026-10-27).
 # ResourceWarning stays off: it fires at garbage collection, in whichever test runs then.
-# pytest's own warnings subclass UserWarning too, so the three that land out of band go
-# back to warnings (later entries win): unraisable and thread exceptions surface in
-# whichever test the collector or thread reaches, and a config warning under --noconftest
-# (conftest_coverage's ini keys unregistered) would be an INTERNALERROR.
+# pytest's own warnings subclass UserWarning too, so PytestWarning goes back to what it
+# was (later entries win), and pytest's own deprecations then back to errors. Several
+# land out of band, where an error is an INTERNALERROR or fails an unrelated test: a
+# config warning under --noconftest, an unwritable cache_dir at session end, unraisable
+# and thread exceptions wherever the collector or thread reaches.
 filterwarnings = [
     "error::DeprecationWarning",
     "error::PendingDeprecationWarning",
     "error::FutureWarning",
     "error::UserWarning",
-    "default::pytest.PytestConfigWarning",
-    "default::pytest.PytestUnraisableExceptionWarning",
-    "default::pytest.PytestUnhandledThreadExceptionWarning",
+    "default::pytest.PytestWarning",
+    "error::pytest.PytestDeprecationWarning",
 ]
 # The unit tier's coverage profile (#198), applied by `conftest_coverage.py` whenever a
 # run selects the whole workspace minus every `db`/`integration` test. Scope is a glob,
