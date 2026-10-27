@@ -8,10 +8,12 @@ rested on a floor it did not state. ``import-linter`` cannot see this — it run
 with ``include_external_packages = false`` and checks layering, not
 declarations.
 
-* **Scope: third-party imports in ``packages/<p>/src``.** Standard-library
-  and relative imports are out; workspace siblings have their own bullet
-  below. Function-local imports count — an import that runs is a
-  dependency wherever it sits.
+* **Scope: third-party imports in ``packages/<p>/src``, and in its dbt Python
+  models (#535).** A package's models (``packages/<p>/dbt``, under the
+  ``model-paths`` its ``dbt_project.yml`` names) are its code too, though they
+  sit outside ``src``. Standard-library and relative imports are out;
+  workspace siblings have their own bullet below. Function-local imports
+  count — an import that runs is a dependency wherever it sits.
 * **Workspace siblings, the same rule (#533).** ``usa-wa-pipeline`` imported
   ``usa-wa-facts-seats``, ``usa-wa-common`` and the domain without declaring
   any of them; facts arrived only because the root ``dev`` group installs every
@@ -43,6 +45,7 @@ from importlib.metadata import packages_distributions
 from pathlib import Path
 
 import pytest
+from dbt_models import model_files
 
 REPO = Path(__file__).resolve().parents[2]
 PYPROJECTS = sorted(REPO.glob("packages/*/pyproject.toml"))
@@ -74,12 +77,26 @@ def _module_name(src: Path, path: Path) -> str:
     return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
 
 
-def _imports(src: Path) -> set[tuple[str, str]]:
-    """``(importing module, imported top-level name)`` for every absolute import under ``src``,
-    function-local ones included."""
+def _sources(package: Path) -> list[tuple[Path, Path]]:
+    """``(root, file)`` for every Python file a package ships: ``src``, and its dbt models.
+
+    A model's module name is taken relative to the dbt project (``models.staging.stg_x``),
+    so no ``ignore_imports`` entry can name one: a model's import is never excused.
+    """
+    src = package / "src"
+    files = [(src, path) for path in src.rglob("*.py")]
+    dbt = package / "dbt"
+    if (dbt / "dbt_project.yml").is_file():
+        files += [(dbt, path) for path in model_files(dbt)]
+    return files
+
+
+def _imports(package: Path) -> set[tuple[str, str]]:
+    """``(importing module, imported top-level name)`` for every absolute import a package's
+    code makes (see :func:`_sources`), function-local ones included."""
     pairs: set[tuple[str, str]] = set()
-    for path in src.rglob("*.py"):
-        module = _module_name(src, path)
+    for root, path in _sources(package):
+        module = _module_name(root, path)
         for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
             if isinstance(node, ast.Import):
                 pairs.update((module, alias.name.split(".")[0]) for alias in node.names)
@@ -88,9 +105,10 @@ def _imports(src: Path) -> set[tuple[str, str]]:
     return pairs
 
 
-def _top_level_imports(src: Path) -> set[str]:
-    """Every absolute import's top-level name under ``src``, function-local ones included."""
-    return {top for _, top in _imports(src)}
+def _top_level_imports(package: Path) -> set[str]:
+    """Every absolute import's top-level name in a package's code, function-local ones
+    included."""
+    return {top for _, top in _imports(package)}
 
 
 def _workspace_distributions(pyprojects: list[Path]) -> dict[str, str]:
@@ -111,11 +129,11 @@ def _workspace_modules(pyprojects: list[Path]) -> set[str]:
 def undeclared(
     pyproject: Path, distributions: Mapping[str, list[str]], workspace: set[str]
 ) -> set[str]:
-    """The third-party top-level imports in a package's ``src`` it does not declare."""
+    """The third-party top-level imports in a package's code it does not declare."""
     declared = _declared(pyproject)
     return {
         top
-        for top in _top_level_imports(pyproject.parent / "src")
+        for top in _top_level_imports(pyproject.parent)
         if top not in sys.stdlib_module_names
         and top not in workspace
         and not {_normalize(d) for d in distributions.get(top, [])} & declared
@@ -149,17 +167,26 @@ def _ignored_imports(root_pyproject: Path) -> set[tuple[str, str]]:
 def undeclared_siblings(
     pyproject: Path, workspace: Mapping[str, str], ignored: set[tuple[str, str]]
 ) -> set[str]:
-    """The workspace members a package's ``src`` imports without declaring them."""
+    """The workspace members a package's code imports without declaring them."""
     declared = _declared(pyproject) | {_normalize(_project(pyproject)["name"])}
     return {
         workspace[top]
-        for module, top in _imports(pyproject.parent / "src")
+        for module, top in _imports(pyproject.parent)
         if top in workspace and workspace[top] not in declared and (module, top) not in ignored
     }
 
 
 def test_the_glob_found_the_workspace():
     assert len(PYPROJECTS) > 1, "found no workspace members - the glob broke"
+
+
+def test_the_scan_reaches_the_pipeline_models():
+    """The pipeline's dbt models are in its scan (#535) — one entry per model."""
+    pipeline = REPO / "packages" / "usa-wa-pipeline"
+    dbt = pipeline / "dbt"
+    models = {_module_name(dbt, path) for path in model_files(dbt)}
+    scanned = {module for module, _ in _imports(pipeline)}
+    assert len(models) > 1 and models <= scanned, sorted(models - scanned)
 
 
 def test_every_third_party_import_is_declared():
@@ -273,3 +300,30 @@ def test_an_import_the_layers_contract_ignores_is_not_a_sibling_dependency(tmp_p
     assert undeclared_siblings(pyproject, workspace, ignored) == {
         "clearinghouse-domain-legislative"
     }
+
+
+def _fake_dbt_models(pyproject: Path, models: dict[str, str]) -> None:
+    dbt = pyproject.parent / "dbt"
+    (dbt / "models").mkdir(parents=True)
+    (dbt / "dbt_project.yml").write_text('model-paths: ["models"]\n')
+    for name, body in models.items():
+        (dbt / "models" / name).write_text(body)
+    # dbt's compiled copies: not code the package ships, so not scanned.
+    (dbt / "target").mkdir()
+    (dbt / "target" / "stale.py").write_text("import not_scanned_at_all\n")
+
+
+def test_a_dbt_model_counts_as_part_of_its_package(tmp_path):
+    """The pipeline's models sit outside ``src`` and were scanned by neither rule (#535)."""
+    pyproject = _fake_package(tmp_path, declares=["httpx>=0.27,<1"], modules={})
+    _fake_dbt_models(
+        pyproject,
+        {
+            "stg_a.py": "import httpx\nimport pandas\n",
+            "stg_b.py": "def model(dbt, session):\n    import usa_wa_facts_seats\n",
+        },
+    )
+    distributions = {"httpx": ["httpx"], "pandas": ["pandas"]}
+    assert undeclared(pyproject, distributions, {"fake", "usa_wa_facts_seats"}) == {"pandas"}
+    workspace = {"fake": "fake", "usa_wa_facts_seats": "usa-wa-facts-seats"}
+    assert undeclared_siblings(pyproject, workspace, set()) == {"usa-wa-facts-seats"}

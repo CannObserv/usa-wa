@@ -157,6 +157,13 @@ known-first-party = [
 # Run: `uv run lint-imports`. Wired into the same gate ruff runs in
 # (`.pre-commit-config.yaml`) and pinned by `scripts/tests/test_import_contracts.py`,
 # which also proves the contracts *fire* rather than merely parse.
+#
+# `lint-imports` reads `root_packages` only, so it never sees the pipeline's dbt
+# Python models (`packages/usa-wa-pipeline/dbt/models/`, outside `src/`).
+# `scripts/tests/test_dbt_model_imports.py` covers them (#535): it grafts each
+# model into the graph as `usa_wa_pipeline.dbt.models.*` and runs every contract
+# below over it, so a contract naming `usa_wa_pipeline` binds the models too. That
+# check runs in the test suite, not in this pre-commit hook.
 # ---------------------------------------------------------------------------
 [tool.importlinter]
 root_packages = [
@@ -184,8 +191,10 @@ layers = [
     # than inherit a slot.
     "usa_wa_api",
     # The pipeline sits above facts (#533). Its models import adapter parsers
-    # (never a transport), and its conformed models compose facts' pure seat
-    # logic (`conformed.house` since #309, `conformed.movers` since #490).
+    # (never a transport; the dbt models are held to that by
+    # `test_dbt_model_imports.py`, not by `lint-imports` — #535), and its
+    # conformed models compose facts' pure seat logic (`conformed.house` since
+    # #309, `conformed.movers` since #490).
     # Facts may not import the pipeline. Until #533 the two shared one entry as
     # "usa_wa_facts_seats : usa_wa_pipeline", commented as "neither may import
     # the other", but `:` separates *non-independent* siblings (`|` is the
@@ -259,7 +268,9 @@ type = "forbidden"
 allow_indirect_imports = true  # as above: an adapter legitimately owns its transport
 # usa_wa_pipeline sits under the same rule (#303): its staging models re-parse
 # the *archive* (raw/ files) through adapter parse functions; driving a wire
-# from a dbt model would put a harvest inside a transform.
+# from a dbt model would put a harvest inside a transform. The dbt models sit
+# outside `src/`, so `lint-imports` never sees them; `test_dbt_model_imports.py`
+# runs this contract over them (#535).
 source_modules = ["usa_wa_facts_seats", "usa_wa_pipeline"]
 forbidden_modules = [
     "usa_wa_adapter_legislature.transport",

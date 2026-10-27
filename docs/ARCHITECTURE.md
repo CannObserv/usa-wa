@@ -24,7 +24,10 @@ gates: [`PIPELINE.md`](PIPELINE.md).
 
 **The layering is a contract, not a description** (#189, AR-14). It is checked by
 `import-linter` (`uv run lint-imports`, in the pre-commit gate beside ruff; contracts in the
-root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py`):
+root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py`). The
+pipeline's dbt Python models sit outside `src/`, where `lint-imports` never looks;
+`scripts/tests/test_dbt_model_imports.py` runs every contract over them as part of
+`usa_wa_pipeline` (#535):
 
 - `usa_wa_adapter_* ↛ usa_wa_adapter_*` — an adapter never imports a peer
 - `usa_wa_api`, `usa_wa_facts_*`, `usa_wa_pipeline ↛ usa_wa_adapter_*.transport`
@@ -39,9 +42,10 @@ root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py
   name if it ever returns; the live ones are the two operator stores, which the pipeline reads
   through SQL and never imports
 
-**Declare what you import** (#527). Every third-party import under `packages/<p>/src` is
-declared in that package's own `[project].dependencies`, never inherited from a lower layer,
-because a floor you rely on has to be stated where you rely on it. Workspace siblings too
+**Declare what you import** (#527). Every third-party import under `packages/<p>/src`, and in
+the pipeline's dbt models (#535), is declared in that package's own `[project].dependencies`,
+never inherited from a lower layer, because a floor you rely on has to be stated where you rely
+on it. Workspace siblings too
 (#533): the pipeline got facts only through the root `dev` group. The single exception is
 the one the layers contract already names in `ignore_imports`.
 `scripts/tests/test_declared_dependencies.py` enforces this, with no exemption list of its own.

@@ -32,7 +32,9 @@ seat logic, and facts may never import the pipeline. Like facts, it may never im
 adapter `transport` — models re-parse the archive, they do not drive wires. Nor may it import the retired Postgres
 tier by any chain: the contract *The pipeline, the API and the raw harvests never import the
 retired Postgres tier* refuses a deleted module's name if it comes back (ARCHITECTURE.md lists
-the contracts).
+the contracts). The dbt Python models sit outside `src/`, where `lint-imports` never looks;
+`scripts/tests/test_dbt_model_imports.py` holds them to every contract in the test suite, not
+the pre-commit hook (#535).
 
 ## Commands
 
