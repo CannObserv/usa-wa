@@ -118,6 +118,17 @@ def test_the_facts_transport_contract_carries_no_exceptions():
     )
 
 
+def test_both_transport_bans_name_the_same_wires():
+    """The deployment's ban and the facts/pipeline ban list their transports separately, and
+    agree on purpose (#535): a wire no deployment may drive is one no fact or model may drive
+    either. Adding a transport to one list and not the other fails here rather than leaving
+    a layer silently able to drive it."""
+    by_name = {c["name"]: c for c in _contracts()}
+    deployment = by_name["Deployment packages never touch an adapter transport"]
+    facts = by_name["Facts and the pipeline never depend on a transport"]
+    assert sorted(deployment["forbidden_modules"]) == sorted(facts["forbidden_modules"])
+
+
 def test_the_tier_contract_follows_indirect_imports():
     """#412 PR F deleted the write path, so a chain through any module counts as much as a
     direct import: the pipeline reached ``span_emit`` only through ``roster_pdf.build``.
