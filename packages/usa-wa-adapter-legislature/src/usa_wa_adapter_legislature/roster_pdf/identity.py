@@ -20,7 +20,9 @@ that design as code, recalibrated by the #252 parse corrections:
   consecutive listing years gap more than :data:`WIDE_GAP_YEARS` with no adjudicated split
   is refused with its subject named — 15 groups measured, adjudicable by hand. The one
   near-certain two-person fold (``elmerejohnston``: an 1899 Populist in LD44 and a 1947-65
-  Republican in LD6) is split by :data:`IDENTITY_SPLITS`.
+  Republican in LD6) is split by :data:`IDENTITY_SPLITS`; a widow printed under her
+  husband's name (``juriebsmith``, #525) by :data:`IDENTITY_WIDOW_SPLITS`. Both go through
+  :func:`split_part`, the one rule every downstream reader of a row's identity asks.
 * **A fold crossing the 1991 floor joins the existing WSL member** — the roster key is a
   fallback for identities with no WSL counterpart, never a rival space. The join is
   seat-scoped surname match over the group's 1991+ rows, then the #240 given-name-initial
@@ -119,6 +121,28 @@ IDENTITY_SPLITS: dict[str, int] = {
     "elmerejohnston": 1947,
 }
 
+#: Adjudicated widow splits: fold → evidence. Inside a listed fold, the rows whose printed
+#: name **leads with the** ``Mrs.`` **honorific** are his widow's identity, keyed by her own
+#: earliest year; the rest stay his (#525). The roster prints a widow appointed to her
+#: husband's seat under his name, and the fold strips the honorific — so a year boundary
+#: cannot separate them where one session year lists both: his row carrying the death, hers
+#: the appointment.
+#:
+#: Read only for a listed fold. Measured on edition 2025-06-05 with this module's fold: 20
+#: rows lead with ``Mrs.`` across 8 folds, and ``juriebsmith`` is the only one mixing them
+#: with rows that do not — the other seven are one woman each (``OWN_NAMES`` in the
+#: pipeline). A listed fold whose split leaves either side empty raises: a new edition that
+#: drops the honorific must not fold her back into him silently.
+IDENTITY_WIDOW_SPLITS: dict[str, str] = {
+    "juriebsmith": (
+        "LD-32 House: Jurie B. Smith 'Deceased November 17, 1942' on his 1943 row; "
+        "Mrs. Jurie B. Smith 'Appointed to serve unexpired term' on hers, re-elected 1945 "
+        "(web.leg.wa.gov WomenInTheLegislature SmithNL)"
+    ),
+}
+
+_WIDOW_HONORIFIC = "mrs"
+
 #: The §3 join residue, adjudicated: fold → WSL member id, or ``None`` to mint a roster
 #: Person. These are the crossing names the guard rejects and the corroboration floor
 #: (correctly) declines to rescue.
@@ -166,6 +190,58 @@ def identity_fold(name: str) -> str:
     local copy of the set is the fork ``usa_wa_common.names`` exists to prevent (#256 CR).
     Verified equal to the two-stage form over all 2,494 minted roster names."""
     return "".join(folded_tokens(clean_name(name)))
+
+
+def split_folds() -> frozenset[str]:
+    """Every fold an adjudication mints as two identities — year and widow splits alike."""
+    return frozenset(IDENTITY_SPLITS) | frozenset(IDENTITY_WIDOW_SPLITS)
+
+
+def split_part(
+    fold: str,
+    name: str,
+    year: int,
+    *,
+    splits: Mapping[str, int] = IDENTITY_SPLITS,
+    widow_splits: Mapping[str, str] = IDENTITY_WIDOW_SPLITS,
+) -> bool | None:
+    """Which side of its fold's adjudicated split a row falls on, or ``None`` when the fold
+    has none. ``True`` is the later person: at or after a year boundary, or the widow.
+
+    The one statement of the rule: the resolver mints by it, and every reader that must
+    find a row's identity again — the departures probe, ``persons`` survivorship, the citer
+    — asks here rather than restating a boundary (#525)."""
+    if fold in widow_splits:
+        tokens = name.split()
+        return bool(tokens) and fold_token(tokens[0]) == _WIDOW_HONORIFIC
+    if fold in splits:
+        return year >= splits[fold]
+    return None
+
+
+def identity_keys(
+    rows: Iterable[tuple[str, int]],
+    *,
+    aliases: Mapping[str, str] = IDENTITY_ALIASES,
+    splits: Mapping[str, int] = IDENTITY_SPLITS,
+    widow_splits: Mapping[str, str] = IDENTITY_WIDOW_SPLITS,
+) -> list[str]:
+    """Each ``(printed name, year)``'s roster key value, ``<fold>:<first year>``, aligned
+    with ``rows``: aliased folds group as one person, and each side of a split is keyed by
+    its own earliest year — as :func:`resolve_identities` mints them.
+
+    The first year is taken over the rows given, so pass the whole corpus: a caller holding
+    one person's rows only would key them by that slice's minimum. The resolver's own
+    minimum is over pre-floor rows, which agrees for every fold that mints."""
+    parts: list[tuple[str, bool | None]] = []
+    first: dict[tuple[str, bool | None], int] = {}
+    for name, year in rows:
+        fold = identity_fold(name)
+        fold = aliases.get(fold, fold)
+        part = (fold, split_part(fold, name, year, splits=splits, widow_splits=widow_splits))
+        parts.append(part)
+        first[part] = min(year, first.get(part, year))
+    return [f"{fold}:{first[(fold, side)]}" for fold, side in parts]
 
 
 @dataclass(frozen=True)
@@ -332,6 +408,7 @@ def resolve_identities(
     seatings: Iterable[Seating],
     aliases: Mapping[str, str] = IDENTITY_ALIASES,
     splits: Mapping[str, int] = IDENTITY_SPLITS,
+    widow_splits: Mapping[str, str] = IDENTITY_WIDOW_SPLITS,
     adjudications: Mapping[str, str | None] = JOIN_ADJUDICATIONS,
     floor: int = ROSTER_IDENTITY_FLOOR,
 ) -> IdentityReport:
@@ -339,6 +416,9 @@ def resolve_identities(
 
     ``records`` should be the whole parse: rows at or above the floor are consumed as join
     evidence for their fold group and are never carried in an identity.
+
+    Raises ``ValueError`` for a widow split that finds one side empty
+    (:data:`IDENTITY_WIDOW_SPLITS`).
     """
     groups: dict[str, list[RosterRecord]] = defaultdict(list)
     for record in records:
@@ -367,17 +447,23 @@ def resolve_identities(
         if not pre:
             continue  # entirely WSL-era; nothing for the roster to identify
 
-        if fold in splits:
-            # A split group never reaches the 1991 join: both parts mint. Correct for the one
-            # shipped entry (neither Johnston crosses the floor); a future split on a
-            # *crossing* fold would need join handling per part first, or its post-floor rows
-            # silently anchor to nothing and the minted half duplicates a WSL identity — the
-            # §2 fork (CR #80).
-            boundary = splits[fold]
-            for part in (
-                [r for r in pre if r.year < boundary],
-                [r for r in pre if r.year >= boundary],
-            ):
+        if fold in splits or fold in widow_splits:
+            # A split group never reaches the 1991 join: both parts mint. Correct for the
+            # shipped entries (no Johnston and no Smith crosses the floor); a future split on
+            # a *crossing* fold would need join handling per part first, or its post-floor
+            # rows silently anchor to nothing and the minted half duplicates a WSL identity —
+            # the §2 fork (CR #80).
+            sides: dict[bool, list[RosterRecord]] = {False: [], True: []}
+            for r in pre:
+                side = split_part(fold, r.name, r.year, splits=splits, widow_splits=widow_splits)
+                sides[bool(side)].append(r)
+            if fold in widow_splits and not all(sides.values()):
+                raise ValueError(
+                    f"widow split {fold!r} finds {len(sides[False])} rows for him and "
+                    f"{len(sides[True])} printed 'Mrs.' for her — the edition no longer "
+                    "prints the adjudicated shape; re-adjudicate IDENTITY_WIDOW_SPLITS"
+                )
+            for part in sides.values():
                 if part:
                     mint(fold, part)
             continue

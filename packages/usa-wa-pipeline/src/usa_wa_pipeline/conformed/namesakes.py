@@ -27,8 +27,9 @@ entries against forty-two judgment calls to recover two of seventeen: the miss
 is the bought half of a trade, and the two go to hand review instead.
 
 **The allowlist is an adjudication, and reads what it can.** A roster split
-mints two entities from one fold *on purpose*, so every :data:`IDENTITY_SPLITS`
-key is a published collision by construction — derived rather than copied, or
+mints two entities from one fold *on purpose*, so every adjudicated split's
+fold (`split_folds`: the year and the widow tables) is a published collision by
+construction — derived rather than copied, or
 the next split added there would break the nightly until someone found the
 second file. What is left is :data:`DISTINCT_NAMESAKES`, whose entries carry
 their evidence because allowlisting a fold tells the build to stop looking at it
@@ -41,7 +42,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-from usa_wa_adapter_legislature.roster_pdf.identity import IDENTITY_SPLITS, identity_fold
+from usa_wa_adapter_legislature.roster_pdf.identity import identity_fold, split_folds
 
 #: The work order's shape: the grouping key first, then the row it names, so the
 #: table sorts into the pairs a reviewer adjudicates.
@@ -55,7 +56,7 @@ COLLISION_COLUMNS = list(COLLISION_SCHEMA)
 
 #: Folds published under two LIVE entities that are two different people, with
 #: the corpus evidence that settles each. Not roster splits — those derive from
-#: :data:`IDENTITY_SPLITS`; these are WSL-internal, two member ids apiece.
+#: ``split_folds``; these are WSL-internal, two member ids apiece.
 DISTINCT_NAMESAKES: dict[str, str] = {
     # Senate LD4 1981-2010 (WSL 268, also the roster's bobmccaslin:1981) against
     # House LD4 2015-2022 (WSL 20741, also wa_pdc:147). Disjoint in time,
@@ -72,7 +73,7 @@ DISTINCT_NAMESAKES: dict[str, str] = {
 
 def allowed_folds() -> frozenset[str]:
     """Every fold two live entities may share: the adjudicated splits plus the namesakes."""
-    return frozenset(DISTINCT_NAMESAKES) | frozenset(IDENTITY_SPLITS)
+    return frozenset(DISTINCT_NAMESAKES) | split_folds()
 
 
 def _fold(name: Any) -> str:

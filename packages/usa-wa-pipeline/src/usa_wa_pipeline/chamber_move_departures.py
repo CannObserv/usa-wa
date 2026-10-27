@@ -65,11 +65,7 @@ from clearinghouse_core.registry import KIND_PERSON
 from clearinghouse_domain_legislative.operator_events import KIND_DEPARTED
 from clearinghouse_domain_legislative.terms import parse_biennium
 from usa_wa_adapter_legislature.roster_pdf.audit import TERM_YEARS
-from usa_wa_adapter_legislature.roster_pdf.identity import (
-    IDENTITY_ALIASES,
-    IDENTITY_SPLITS,
-    identity_fold,
-)
+from usa_wa_adapter_legislature.roster_pdf.identity import identity_keys
 from usa_wa_pipeline.conformed.spans import ROSTER_SOURCE, SOURCE, entity_index
 from usa_wa_pipeline.operator_read import EventRow, operator_event_rows
 from usa_wa_pipeline.registry_read import crosswalk_rows
@@ -167,33 +163,24 @@ def _window_end(last_year: int) -> date:
     return date(last_year + 1, 2, 1)
 
 
-def _fold(name: str) -> str:
-    fold = identity_fold(name)
-    return IDENTITY_ALIASES.get(fold, fold)
-
-
 def roster_keys(rows: list[dict[str, Any]]) -> list[str | None]:
     """Each roster row's person key, aligned with ``rows`` (``None`` when nameless).
 
-    The registry's key, ``<namespace>:<fold>:<first-session-year>``: aliased folds
-    group as one person, and an adjudicated split keys each part by its own
-    earliest year, as ``identity.resolve_identities`` mints them.
+    The registry's key, ``<namespace>:<fold>:<first-session-year>``, by
+    ``identity.identity_keys`` — the resolver's own rule: aliased folds group as one
+    person, and each side of an adjudicated split (a boundary year, or a widow's
+    ``Mrs.`` rows, #525) is keyed by its own earliest year.
     """
-    groups: dict[tuple[str, bool | None], list[int]] = defaultdict(list)
-    parts: list[tuple[str, bool | None] | None] = []
-    for row in rows:
-        name = row.get("name")
-        if not isinstance(name, str) or not name.strip():
-            parts.append(None)
-            continue
-        fold = _fold(name)
-        boundary = IDENTITY_SPLITS.get(fold)
-        part = (fold, None if boundary is None else int(row["year"]) >= boundary)
-        groups[part].append(int(row["year"]))
-        parts.append(part)
-    return [
-        None if part is None else f"{ROSTER_SOURCE}:{part[0]}:{min(groups[part])}" for part in parts
+    named = [
+        index
+        for index, row in enumerate(rows)
+        if isinstance(row.get("name"), str) and row["name"].strip()
     ]
+    keys = identity_keys((rows[index]["name"], int(rows[index]["year"])) for index in named)
+    out: list[str | None] = [None] * len(rows)
+    for index, key in zip(named, keys, strict=True):
+        out[index] = f"{ROSTER_SOURCE}:{key}"
+    return out
 
 
 def evidence_windows(

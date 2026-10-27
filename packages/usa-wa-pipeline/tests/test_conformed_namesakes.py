@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from usa_wa_adapter_legislature.roster_pdf.identity import IDENTITY_SPLITS
+from usa_wa_adapter_legislature.roster_pdf.identity import split_folds
 from usa_wa_pipeline.conformed.namesakes import (
     COLLISION_COLUMNS,
     DISTINCT_NAMESAKES,
@@ -117,7 +117,7 @@ def test_the_roster_splits_are_allowed_by_derivation_not_by_copy() -> None:
     those folds here would mean the next split added there breaks the nightly
     until someone edits a second file — so the allowlist reads them.
     """
-    assert set(IDENTITY_SPLITS) <= allowed_folds()
+    assert split_folds() <= allowed_folds()
     assert "elmerejohnston" in allowed_folds()
     rows = collision_rows(
         [_person("A", "Elmer E. Johnston", "roster"), _person("B", "Elmer E. Johnston", "roster")]
@@ -125,9 +125,22 @@ def test_the_roster_splits_are_allowed_by_derivation_not_by_copy() -> None:
     assert rows == []
 
 
+def test_a_widow_split_is_allowed_by_the_same_derivation() -> None:
+    """#525: his `Jurie B. Smith` and her `Mrs. Jurie B.(Nettie Luella) Smith` fold alike,
+    and the widow table mints them apart on purpose."""
+    assert "juriebsmith" in allowed_folds()
+    rows = collision_rows(
+        [
+            _person("A", "Jurie B. Smith", "roster"),
+            _person("B", "Mrs. Jurie B.(Nettie Luella) Smith", "roster"),
+        ]
+    )
+    assert rows == []
+
+
 def test_the_two_allowlists_are_disjoint() -> None:
     """A fold in both is one of them stating something it does not own."""
-    assert not (set(DISTINCT_NAMESAKES) & set(IDENTITY_SPLITS))
+    assert not (set(DISTINCT_NAMESAKES) & split_folds())
 
 
 def test_every_namesake_entry_carries_its_evidence() -> None:
