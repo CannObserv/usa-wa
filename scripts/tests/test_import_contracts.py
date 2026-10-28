@@ -17,13 +17,14 @@ These tests pin five things:
 4. **the layer order says what it means** (#533): the pipeline is its own layer directly above
    facts, and every ``:`` sibling group is backed by an independence contract, because ``:``
    alone permits imports between the siblings it groups, and
-5. **every wire is banned** (#551): both transport bans list exactly the workspace's
-   ``transport`` modules, so a new wire cannot ship off the list the way
-   ``roster_pdf.transport`` did from #225 to #551.
+5. **every wire is banned** (#551): both transport bans list exactly the adapters'
+   ``transport`` modules, checked at commit by the ``transport-bans`` hook, so a new wire
+   cannot ship off the list the way ``roster_pdf.transport`` did from #225 to #551.
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tomllib
@@ -133,10 +134,14 @@ def test_both_transport_bans_name_the_same_wires():
 
 
 def transport_modules(packages: Path) -> set[str]:
-    """Every module named ``transport`` under ``packages/*/src``: a ``transport.py`` or a
-    ``transport/`` package, at any depth."""
+    """Every module named ``transport`` under ``packages/usa-wa-adapter-*/src``: a
+    ``transport.py`` or a ``transport/`` package, at any depth.
+
+    Adapters only: the bans forbid *adapter* wires, and a deployment's own outbound call
+    (the API's backup check-in, #455) is no source's wire. Held here, it would make the
+    deployment ban forbid the API its own module."""
     found = set()
-    for src in packages.glob("*/src"):
+    for src in packages.glob("usa-wa-adapter-*/src"):
         for path in src.rglob("*.py"):
             parts = path.relative_to(src).with_suffix("").parts
             if parts[-1] == "__init__":
@@ -147,22 +152,24 @@ def transport_modules(packages: Path) -> set[str]:
 
 
 def test_the_transport_scan_goes_by_module_name(tmp_path):
-    """A module or package named ``transport`` counts at any depth under ``src``; a name
-    that merely contains the word, or a file outside ``src``, does not."""
+    """A module or package named ``transport`` counts at any depth under an adapter's
+    ``src``; a name that merely contains the word, a file outside ``src``, or a
+    non-adapter package's ``transport`` (an API's own outbound call, say) does not."""
     for relative in (
-        "a/src/pkg_a/transport.py",
-        "a/src/pkg_a/roster/transport/__init__.py",
-        "a/src/pkg_a/transports.py",
-        "a/src/pkg_a/test_transport.py",
-        "a/tests/transport.py",
+        "usa-wa-adapter-a/src/pkg_a/transport.py",
+        "usa-wa-adapter-a/src/pkg_a/roster/transport/__init__.py",
+        "usa-wa-adapter-a/src/pkg_a/transports.py",
+        "usa-wa-adapter-a/src/pkg_a/test_transport.py",
+        "usa-wa-adapter-a/tests/transport.py",
+        "usa-wa-api/src/usa_wa_api/backup/transport.py",
     ):
         (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / relative).write_text("")
     assert transport_modules(tmp_path) == {"pkg_a.transport", "pkg_a.roster.transport"}
 
 
-def test_every_transport_in_the_workspace_is_banned():
-    """Both bans list exactly the workspace's ``transport`` modules (#551).
+def test_every_adapter_transport_is_banned():
+    """Both bans list exactly the adapters' ``transport`` modules (#551).
 
     ``roster_pdf.transport`` (#225, an httpx wire to leg.wa.gov) sat on neither list until
     #551, so any fact, model or API module could have driven it and ``lint-imports`` passed.
@@ -181,7 +188,7 @@ def test_every_transport_in_the_workspace_is_banned():
     a renamed or deleted transport fails here until the lists follow it.
     """
     wires = transport_modules(REPO / "packages")
-    assert len(wires) > 1, "found no transport modules - the scan broke"
+    assert len(wires) > 1, "found no adapter transports - the scan broke"
     by_name = {c["name"]: c for c in _contracts()}
     for ban in (DEPLOYMENT_TRANSPORT_BAN, FACTS_TRANSPORT_BAN):
         listed = set(by_name[ban]["forbidden_modules"])
@@ -356,3 +363,52 @@ def test_a_real_violation_is_rejected(module, illegal_import, contract):
     # lines — and a verdict wrapped onto the next line loses its leading space (#535:
     # "…a transportBROKEN" at COLUMNS=50). Compare with all whitespace removed.
     assert "".join(f"{contract} BROKEN".split()) in "".join(output.split()), output
+
+
+#: The scan's two tests, as the ``transport-bans`` hook names them (#551).
+TRANSPORT_SCAN_TESTS = (
+    test_the_transport_scan_goes_by_module_name,
+    test_every_adapter_transport_is_banned,
+)
+
+
+def test_the_transport_bans_are_checked_at_commit():
+    """The scan runs at commit, on every file that can change its verdict (#551).
+
+    ``lint-imports`` checks the bans as written and never sees an unlisted wire, so before
+    this hook a new ``transport`` committed without pre-ship landed unbanned and waited for
+    the next suite run. Named by node id, not ``-k``: a renamed test fails the hook loudly
+    instead of matching nothing.
+    """
+    config = yaml.safe_load(PRECOMMIT.read_text())
+    by_id = {h["id"]: h for repo in config["repos"] for h in repo["hooks"]}
+    assert "transport-bans" in by_id, "transport-bans is not wired into pre-commit"
+    hook = by_id["transport-bans"]
+    this = Path(__file__).relative_to(REPO).as_posix()
+    for test in TRANSPORT_SCAN_TESTS:
+        assert f"{this}::{test.__name__}" in hook["entry"].split(), hook["entry"]
+    assert "--no-cov" in hook["entry"], "neither coverage gate measures a slice"
+    # Filenames appended to a pytest command are collected as test files.
+    assert hook["pass_filenames"] is False
+    files = re.compile(hook["files"])
+    wires = sorted(
+        path.relative_to(REPO).as_posix()
+        for path in REPO.glob("packages/usa-wa-adapter-*/src/**/transport.py")
+    )
+    triggers = [
+        *wires,
+        "packages/usa-wa-adapter-sos/src/usa_wa_adapter_sos/votes/transport/__init__.py",
+        "packages/usa-wa-adapter-sos/src/transport.py",  # a top-level wire the scan counts
+        "pyproject.toml",  # the bans
+        this,  # the scan
+        "scripts/tests/conftest.py",  # makes the suite's helpers importable
+    ]
+    assert len(wires) > 1, "found no adapter transports - the glob broke"
+    assert [t for t in triggers if not files.search(t)] == []
+    for other in (
+        "packages/usa-wa-api/src/usa_wa_api/backup/transport.py",
+        "packages/usa-wa-adapter-sos/src/usa_wa_adapter_sos/transports.py",
+        "packages/usa-wa-adapter-sos/tests/transport.py",
+        "packages/usa-wa-pipeline/pyproject.toml",
+    ):
+        assert not files.search(other), other

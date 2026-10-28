@@ -267,9 +267,9 @@ type = "forbidden"
 # rule. What must not happen is a deployment module naming the transport itself and
 # driving the wire.
 #
-# Both bans list every `transport` module in the workspace, kept equal to a scan by
-# `test_import_contracts.py` (#551): `roster_pdf.transport` was missing from both from
-# #225 until #551.
+# Both bans list every adapter's `transport` module, kept equal to a scan by
+# `test_import_contracts.py` at commit (the `transport-bans` hook) and in the suite
+# (#551): `roster_pdf.transport` was missing from both from #225 until #551.
 allow_indirect_imports = true
 source_modules = ["usa_wa_api"]
 forbidden_modules = [
