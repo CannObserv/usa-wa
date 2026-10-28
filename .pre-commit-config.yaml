@@ -71,8 +71,9 @@ repos:
   # without pre-ship landed unchecked. Scoped to what can change those tests'
   # verdict on a model: the models, `model-paths`, the contracts (root
   # pyproject), any package's declarations, and the gate's own modules. `src/`
-  # stays import-linter's. Measured ~2.7 s wall under pre-commit (#551) beside
-  # dbt-build's ~18 s on the same commits; no shared state with it — both work
+  # stays import-linter's for contracts and the suite's for declarations.
+  # Measured ~2.7 s wall under pre-commit (#551) beside dbt-build's ~18 s on
+  # the same commits; no shared state with it — both work
   # in temp dirs and neither writes under models/. --no-cov: neither coverage
   # gate measures a slice. pass_filenames: false, or pytest collects the staged
   # models as tests. Pinned by scripts/tests/test_dbt_model_imports.py.

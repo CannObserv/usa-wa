@@ -6,7 +6,7 @@ symbols from two peer adapters and the PM sync sidecar imported a SOAP transport
 restructure only stays done if it is checkable, so `import-linter` is the durable half of
 this issue — and a fitness function nobody proved fires is itself a claim.
 
-These tests pin four things:
+These tests pin five things:
 
 1. every contract this issue wrote is still declared (a deleted contract is the silent way to
    "fix" a violation),
@@ -50,8 +50,8 @@ FACTS_TRANSPORT_BAN = "Facts and the pipeline never depend on a transport"
 EXPECTED_CONTRACTS = {
     LAYERS_CONTRACT,
     "No adapter imports a peer adapter",
-    "Deployment packages never touch an adapter transport",
-    "Facts and the pipeline never depend on a transport",
+    DEPLOYMENT_TRANSPORT_BAN,
+    FACTS_TRANSPORT_BAN,
     "usa-wa-common is source-free",
     # #412 PR D: what survives the Postgres tier must not reach its write path.
     TIER_CONTRACT,
@@ -114,9 +114,7 @@ def test_the_facts_transport_contract_carries_no_exceptions():
     in MODULES-FACTS-SEATS.md", which said no such thing) for two releases. Adding one back
     must be a deliberate act that fails here, not a line in a table nobody re-reads.
     """
-    contract = next(
-        c for c in _contracts() if c["name"] == "Facts and the pipeline never depend on a transport"
-    )
+    contract = next(c for c in _contracts() if c["name"] == FACTS_TRANSPORT_BAN)
     assert not contract.get("ignore_imports"), (
         "the facts→transport contract has exceptions again: "
         f"{contract.get('ignore_imports')}. Move the sourcing half into the adapter instead."
@@ -149,6 +147,8 @@ def transport_modules(packages: Path) -> set[str]:
 
 
 def test_the_transport_scan_goes_by_module_name(tmp_path):
+    """A module or package named ``transport`` counts at any depth under ``src``; a name
+    that merely contains the word, or a file outside ``src``, does not."""
     for relative in (
         "a/src/pkg_a/transport.py",
         "a/src/pkg_a/roster/transport/__init__.py",
@@ -277,7 +277,7 @@ def test_contracts_are_currently_kept():
         (
             "packages/usa-wa-api/src/usa_wa_api/_contract_probe.py",
             "from usa_wa_adapter_legislature.transport import WSLClient  # noqa: F401",
-            "Deployment packages never touch an adapter transport",
+            DEPLOYMENT_TRANSPORT_BAN,
         ),
         # A fact driving a wire — the shape #189 had to grant two exceptions for and #201
         # removed. Unlike the others this contract was never proved to fire, because the only
@@ -285,7 +285,7 @@ def test_contracts_are_currently_kept():
         (
             "packages/usa-wa-facts-seats/src/usa_wa_facts_seats/_contract_probe.py",
             "from usa_wa_adapter_pdc.transport import PDCClient  # noqa: F401",
-            "Facts and the pipeline never depend on a transport",
+            FACTS_TRANSPORT_BAN,
         ),
         # The pipeline driving the roster-PDF wire (#551): the one transport neither ban
         # listed from #225 until #551. The pipeline is the likeliest offender: it already

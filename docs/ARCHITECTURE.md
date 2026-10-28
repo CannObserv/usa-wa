@@ -27,10 +27,12 @@ gates: [`PIPELINE.md`](PIPELINE.md).
 root `pyproject.toml`, proved to fire by `scripts/tests/test_import_contracts.py`). The
 pipeline's dbt Python models sit outside `src/`, where `lint-imports` never looks;
 `scripts/tests/test_dbt_model_imports.py` runs every contract over them as part of
-`usa_wa_pipeline` (#535):
+`usa_wa_pipeline` (#535), in the suite and the `dbt-model-imports` pre-commit hook (#551):
 
 - `usa_wa_adapter_* ↛ usa_wa_adapter_*` — an adapter never imports a peer
-- `usa_wa_api`, `usa_wa_facts_*`, `usa_wa_pipeline ↛ usa_wa_adapter_*.transport`
+- `usa_wa_api`, `usa_wa_facts_*`, `usa_wa_pipeline ↛` every adapter `transport` module, at any
+  depth (`usa_wa_adapter_*.transport`, `…legislature.roster_pdf.transport`); both bans are held
+  equal to a workspace scan (#551)
 - `usa_wa_common ↛` any adapter, fact, pipeline or deployment package
 - the layer order above, with no back-edges: the pipeline sits *above* facts and composes
   their pure seat logic, so `usa_wa_facts_* ↛ usa_wa_pipeline` (#533). Sibling packages within
