@@ -33,8 +33,8 @@ adapter `transport` — models re-parse the archive, they do not drive wires. No
 tier by any chain: the contract *The pipeline, the API and the raw harvests never import the
 retired Postgres tier* refuses a deleted module's name if it comes back (ARCHITECTURE.md lists
 the contracts). The dbt Python models sit outside `src/`, where `lint-imports` never looks;
-`scripts/tests/test_dbt_model_imports.py` holds them to every contract in the test suite, not
-the pre-commit hook (#535).
+`scripts/tests/test_dbt_model_imports.py` holds them to every contract (#535), in the suite and
+in the `dbt-model-imports` pre-commit hook (#551).
 
 ## Commands
 
