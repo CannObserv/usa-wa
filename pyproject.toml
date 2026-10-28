@@ -179,7 +179,8 @@ known-first-party = [
 # `scripts/tests/test_dbt_model_imports.py` covers them (#535): it grafts each
 # model into the graph as `usa_wa_pipeline.dbt.models.*` and runs every contract
 # below over it, so a contract naming `usa_wa_pipeline` binds the models too. That
-# check runs in the test suite, not in this pre-commit hook.
+# check runs in the suite and, since #551, in its own `dbt-model-imports` pre-commit
+# hook beside this one.
 # ---------------------------------------------------------------------------
 [tool.importlinter]
 root_packages = [
@@ -265,10 +266,15 @@ type = "forbidden"
 # the chain would forbid depending on an adapter at all, which is the opposite of the
 # rule. What must not happen is a deployment module naming the transport itself and
 # driving the wire.
+#
+# Both bans list every adapter's `transport` module, kept equal to a scan by
+# `test_import_contracts.py` at commit (the `transport-bans` hook) and in the suite
+# (#551): `roster_pdf.transport` was missing from both from #225 until #551.
 allow_indirect_imports = true
 source_modules = ["usa_wa_api"]
 forbidden_modules = [
     "usa_wa_adapter_legislature.transport",
+    "usa_wa_adapter_legislature.roster_pdf.transport",
     "usa_wa_adapter_pdc.transport",
     "usa_wa_adapter_sos.filings.transport",
     "usa_wa_adapter_sos.results.transport",
@@ -290,6 +296,7 @@ allow_indirect_imports = true  # as above: an adapter legitimately owns its tran
 source_modules = ["usa_wa_facts_seats", "usa_wa_pipeline"]
 forbidden_modules = [
     "usa_wa_adapter_legislature.transport",
+    "usa_wa_adapter_legislature.roster_pdf.transport",
     "usa_wa_adapter_pdc.transport",
     "usa_wa_adapter_sos.filings.transport",
     "usa_wa_adapter_sos.results.transport",

@@ -21,6 +21,26 @@ repos:
         pass_filenames: false
         always_run: true
 
+  # Every adapter wire is on both transport bans (issue #551). import-linter
+  # checks the bans as written and cannot see a transport missing from them
+  # (roster_pdf.transport was, #225 to #551), so the scan that keeps the lists
+  # equal to the adapters' `transport` modules runs here too, not only in the
+  # suite. Scoped to a transport file, the root pyproject (the lists), the
+  # scan's own module and the conftest that loads it; named by node id so a
+  # renamed test fails loudly rather than selecting nothing. Measured ~1.2 s
+  # wall (#551), nearly all pytest startup. pre-commit passes no deleted file,
+  # so deleting a transport alone does not fire it: the stale entry is
+  # vacuous, and the suite catches it.
+  # Pinned by scripts/tests/test_import_contracts.py.
+  - repo: local
+    hooks:
+      - id: transport-bans
+        name: transport bans list every adapter wire
+        entry: uv run --frozen --no-sync pytest --no-cov -q -p no:cacheprovider scripts/tests/test_import_contracts.py::test_the_transport_scan_goes_by_module_name scripts/tests/test_import_contracts.py::test_every_adapter_transport_is_banned
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|scripts/tests/(conftest|test_import_contracts)\.py|packages/usa-wa-adapter-[^/]+/src/(.*/)?transport(/__init__)?\.py)$
+
   # SessionStart/PostToolUse hook wiring (issue #263). A Claude Code hook is two
   # artifacts — the script under .claude/hooks/ and the settings.json entry that
   # names it — and only the second makes it run. The first is the only one a
@@ -63,6 +83,28 @@ repos:
         entry: scripts/verify-units.sh
         language: script
         files: ^deploy/.*\.(service|timer)$
+
+  # dbt model import gate (issue #551). The models sit outside `src/`, so the
+  # import-linter hook above never sees them; #535's tests graft them into the
+  # graph (every contract) and scan their imports (declared dependencies), and
+  # until #551 ran only in the suite — with no PR CI, a model edit committed
+  # without pre-ship landed unchecked. Scoped to what can change those tests'
+  # verdict on a model: the models, `model-paths`, the contracts (root
+  # pyproject), any package's declarations, and the gate's own modules and
+  # conftest. `src/` stays import-linter's for contracts and the suite's for
+  # declarations. Measured ~2.7 s wall under pre-commit (#551) beside
+  # dbt-build's ~18 s on the same commits; no shared state with it — both work
+  # in temp dirs and neither writes under models/. --no-cov: neither coverage
+  # gate measures a slice. pass_filenames: false, or pytest collects the staged
+  # models as tests. Pinned by scripts/tests/test_dbt_model_imports.py.
+  - repo: local
+    hooks:
+      - id: dbt-model-imports
+        name: dbt model imports (contracts + declared dependencies)
+        entry: uv run --frozen --no-sync pytest --no-cov -q -p no:cacheprovider scripts/tests/test_dbt_model_imports.py scripts/tests/test_declared_dependencies.py
+        language: system
+        pass_filenames: false
+        files: ^(pyproject\.toml|packages/[^/]+/pyproject\.toml|packages/usa-wa-pipeline/dbt/(dbt_project\.yml|models/.*\.py)|scripts/tests/(conftest|dbt_models|test_dbt_model_imports|test_declared_dependencies)\.py)$
 
   # dbt pipeline gate (issue #303). `dbt build` on packages/usa-wa-pipeline/dbt
   # against a THROWAWAY duckdb: every model must compile and every schema/data

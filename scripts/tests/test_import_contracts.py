@@ -6,21 +6,25 @@ symbols from two peer adapters and the PM sync sidecar imported a SOAP transport
 restructure only stays done if it is checkable, so `import-linter` is the durable half of
 this issue — and a fitness function nobody proved fires is itself a claim.
 
-These tests pin four things:
+These tests pin five things:
 
 1. every contract this issue wrote is still declared (a deleted contract is the silent way to
    "fix" a violation),
 2. the contracts are wired into the same pre-commit gate ruff runs in,
 3. **the linter genuinely rejects a violation** — proved by injecting one temporary illegal
    import and watching the named contract break, rather than by trusting that a green run
-   means anything, and
+   means anything,
 4. **the layer order says what it means** (#533): the pipeline is its own layer directly above
    facts, and every ``:`` sibling group is backed by an independence contract, because ``:``
-   alone permits imports between the siblings it groups.
+   alone permits imports between the siblings it groups, and
+5. **every wire is banned** (#551): both transport bans list exactly the adapters'
+   ``transport`` modules, checked at commit by the ``transport-bans`` hook, so a new wire
+   cannot ship off the list the way ``roster_pdf.transport`` did from #225 to #551.
 """
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import tomllib
@@ -39,14 +43,16 @@ PRECOMMIT = REPO / ".pre-commit-config.yaml"
 
 TIER_CONTRACT = "The pipeline, the API and the raw harvests never import the retired Postgres tier"
 LAYERS_CONTRACT = "Layers: core < domain < common < adapter < facts < pipeline < deployment"
+DEPLOYMENT_TRANSPORT_BAN = "Deployment packages never touch an adapter transport"
+FACTS_TRANSPORT_BAN = "Facts and the pipeline never depend on a transport"
 
 #: Every contract #189 wrote. Named individually so deleting one fails here, which is the
 #: cheapest way a future change could make a violation "go away".
 EXPECTED_CONTRACTS = {
     LAYERS_CONTRACT,
     "No adapter imports a peer adapter",
-    "Deployment packages never touch an adapter transport",
-    "Facts and the pipeline never depend on a transport",
+    DEPLOYMENT_TRANSPORT_BAN,
+    FACTS_TRANSPORT_BAN,
     "usa-wa-common is source-free",
     # #412 PR D: what survives the Postgres tier must not reach its write path.
     TIER_CONTRACT,
@@ -109,9 +115,7 @@ def test_the_facts_transport_contract_carries_no_exceptions():
     in MODULES-FACTS-SEATS.md", which said no such thing) for two releases. Adding one back
     must be a deliberate act that fails here, not a line in a table nobody re-reads.
     """
-    contract = next(
-        c for c in _contracts() if c["name"] == "Facts and the pipeline never depend on a transport"
-    )
+    contract = next(c for c in _contracts() if c["name"] == FACTS_TRANSPORT_BAN)
     assert not contract.get("ignore_imports"), (
         "the facts→transport contract has exceptions again: "
         f"{contract.get('ignore_imports')}. Move the sourcing half into the adapter instead."
@@ -124,9 +128,74 @@ def test_both_transport_bans_name_the_same_wires():
     either. Adding a transport to one list and not the other fails here rather than leaving
     a layer silently able to drive it."""
     by_name = {c["name"]: c for c in _contracts()}
-    deployment = by_name["Deployment packages never touch an adapter transport"]
-    facts = by_name["Facts and the pipeline never depend on a transport"]
+    deployment = by_name[DEPLOYMENT_TRANSPORT_BAN]
+    facts = by_name[FACTS_TRANSPORT_BAN]
     assert sorted(deployment["forbidden_modules"]) == sorted(facts["forbidden_modules"])
+
+
+def transport_modules(packages: Path) -> set[str]:
+    """Every module named ``transport`` under ``packages/usa-wa-adapter-*/src``: a
+    ``transport.py`` or a ``transport/`` package, at any depth.
+
+    Adapters only: the bans forbid *adapter* wires, and a deployment's own outbound call
+    (the API's backup check-in, #455) is no source's wire. Held here, it would make the
+    deployment ban forbid the API its own module."""
+    found = set()
+    for src in packages.glob("usa-wa-adapter-*/src"):
+        for path in src.rglob("*.py"):
+            parts = path.relative_to(src).with_suffix("").parts
+            if parts[-1] == "__init__":
+                parts = parts[:-1]
+            if parts and parts[-1] == "transport":
+                found.add(".".join(parts))
+    return found
+
+
+def test_the_transport_scan_goes_by_module_name(tmp_path):
+    """A module or package named ``transport`` counts at any depth under an adapter's
+    ``src``; a name that merely contains the word, a file outside ``src``, or a
+    non-adapter package's ``transport`` (an API's own outbound call, say) does not."""
+    for relative in (
+        "usa-wa-adapter-a/src/pkg_a/transport.py",
+        "usa-wa-adapter-a/src/pkg_a/roster/transport/__init__.py",
+        "usa-wa-adapter-a/src/pkg_a/transports.py",
+        "usa-wa-adapter-a/src/pkg_a/test_transport.py",
+        "usa-wa-adapter-a/tests/transport.py",
+        "usa-wa-api/src/usa_wa_api/backup/transport.py",
+    ):
+        (tmp_path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / relative).write_text("")
+    assert transport_modules(tmp_path) == {"pkg_a.transport", "pkg_a.roster.transport"}
+
+
+def test_every_adapter_transport_is_banned():
+    """Both bans list exactly the adapters' ``transport`` modules (#551).
+
+    ``roster_pdf.transport`` (#225, an httpx wire to leg.wa.gov) sat on neither list until
+    #551, so any fact, model or API module could have driven it and ``lint-imports`` passed.
+
+    By name, not by what a module imports. ``ARCHITECTURE.md``'s Layer-3 pattern puts a
+    source's wire in its ``transport`` module, and the bans name modules, so the name is the
+    unit both already work in. An import rule (``httpx``/``zeep``/``requests``/``urllib``)
+    measured nine modules on #551's base: the five transports, three legislature modules
+    that import only ``zeep.exceptions.Fault``, and the API's own backup check-in (#455).
+    Separating those needs an exemption list, which #527 refused for the same kind of
+    scan, and the library list is a convention too: a wire built on another client would
+    slip it just as a wire named something else slips this. The accepted limit is that
+    one: a wire outside a ``transport`` module is missed here.
+
+    Equality, not a subset: an entry with no module behind it keeps its ban vacuously, so
+    a renamed or deleted transport fails here until the lists follow it.
+    """
+    wires = transport_modules(REPO / "packages")
+    assert len(wires) > 1, "found no adapter transports - the scan broke"
+    by_name = {c["name"]: c for c in _contracts()}
+    for ban in (DEPLOYMENT_TRANSPORT_BAN, FACTS_TRANSPORT_BAN):
+        listed = set(by_name[ban]["forbidden_modules"])
+        assert listed == wires, (
+            f"{ban!r}: unlisted wires {sorted(wires - listed)}, "
+            f"entries with no transport behind them {sorted(listed - wires)}"
+        )
 
 
 def test_the_tier_contract_follows_indirect_imports():
@@ -215,7 +284,7 @@ def test_contracts_are_currently_kept():
         (
             "packages/usa-wa-api/src/usa_wa_api/_contract_probe.py",
             "from usa_wa_adapter_legislature.transport import WSLClient  # noqa: F401",
-            "Deployment packages never touch an adapter transport",
+            DEPLOYMENT_TRANSPORT_BAN,
         ),
         # A fact driving a wire — the shape #189 had to grant two exceptions for and #201
         # removed. Unlike the others this contract was never proved to fire, because the only
@@ -223,7 +292,15 @@ def test_contracts_are_currently_kept():
         (
             "packages/usa-wa-facts-seats/src/usa_wa_facts_seats/_contract_probe.py",
             "from usa_wa_adapter_pdc.transport import PDCClient  # noqa: F401",
-            "Facts and the pipeline never depend on a transport",
+            FACTS_TRANSPORT_BAN,
+        ),
+        # The pipeline driving the roster-PDF wire (#551): the one transport neither ban
+        # listed from #225 until #551. The pipeline is the likeliest offender: it already
+        # imports that subpackage's pure modules (`roster_pdf.identity`, `roster_pdf.audit`).
+        (
+            "packages/usa-wa-pipeline/src/usa_wa_pipeline/_contract_probe_roster_wire.py",
+            "from usa_wa_adapter_legislature.roster_pdf import transport  # noqa: F401",
+            FACTS_TRANSPORT_BAN,
         ),
         # A fact reaching up into the pipeline that composes it (#533). Until then the
         # layers entry grouped the two with ':', which permits exactly this, and no probe
@@ -286,3 +363,52 @@ def test_a_real_violation_is_rejected(module, illegal_import, contract):
     # lines — and a verdict wrapped onto the next line loses its leading space (#535:
     # "…a transportBROKEN" at COLUMNS=50). Compare with all whitespace removed.
     assert "".join(f"{contract} BROKEN".split()) in "".join(output.split()), output
+
+
+#: The scan's two tests, as the ``transport-bans`` hook names them (#551).
+TRANSPORT_SCAN_TESTS = (
+    test_the_transport_scan_goes_by_module_name,
+    test_every_adapter_transport_is_banned,
+)
+
+
+def test_the_transport_bans_are_checked_at_commit():
+    """The scan runs at commit, on every file that can change its verdict (#551).
+
+    ``lint-imports`` checks the bans as written and never sees an unlisted wire, so before
+    this hook a new ``transport`` committed without pre-ship landed unbanned and waited for
+    the next suite run. Named by node id, not ``-k``: a renamed test fails the hook loudly
+    instead of matching nothing.
+    """
+    config = yaml.safe_load(PRECOMMIT.read_text())
+    by_id = {h["id"]: h for repo in config["repos"] for h in repo["hooks"]}
+    assert "transport-bans" in by_id, "transport-bans is not wired into pre-commit"
+    hook = by_id["transport-bans"]
+    this = Path(__file__).relative_to(REPO).as_posix()
+    for test in TRANSPORT_SCAN_TESTS:
+        assert f"{this}::{test.__name__}" in hook["entry"].split(), hook["entry"]
+    assert "--no-cov" in hook["entry"], "neither coverage gate measures a slice"
+    # Filenames appended to a pytest command are collected as test files.
+    assert hook["pass_filenames"] is False
+    files = re.compile(hook["files"])
+    wires = sorted(
+        path.relative_to(REPO).as_posix()
+        for path in REPO.glob("packages/usa-wa-adapter-*/src/**/transport.py")
+    )
+    triggers = [
+        *wires,
+        "packages/usa-wa-adapter-sos/src/usa_wa_adapter_sos/votes/transport/__init__.py",
+        "packages/usa-wa-adapter-sos/src/transport.py",  # a top-level wire the scan counts
+        "pyproject.toml",  # the bans
+        this,  # the scan
+        "scripts/tests/conftest.py",  # makes the suite's helpers importable
+    ]
+    assert len(wires) > 1, "found no adapter transports - the glob broke"
+    assert [t for t in triggers if not files.search(t)] == []
+    for other in (
+        "packages/usa-wa-api/src/usa_wa_api/backup/transport.py",
+        "packages/usa-wa-adapter-sos/src/usa_wa_adapter_sos/transports.py",
+        "packages/usa-wa-adapter-sos/tests/transport.py",
+        "packages/usa-wa-pipeline/pyproject.toml",
+    ):
+        assert not files.search(other), other

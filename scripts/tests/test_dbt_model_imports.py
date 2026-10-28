@@ -18,6 +18,10 @@ The fix runs ``import-linter`` itself over the models rather than restating its 
   ``forbidden_modules``, the wildcards, the indirect-chain rule and the layer order are
   import-linter's, applied exactly as ``lint-imports`` applies them to ``src/``.
 
+**Run at commit too (#551)**, by the ``dbt-model-imports`` pre-commit hook: the
+``import-linter`` hook beside ruff cannot see the models, and the repo has no PR CI, so
+until #551 a model edit committed without pre-ship waited for the next suite run.
+
 The cost is a dependency on ``importlinter.application`` internals (``use_cases``,
 ``app_config.settings``, ``ports.building``). A version that moves them fails here
 loudly; ``test_every_model_is_grafted`` guards the quiet way — a graft that adds nothing
@@ -36,6 +40,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+import yaml
 from dbt_models import model_files, model_paths
 from importlinter.application import use_cases
 from importlinter.application.app_config import settings
@@ -49,6 +54,9 @@ if TYPE_CHECKING:
 
 REPO = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO / "pyproject.toml"
+PRECOMMIT = REPO / ".pre-commit-config.yaml"
+#: The pre-commit hook that runs this gate at commit (#551).
+HOOK = "dbt-model-imports"
 DBT_PROJECT = REPO / "packages" / "usa-wa-pipeline" / "dbt"
 #: The package the models are grafted under — the one whose contracts bind them.
 PACKAGE = "usa_wa_pipeline"
@@ -247,3 +255,50 @@ def test_a_real_violation_in_a_model_is_rejected(tmp_path, probe, contract):
     assert "".join(f"{contract} BROKEN".split()) in squashed, report
     assert model_module(tmp_path, probe_path) in squashed, report
     assert len(builder.grafted) == len(model_files(DBT_PROJECT)) + 1
+
+
+def _hook() -> dict:
+    config = yaml.safe_load(PRECOMMIT.read_text())
+    hooks = {
+        hook["id"]: hook
+        for repo in config["repos"]
+        if repo["repo"] == "local"
+        for hook in repo["hooks"]
+    }
+    assert HOOK in hooks, f"{HOOK} is not wired into .pre-commit-config.yaml"
+    return hooks[HOOK]
+
+
+def test_the_model_gate_runs_at_commit():
+    """The model gate and ``test_declared_dependencies`` (whose scan takes in the models
+    since #535) run at commit (#551), on every file whose edit can change their verdict on
+    a model.
+
+    ``import-linter`` runs on every commit but cannot see a model, and ``dbt-build`` runs
+    on every pipeline commit but checks no import. Without this hook a model importing a
+    transport, or a package it does not declare, is caught only at the next suite run.
+    """
+    hook = _hook()
+    for test in ("test_dbt_model_imports.py", "test_declared_dependencies.py"):
+        assert f"scripts/tests/{test}" in hook["entry"], hook["entry"]
+    assert "--no-cov" in hook["entry"], "neither coverage gate measures a slice"
+    # Filenames appended to a pytest command are collected as test files.
+    assert hook["pass_filenames"] is False
+    files = re.compile(hook["files"])
+    triggers = [
+        *(path.relative_to(REPO).as_posix() for path in model_files(DBT_PROJECT)),
+        "pyproject.toml",  # the contracts
+        "packages/usa-wa-pipeline/pyproject.toml",  # the declarations
+        "packages/usa-wa-pipeline/dbt/dbt_project.yml",  # `model-paths`
+        "scripts/tests/dbt_models.py",  # the scan both tests share
+        "scripts/tests/test_dbt_model_imports.py",  # the gate itself
+        "scripts/tests/test_declared_dependencies.py",
+        "scripts/tests/conftest.py",  # puts `dbt_models` on the path both tests import
+    ]
+    assert [t for t in triggers if not files.search(t)] == []
+    # dbt's compiled copies are not models; `src/` is `import-linter`'s, every commit.
+    for other in (
+        "packages/usa-wa-pipeline/dbt/target/compiled/stg_x.py",
+        "packages/usa-wa-pipeline/src/usa_wa_pipeline/frames.py",
+    ):
+        assert not files.search(other), other
