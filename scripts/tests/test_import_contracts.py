@@ -13,10 +13,10 @@ These tests pin five things:
 2. the contracts are wired into the same pre-commit gate ruff runs in,
 3. **the linter genuinely rejects a violation** — proved by injecting one temporary illegal
    import and watching the named contract break, rather than by trusting that a green run
-   means anything, and
+   means anything,
 4. **the layer order says what it means** (#533): the pipeline is its own layer directly above
    facts, and every ``:`` sibling group is backed by an independence contract, because ``:``
-   alone permits imports between the siblings it groups.
+   alone permits imports between the siblings it groups, and
 5. **every wire is banned** (#551): both transport bans list exactly the workspace's
    ``transport`` modules, so a new wire cannot ship off the list the way
    ``roster_pdf.transport`` did from #225 to #551.

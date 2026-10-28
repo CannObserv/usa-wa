@@ -291,6 +291,8 @@ def test_the_model_gate_runs_at_commit():
         "packages/usa-wa-pipeline/pyproject.toml",  # the declarations
         "packages/usa-wa-pipeline/dbt/dbt_project.yml",  # `model-paths`
         "scripts/tests/dbt_models.py",  # the scan both tests share
+        "scripts/tests/test_dbt_model_imports.py",  # the gate itself
+        "scripts/tests/test_declared_dependencies.py",
     ]
     assert [t for t in triggers if not files.search(t)] == []
     # dbt's compiled copies are not models; `src/` is `import-linter`'s, every commit.
