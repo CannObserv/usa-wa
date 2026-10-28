@@ -265,10 +265,15 @@ type = "forbidden"
 # the chain would forbid depending on an adapter at all, which is the opposite of the
 # rule. What must not happen is a deployment module naming the transport itself and
 # driving the wire.
+#
+# Both bans list every `transport` module in the workspace, kept equal to a scan by
+# `test_import_contracts.py` (#551): `roster_pdf.transport` was missing from both from
+# #225 until #551.
 allow_indirect_imports = true
 source_modules = ["usa_wa_api"]
 forbidden_modules = [
     "usa_wa_adapter_legislature.transport",
+    "usa_wa_adapter_legislature.roster_pdf.transport",
     "usa_wa_adapter_pdc.transport",
     "usa_wa_adapter_sos.filings.transport",
     "usa_wa_adapter_sos.results.transport",
@@ -290,6 +295,7 @@ allow_indirect_imports = true  # as above: an adapter legitimately owns its tran
 source_modules = ["usa_wa_facts_seats", "usa_wa_pipeline"]
 forbidden_modules = [
     "usa_wa_adapter_legislature.transport",
+    "usa_wa_adapter_legislature.roster_pdf.transport",
     "usa_wa_adapter_pdc.transport",
     "usa_wa_adapter_sos.filings.transport",
     "usa_wa_adapter_sos.results.transport",
