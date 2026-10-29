@@ -512,6 +512,73 @@ def test_a_resignation_no_longer_erases_the_members_return() -> None:
     assert (party.valid_from, party.valid_to) == (date(1943, 1, 1), date(1948, 12, 31))
 
 
+def _reardon_and_mulligan() -> list[dict]:
+    return [
+        _roster(
+            "Keiron W. Reardon",
+            1943,
+            district=39,
+            chamber="senate",
+            annotation="Resigned Feb. 19, 1944",
+        ),
+        _roster(
+            "William P. Mulligan",
+            1943,
+            district=39,
+            chamber="senate",
+            order="2",
+            party_token="D",
+            annotation=(
+                "Appointed Feb. 28, 1944 to serve Ex. Session. Did not serve, seat left vacant"
+            ),
+        ),
+        _roster("Keiron W. Reardon", 1945, district=39, chamber="senate"),
+        _roster("Next Holder", 1949, district=39, chamber="senate"),
+    ]
+
+
+def test_a_holder_who_never_sat_publishes_no_span() -> None:
+    """usa-wa#546: Mulligan's row is curated as never seated, so neither his seat
+    nor his party span is built."""
+    families = build_families(
+        SpanInputs(sponsors=[], committee_members=[], roster=_reardon_and_mulligan()),
+        current_biennium=CURRENT,
+    )
+    assert not [s for s in families[ROSTER_SOURCE] if s.member_id == "williampmulligan:1943"]
+
+
+def test_a_never_seated_row_still_splits_the_return() -> None:
+    """usa-wa#546's hazard: the spans go, never the row. Mulligan's row is the only
+    interlude between Reardon's terms, so dropping it before projection would re-merge
+    them and his departure would erase 1945-48 again (#517)."""
+    events = [SuccessionEvent("keironwreardon:1943", "departed", date(1944, 2, 19))]
+    families = build_families(
+        SpanInputs(
+            sponsors=[], committee_members=[], roster=_reardon_and_mulligan(), events=events
+        ),
+        current_biennium=CURRENT,
+    )
+    head, tail = _senate(families, "keironwreardon:1943")
+    assert (head.start_biennium, head.valid_to) == ("1943-44", date(1944, 2, 19))
+    assert (tail.start_biennium, tail.valid_from, tail.valid_to) == (
+        "1945-46",
+        date(1945, 1, 1),
+        date(1948, 12, 31),
+    )
+
+
+def test_a_never_seated_entry_matching_no_span_is_reported() -> None:
+    """The ``assignments`` model refuses a stale entry; ``build_families`` hands it
+    the list, as it hands ``registry_coverage`` the window counts."""
+    stale: list = []
+    build_families(
+        SpanInputs(sponsors=[], committee_members=[], roster=_reardon_and_mulligan()),
+        current_biennium=CURRENT,
+        never_seated_stale=stale,
+    )
+    assert sorted(e.name for e in stale) == ["C. A. Couplin", "Lenus Westman"]
+
+
 def test_a_return_takes_its_own_election_window_and_clears_the_seat() -> None:
     """usa-wa#517, Kathryn Malstrom, LD-27: one row 1933-44 wrapped Harry Brown's 1937
     tenure. Split, the return is keyed 1937-38 and "Elected Nov. 8, 1938" — unmatched
