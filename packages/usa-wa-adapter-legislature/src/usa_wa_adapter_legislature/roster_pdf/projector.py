@@ -225,7 +225,8 @@ def _returns(
     term; Malstrom's 1937 row (order 2) returns after Brown's (order 1).
 
     **Any** other row is an interlude, an unresolved one included, and so is a holder
-    who never sat (Mulligan, "Did not serve"; Westman, "not seated"). An accepted limit:
+    who never sat (Mulligan, "Did not serve"; Westman, "not seated") — the pipeline
+    removes such a row's spans after projection, never the row (#546). An accepted limit:
     an incumbent re-seated over a winner the Senate refused would split with no gap
     between the halves — a spurious key, never a lost tenure. Likewise a co-holder in a
     multi-member period (1889's LD-19 seats five): the capacity rule that would tell

@@ -20,9 +20,18 @@ covering period is read as holding one. `membership_type` keeps a military
 substitute — Wyss, LD-6, two days in 2005 under Brad Benson on leave — from
 counting as a second holder. The three substitutes (Kreidler 1991, Wyss 2005,
 M. Braun 2017) are a curated table, `conformed.memberships.SUBSTITUTE_TENURES`,
-applied last in `build_families`; the `assignments` model refuses an entry no
-built span carries, and `assignments_substitutes_nested` requires each to sit,
-dated on both edges, inside a principal's tenure on its seat.
+applied after the windows in `build_families`; the `assignments` model refuses an
+entry no built span carries, and `assignments_substitutes_nested` requires each to
+sit, dated on both edges, inside a principal's tenure on its seat.
+
+**Never-seated rows** (#546): three senators the roster lists never sat — Couplin
+(LD-9 1921, resigned without serving), Westman (LD-39 1941, refused by the
+Senate), Mulligan (LD-39 1943, appointed, did not serve). A second curated table,
+`conformed.never_seated.NEVER_SEATED`, names each row's seat and party span, and
+`build_families` removes them last, before the clip. **Spans, never rows:** the
+projector reads every row first, and Mulligan's is the only interlude that keeps
+Reardon's 1943 and 1945 terms apart (#517). The persons stay, with no tenure. An
+entry that removes less than it names fails the `assignments` model.
 
 **Two tiers, from the boundary intervals** (#501 D6):
 
@@ -43,8 +52,8 @@ vocabulary, and the roster evidence (#360 part A). #501 emptied two categories �
 the substitutes (`membership_type`) and Woodall's edge-dated seating (the basis) —
 and dropped every pair the re-key, the basis-aware clip or the tiers took out of
 the certain tier; #517 retired `merged_tenure` once a roster return opened its own
-span. The seed itself is the count. `assignments_seat_occupancy_stale`
-warns by name on an entry no longer certain — resolved, narrowed to a
+span, and #546 `never_served` once a never-seated row published none. The seed
+itself is the count. `assignments_seat_occupancy_stale` warns by name on an entry no longer certain — resolved, narrowed to a
 may-overlap, or re-keyed (a start re-dated across a biennium, a person merge) —
 and `build_warnings` fails the stage on it until it is removed. It skips the
 hermetic build. An operator event that resolves a listed pair removes the entry

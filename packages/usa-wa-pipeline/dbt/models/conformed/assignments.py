@@ -25,6 +25,7 @@ from usa_wa_pipeline.registry_read import crosswalk_frame
 def model(dbt, session):
     dbt.config(materialized="table")
     roster = dbt.ref("stg_roster_members").df().to_dict("records")
+    never_seated_stale: list = []
     # One resolve of the roster corpus feeds both families — see
     # `conformed.spans.build_families`, the sequence `registry_coverage` runs
     # too.
@@ -38,6 +39,7 @@ def model(dbt, session):
         ),
         # USA_WA_BIENNIUM pins a scoped rebuild; shared with both probes
         current_biennium=current_biennium(),
+        never_seated_stale=never_seated_stale,
     )
     # An inert substitute entry is a stale adjudication (#501 D5): its span
     # re-keyed or its member merged away. Refused here, where the whole corpus is
@@ -46,6 +48,14 @@ def model(dbt, session):
         raise ValueError(
             "SUBSTITUTE_TENURES entries match no built span — re-adjudicate them in "
             f"usa_wa_pipeline/conformed/memberships.py: {[t.key for t in stale]}"
+        )
+    # Likewise a never-seated entry that removed less than it names (#546): its span
+    # re-keyed and would publish again under the new key.
+    if any(families.values()) and never_seated_stale:
+        raise ValueError(
+            "NEVER_SEATED entries remove fewer spans than they name — re-adjudicate them in "
+            "usa_wa_pipeline/conformed/never_seated.py: "
+            f"{[e.member_id for e in never_seated_stale]}"
         )
     # The join's counters — `unregistered_spans` above all — are reported by
     # `usa_wa_pipeline.registry_coverage`, not from here (CR 68; #412 PR B). A

@@ -291,7 +291,10 @@ supply?** → an **operator event**. Ask whether it closes everything (`departed
 (`vacated`), or opens one (`seated`). If it fits none of those three, do not add a fourth kind
 reflexively — first check whether it is really a *reason* (evidence classification within an
 existing kind, which is a one-tuple change) rather than a new behaviour. A new kind is warranted
-only when the *effect on spans* differs from all three.
+only when the *effect on spans* differs from all three. A holder who **never sat** is not an event
+either — an event is dated, and most such rows carry no date: the row's spans are removed by the
+curated `conformed.never_seated` table (#546), the `SUBSTITUTE_TENURES` idiom, until a fourth case
+or a source makes it an attestation.
 
 **2. Is it a typed relationship between two organizations?** → a **link-shaped event**. If the
 relation is lineage, it is a `committee_succession_events` slug. A new slug is a contract change:
