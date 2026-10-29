@@ -94,14 +94,28 @@ fi
 #
 # Existing files only, and `cat` unredirected: the missing-file error is now the
 # `2>/dev/null` that hid #296, so nothing here may be silenced.
+#
+# #557: the words are kept so PRE_SHIP_ENV_NAMES can name what was exported —
+# the part before each word's first `=`, never a value. The vendored gate folds
+# a hash of the list into its per-SHA stamp and writes none when it is empty, so
+# a run in one environment cannot bless a commit for another (skills#497).
+# Assigned after the load, so neither the caller's shell nor an env file sets it.
 ENV_FILES=()
 [[ -f "$SYSTEM_ENV" ]] && ENV_FILES+=("$SYSTEM_ENV")
 [[ -f "$REPO_ENV" ]] && ENV_FILES+=("$REPO_ENV")
+ENV_WORDS=()
 if [[ ${#ENV_FILES[@]} -gt 0 ]]; then
   set -f
-  export $(cat "${ENV_FILES[@]}" | xargs)
+  ENV_WORDS=($(cat "${ENV_FILES[@]}" | xargs))
   set +f
 fi
+ENV_NAMES=()
+for word in ${ENV_WORDS[@]+"${ENV_WORDS[@]}"}; do
+  [[ "$word" == *=* ]] && ENV_NAMES+=("${word%%=*}")
+done
+[[ ${#ENV_WORDS[@]} -gt 0 ]] && export "${ENV_WORDS[@]}"
+PRE_SHIP_ENV_NAMES="${ENV_NAMES[*]-}"
+export PRE_SHIP_ENV_NAMES
 
 # Announced, not silent. A gate whose environment depends on an invisible probe
 # is how #296 stayed invisible for the ~60 s it took the test phase to die.

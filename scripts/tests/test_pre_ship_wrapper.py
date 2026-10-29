@@ -19,6 +19,9 @@ and each is asserted below:
     directory". Worktrees don't populate submodules, and AGENTS.md mandates
     worktree-based feature work (#87), so this fires routinely.
 
+It also exports ``PRE_SHIP_ENV_NAMES`` (#557): the names, never the values, the
+env files set, which the vendored gate folds into its per-SHA stamp.
+
 Tests 1-3 run the wrapper against a *stub* delegate planted in a scratch repo:
 fast, and no gate-bypass seam has to be added to production code to make the
 delegate swappable. That leaves the real delegate path unverified, which is
@@ -39,6 +42,7 @@ STUB = """\
 printf 'TEST_DATABASE_URL=%s\\n' "${TEST_DATABASE_URL:-<unset>}" >"$STUB_LOG"
 printf 'SYSTEM_ONLY=%s\\n' "${SYSTEM_ONLY:-<unset>}" >>"$STUB_LOG"
 printf 'ARGS=%s\\n' "$*" >>"$STUB_LOG"
+printf 'PRE_SHIP_ENV_NAMES=%s\\n' "${PRE_SHIP_ENV_NAMES-<unset>}" >>"$STUB_LOG"
 [ -n "${ORDER_LOG:-}" ] && echo delegate >>"$ORDER_LOG"
 exit "${STUB_EXIT:-0}"
 """
@@ -304,3 +308,60 @@ def test_the_system_env_file_is_loaded(tmp_path):
 def test_the_default_system_env_path_is_the_documented_one():
     """`PRE_SHIP_SYSTEM_ENV` exists for tests and other hosts; prod must not need it."""
     assert "PRE_SHIP_SYSTEM_ENV:-/etc/usa-wa/.env" in SCRIPT.read_text()
+
+
+# --- #557: the env names the vendored gate keys its stamp on -----------------
+# The vendored gate (gregoryfoster/skills#497) folds a hash of
+# PRE_SHIP_ENV_NAMES into its per-SHA stamp, so a run in one environment cannot
+# be suppressed by a stamp from another. Names only: the stamp key lands in a
+# file under the cache dir, and a secret has no business there.
+
+
+def _recorded_names(log: Path) -> list[str]:
+    """The delegate's PRE_SHIP_ENV_NAMES, split as the vendored gate splits it."""
+    line = next(ln for ln in log.read_text().splitlines() if ln.startswith("PRE_SHIP_ENV_NAMES="))
+    return line.removeprefix("PRE_SHIP_ENV_NAMES=").split()
+
+
+def test_the_env_names_reach_the_delegate_without_a_value(tmp_path):
+    """Every name both files set, and not one byte of any value."""
+    repo = _scratch_repo(tmp_path)
+    system_env = tmp_path / "system.env"
+    system_env.write_text("SYSTEM_ONLY=sys-secret-value\nTEST_DATABASE_URL=postgresql://sys/db\n")
+    log = tmp_path / "stub.log"
+
+    result = _run(repo, env_extra={"STUB_LOG": str(log), "PRE_SHIP_SYSTEM_ENV": str(system_env)})
+
+    assert result.returncode == 0, result.stderr
+    names = _recorded_names(log)
+    assert set(names) == {"SYSTEM_ONLY", "TEST_DATABASE_URL"}
+    names_line = " ".join(names)
+    for value in ("sys-secret-value", "postgresql://sys/db", "postgresql://stub/testdb"):
+        assert value not in names_line
+
+
+def test_a_callers_env_names_are_replaced_not_extended(tmp_path):
+    """The list describes what this run loaded. A stale export in the caller's
+    shell, or one an env file sets, must not key the stamp."""
+    repo = _scratch_repo(tmp_path)
+    (repo / ".env").write_text(
+        "TEST_DATABASE_URL=postgresql://stub/testdb\nPRE_SHIP_ENV_NAMES=SPOOF\n"
+    )
+    log = tmp_path / "stub.log"
+
+    result = _run(repo, env_extra={"STUB_LOG": str(log), "PRE_SHIP_ENV_NAMES": "STALE"})
+
+    assert result.returncode == 0, result.stderr
+    assert set(_recorded_names(log)) == {"TEST_DATABASE_URL", "PRE_SHIP_ENV_NAMES"}
+
+
+def test_the_worktree_fallback_names_the_primary_checkouts_env(tmp_path):
+    """#296's fallback file is a loaded file like any other: its names count."""
+    repo = _scratch_repo(tmp_path)
+    wt = _worktree_of(repo, "wt")
+    log = tmp_path / "stub.log"
+
+    result = _run(wt, env_extra={"STUB_LOG": str(log)})
+
+    assert result.returncode == 0, result.stderr
+    assert _recorded_names(log) == ["TEST_DATABASE_URL"]
