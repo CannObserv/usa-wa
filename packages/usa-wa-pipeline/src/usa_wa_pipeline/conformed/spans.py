@@ -100,6 +100,7 @@ from usa_wa_pipeline.conformed.movers import (
     committee_agencies,
     date_mover_committees,
 )
+from usa_wa_pipeline.conformed.never_seated import NeverSeated, without_never_seated
 from usa_wa_pipeline.conformed.roles import role_for_span
 from usa_wa_pipeline.conformed.span_key import span_key
 from usa_wa_pipeline.conformed.windows import apply_windows, edge_windows
@@ -645,7 +646,11 @@ def without_non_legislator_committee_rows(inputs: SpanInputs) -> SpanInputs:
 
 
 def build_families(
-    inputs: SpanInputs, *, current_biennium: str, window_counts: Counter | None = None
+    inputs: SpanInputs,
+    *,
+    current_biennium: str,
+    window_counts: Counter | None = None,
+    never_seated_stale: list[NeverSeated] | None = None,
 ) -> dict[str, list[TenureSpan]]:
     """Both span families, keyed by source — the one sequence every caller runs.
 
@@ -662,8 +667,11 @@ def build_families(
     So are committee rows for a member no sponsor roster lists that biennium
     (:func:`without_non_legislator_committee_rows`, #469). After every overlay and
     before the clip, the roster's annotation windows date observed edges
-    (``conformed.windows``, #501 D6a) and the curated substitute tenures are marked
-    (``conformed.memberships``, #501 D5).
+    (``conformed.windows``, #501 D6a), the curated substitute tenures are marked
+    (``conformed.memberships``, #501 D5) and the curated never-seated rows' spans
+    are removed (``conformed.never_seated``, #546) — spans, never rows: the
+    projector has already read every row as a #517 interlude. A caller that
+    refuses a stale entry passes ``never_seated_stale``.
     """
     inputs = without_future_bienniums(inputs, current_biennium=current_biennium)
     inputs = without_non_legislator_committee_rows(inputs)
@@ -685,7 +693,10 @@ def build_families(
     # A model's log reaches nobody; a caller that reports passes a Counter (CR 7).
     if window_counts is not None:
         window_counts.update(counts)
-    return apply_memberships(families)
+    families, stale = without_never_seated(apply_memberships(families))
+    if never_seated_stale is not None:
+        never_seated_stale.extend(stale)
+    return families
 
 
 def entity_index(crosswalk: list[dict[str, Any]]) -> dict[str, str]:
