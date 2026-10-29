@@ -1,8 +1,8 @@
 """Never-seated rows: senators the roster lists who never sat (#546).
 
 The roster lists three senators who were elected or appointed and never took the
-seat: one resigned before the session, one the Senate refused, one was appointed
-and did not serve. Each row still projects a seat span and a party span, and
+seat: one resigned without serving, one the Senate refused, one was appointed and
+did not serve. Each row still projects a seat span and a party span, and
 none of them held either. The person stays — the election or the appointment is
 a fact about them — and the tenure rows go.
 
