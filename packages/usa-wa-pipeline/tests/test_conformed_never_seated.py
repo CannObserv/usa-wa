@@ -1,5 +1,6 @@
 """The curated never-seated rows (#546)."""
 
+from dataclasses import replace
 from datetime import date
 
 import pytest
@@ -35,6 +36,7 @@ ENTRY = NeverSeated(
     district="39",
     party="democratic",
     span_start_biennium="1941-42",
+    span_end_biennium="1941-42",
     clause="Elected but not seated by vote of the Senate, January 24, 1941",
     edition="legroster:2025-06-05",
 )
@@ -92,6 +94,19 @@ def test_the_source_is_part_of_the_key() -> None:
     """The families live in disjoint identity spaces (CR 58)."""
     families, stale = without_never_seated({SOURCE: _both()}, (ENTRY,))
     assert families == {SOURCE: _both()}
+    assert stale == [ENTRY]
+
+
+def test_a_span_that_outgrew_its_row_stays_and_the_entry_is_stale() -> None:
+    """CR 1: a later listing of the member would rejoin the party span under the
+    same start key (#289). Removing it would delete real tenure; the entry pins
+    the row's end biennium, so a grown span is kept and the model refuses."""
+    grown = replace(
+        _span("lenuswestman:1941", kind=KIND_PARTY, disc="democratic"), end_biennium="1945-46"
+    )
+    seat = _span("lenuswestman:1941")
+    families, stale = without_never_seated({ROSTER_SOURCE: [seat, grown]}, (ENTRY,))
+    assert families == {ROSTER_SOURCE: [grown]}
     assert stale == [ENTRY]
 
 

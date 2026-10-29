@@ -20,7 +20,10 @@ a parser and not an event:
 
 Each entry names one roster row's two span identities, ``(source, member_id,
 span_kind, span_discriminator, span_start_biennium)`` for the seat and the
-party, with the row's clause verbatim. They are removed in
+party, with the row's clause verbatim. It also pins the row's last biennium: a
+span matching the identity but running past it has outgrown the row — a later
+listing of the member, rejoining the party span under the same key (#289) — and
+is kept, never removed. They are removed in
 :func:`~usa_wa_pipeline.conformed.spans.build_families`, after every overlay and
 the annotation windows and before the clip, so every caller sees the same
 spans and the clip never reads a holder who was not there. An entry that removes
@@ -55,6 +58,8 @@ class NeverSeated:
     district: str
     party: str
     span_start_biennium: str
+    #: The row's last biennium: a span running past it is real tenure, never removed.
+    span_end_biennium: str
     #: The row's annotation, verbatim.
     clause: str
     edition: str
@@ -80,6 +85,7 @@ NEVER_SEATED: tuple[NeverSeated, ...] = (
         district="9",
         party="republican",
         span_start_biennium="1921-22",
+        span_end_biennium="1923-24",
         clause="Elected and subsequently resigned without serving",
         edition=_EDITION,
     ),
@@ -89,6 +95,7 @@ NEVER_SEATED: tuple[NeverSeated, ...] = (
         district="39",
         party="democratic",
         span_start_biennium="1941-42",
+        span_end_biennium="1941-42",
         clause="Elected but not seated by vote of the Senate, January 24, 1941",
         edition=_EDITION,
     ),
@@ -98,6 +105,7 @@ NEVER_SEATED: tuple[NeverSeated, ...] = (
         district="39",
         party="democratic",
         span_start_biennium="1943-44",
+        span_end_biennium="1943-44",
         clause="Appointed Feb. 28, 1944 to serve Ex. Session. Did not serve, seat left vacant",
         edition=_EDITION,
     ),
@@ -113,15 +121,15 @@ def without_never_seated(
     entries: tuple[NeverSeated, ...] = NEVER_SEATED,
 ) -> tuple[dict[str, list[TenureSpan]], list[NeverSeated]]:
     """``families`` without each entry's spans, order kept, and the stale entries:
-    those that removed fewer spans than they name."""
-    named = frozenset().union(*(entry.keys for entry in entries))
+    those that removed fewer spans than they name — one missing, or grown past the row."""
+    end_of = {key: entry.span_end_biennium for entry in entries for key in entry.keys}
     removed: set[SpanIdentity] = set()
     kept: dict[str, list[TenureSpan]] = {}
     for source, spans in families.items():
         kept[source] = []
         for span in spans:
             identity = _identity(source, span)
-            if identity in named:
+            if end_of.get(identity) == span.end_biennium:
                 removed.add(identity)
             else:
                 kept[source].append(span)
