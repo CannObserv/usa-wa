@@ -52,8 +52,8 @@ vocabulary, and the roster evidence (#360 part A). #501 emptied two categories �
 the substitutes (`membership_type`) and Woodall's edge-dated seating (the basis) —
 and dropped every pair the re-key, the basis-aware clip or the tiers took out of
 the certain tier; #517 retired `merged_tenure` once a roster return opened its own
-span, and #546 `never_served` once a never-seated row published none. The seed itself is the count. `assignments_seat_occupancy_stale`
-warns by name on an entry no longer certain — resolved, narrowed to a
+span, and #546 `never_served` once a never-seated row published none. The seed
+itself is the count. `assignments_seat_occupancy_stale` warns by name on an entry no longer certain — resolved, narrowed to a
 may-overlap, or re-keyed (a start re-dated across a biennium, a person merge) —
 and `build_warnings` fails the stage on it until it is removed. It skips the
 hermetic build. An operator event that resolves a listed pair removes the entry
