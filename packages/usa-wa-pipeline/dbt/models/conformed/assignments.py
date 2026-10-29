@@ -53,7 +53,7 @@ def model(dbt, session):
     # re-keyed and would publish again under the new key.
     if any(families.values()) and never_seated_stale:
         raise ValueError(
-            "NEVER_SEATED entries match no built span — re-adjudicate them in "
+            "NEVER_SEATED entries remove fewer spans than they name — re-adjudicate them in "
             "usa_wa_pipeline/conformed/never_seated.py: "
             f"{[e.member_id for e in never_seated_stale]}"
         )
