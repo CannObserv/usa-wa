@@ -13,8 +13,10 @@ import pytest
 
 from clearinghouse_core.job import EXIT_DEGRADED, OUTCOME_DEGRADED, OUTCOME_FAILED, OUTCOME_OK
 from clearinghouse_core.testing import patch_job_runtime
+from usa_wa_pipeline import multi_person_folds
 from usa_wa_pipeline.multi_person_folds import (
     ACCEPTED,
+    DEATH_IDENTITIES_FLOOR,
     SHAPE_AFTER_DEATH,
     SHAPE_MIXED_HONORIFIC,
     Acceptance,
@@ -178,7 +180,7 @@ TWO_BROWNS = [*BROWN, _row("Tom Brown", 1937, district=25)]
 
 
 def test_an_unaccepted_hit_fails_and_names_the_identity():
-    result = run_probe(TWO_BROWNS, splits={}, accepted=())
+    result = run_probe(TWO_BROWNS, splits={}, accepted=(), death_floor=1)
     assert result.outcome == OUTCOME_FAILED
     assert [(h["key"], h["shape"]) for h in result.counters["unaccepted_hits"]] == [
         ("tombrown:1915", SHAPE_AFTER_DEATH)
@@ -188,38 +190,46 @@ def test_an_unaccepted_hit_fails_and_names_the_identity():
 
 def test_an_accepted_hit_passes_and_is_reported():
     accepted = (Acceptance("tombrown:1915", SHAPE_AFTER_DEATH, "judged one man", "p. 1"),)
-    result = run_probe(TWO_BROWNS, splits={}, accepted=accepted)
+    result = run_probe(TWO_BROWNS, splits={}, accepted=accepted, death_floor=1)
     assert result.outcome == OUTCOME_OK
     assert result.counters["accepted"] == ["tombrown:1915 after_death"]
 
 
 def test_a_stale_acceptance_fails():
     accepted = (Acceptance("tombrown:1915", SHAPE_AFTER_DEATH, "judged one man", "p. 1"),)
-    result = run_probe([*BROWN, DEATH], splits={}, accepted=accepted)
+    result = run_probe([*BROWN, DEATH], splits={}, accepted=accepted, death_floor=1)
     assert result.outcome == OUTCOME_FAILED
     assert result.counters["stale_acceptances"] == ["tombrown:1915 after_death"]
 
 
 def test_a_clean_run_counts_what_it_compared():
-    result = run_probe([*BROWN, DEATH], splits={}, accepted=())
+    result = run_probe([*BROWN, DEATH], splits={}, accepted=(), death_floor=1)
     assert result.outcome == OUTCOME_OK
     assert result.counters["identities"] == 2
     assert result.counters["death_identities"] == 2
     assert result.counters["hits"] == 0
 
 
-@pytest.mark.parametrize(
-    ("roster", "reason"),
-    [
-        ([], "empty_roster_rows"),
-        # Every death unparsed: an upstream rewording, which would read as "no hits".
-        ([_row("Tom Brown", 1915), _row("Tom Brown", 1917)], "no_death_clauses"),
-    ],
-)
-def test_a_blind_input_degrades_rather_than_passing(roster, reason):
-    result = run_probe(roster, accepted=())
+def test_an_empty_roster_degrades_rather_than_passing():
+    result = run_probe([], accepted=())
     assert result.outcome == OUTCOME_DEGRADED
-    assert result.counters == {reason: True}
+    assert result.counters == {"empty_roster_rows": True}
+
+
+@pytest.mark.parametrize("deaths", [0, 1])
+def test_fewer_deaths_than_the_floor_degrades_rather_than_passing(deaths):
+    """The roster is cumulative, so its deaths never fall between editions: fewer than
+    measured is a rewording the clause parser no longer reads, and the probe would be
+    blind to exactly those identities. Total and partial loss both degrade."""
+    rows = [_row("Tom Brown", 1915), DEATH][: 1 + deaths]
+    result = run_probe(rows, accepted=(), death_floor=2)
+    assert result.outcome == OUTCOME_DEGRADED
+    assert result.counters == {"death_identities": deaths, "death_identities_floor": 2}
+
+
+def test_the_floor_is_the_measured_death_count():
+    """Edition 2025-06-05: 103 identities carry a parsed death (#525's sweep, #548's)."""
+    assert DEATH_IDENTITIES_FLOOR == 103
 
 
 def test_the_accepted_list_starts_empty():
@@ -251,6 +261,7 @@ def test_load_roster_reads_the_staged_roster(tmp_path):
 
 def test_main_reads_the_build_and_exits_by_outcome(tmp_path, monkeypatch):
     patch_job_runtime(monkeypatch)
+    monkeypatch.setattr(multi_person_folds, "DEATH_IDENTITIES_FLOOR", 1)
     assert main(["--db", _pipeline_db(tmp_path, [*BROWN, DEATH])]) == 0
 
 
@@ -264,6 +275,7 @@ def test_main_reads_the_db_from_the_environment_by_default(tmp_path, monkeypatch
 def test_main_fails_on_a_hit(tmp_path, monkeypatch):
     """The shipped tables split tombrown, so a namesake under a new fold stands in."""
     patch_job_runtime(monkeypatch)
+    monkeypatch.setattr(multi_person_folds, "DEATH_IDENTITIES_FLOOR", 1)
     rows = [
         _row("Ann Roe", 1915, annotation="Deceased March 27, 1916"),
         _row("Ann Roe", 1937, district=25),

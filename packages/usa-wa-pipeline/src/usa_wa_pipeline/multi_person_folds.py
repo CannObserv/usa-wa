@@ -36,8 +36,9 @@ its evidence; the probe fails on a stale entry until it is removed.
 Write-free, and reads only the built duckdb's ``stg_roster_members``.
 
 Exit ``0`` clean · ``1`` an unaccepted hit or a stale acceptance, each named ·
-``4`` degraded: the build holds no roster rows, or no death clause parses —
-either would read as "no hits" having compared nothing.
+``4`` degraded: the build holds no roster rows, or fewer identities carry a
+parsed death than :data:`DEATH_IDENTITIES_FLOOR` — either would read as "no
+hits" having compared less than the corpus holds.
 """
 
 from __future__ import annotations
@@ -73,6 +74,12 @@ SHAPE_AFTER_DEATH = "after_death"
 SHAPE_MIXED_HONORIFIC = "mixed_honorific"
 
 _DECEASED = "deceased"
+
+#: Identities carrying a parsed death on edition 2025-06-05 (#525's sweep, re-measured in
+#: #548). The roster is cumulative, so an edition never has fewer, and a split never drops a
+#: death row; fewer means a rewording the clause parser no longer reads, and the probe would
+#: be blind to exactly those identities. Raise it when a new edition adds deaths.
+DEATH_IDENTITIES_FLOOR = 103
 
 #: An undated death's row in an unrecognised chamber bounds at the longest term: the
 #: later bound, so the fewer rows it calls certainly after.
@@ -195,15 +202,20 @@ def run_probe(
     splits: Mapping[str, int] = IDENTITY_SPLITS,
     widow_splits: Mapping[str, str] = IDENTITY_WIDOW_SPLITS,
     accepted: Iterable[Acceptance] = ACCEPTED,
+    death_floor: int | None = None,
 ) -> JobResult:
-    """Find the hits and gate them against ``accepted``. Pure: the job does the read."""
+    """Find the hits and gate them against ``accepted``. Pure: the job does the read.
+
+    ``death_floor`` defaults to :data:`DEATH_IDENTITIES_FLOOR`, read at call time."""
     if not roster:
         logger.warning("multi_person_folds_empty_roster_rows")
         return JobResult.degraded({"empty_roster_rows": True})
     hits, measured = find_hits(roster, splits=splits, widow_splits=widow_splits)
-    if not measured["death_identities"]:
-        logger.warning("multi_person_folds_no_death_clauses")
-        return JobResult.degraded({"no_death_clauses": True})
+    floor = DEATH_IDENTITIES_FLOOR if death_floor is None else death_floor
+    if measured["death_identities"] < floor:
+        below = {"death_identities": measured["death_identities"], "death_identities_floor": floor}
+        logger.warning("multi_person_folds_deaths_below_floor", extra=below)
+        return JobResult.degraded(below)
 
     accepted_by_label = {a.label: a for a in accepted}
     hit_labels = {h.label for h in hits}
