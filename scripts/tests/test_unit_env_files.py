@@ -16,11 +16,17 @@ import posixpath
 from pathlib import PurePosixPath
 
 import pytest
-from systemd_units import DEPLOY, unit_values
+from systemd_units import DEPLOY, unit_value, unit_values
 
-CHECKOUT = PurePosixPath("/home/exedev/usa-wa")
 SYSTEM_ENV = "/etc/usa-wa/.env"
 SERVICES = sorted(DEPLOY.glob("*.service"))
+# The checkout, as the units themselves name it: derived, not hardcoded, so a move of
+# the checkout moves the guard with it instead of leaving it checking a stale path.
+CHECKOUTS = {
+    PurePosixPath(directory)
+    for path in SERVICES
+    if (directory := unit_value(path, "Service", "WorkingDirectory"))
+}
 
 # The units that read production's config. Each lost only the checkout line in #561.
 PRODUCTION_ENV_UNITS = (
@@ -38,16 +44,17 @@ def _env_files(unit: str) -> list[str]:
     return unit_values(DEPLOY / unit, "Service", "EnvironmentFile")
 
 
-def test_the_scan_sees_every_unit() -> None:
+def test_the_scan_sees_every_unit_and_its_checkout() -> None:
     names = {path.name for path in SERVICES}
     assert set(PRODUCTION_ENV_UNITS) <= names
+    assert CHECKOUTS, "no unit names a WorkingDirectory; the checkout guard would be vacuous"
 
 
 @pytest.mark.parametrize("service", SERVICES, ids=lambda path: path.name)
 def test_no_env_file_lives_in_the_checkout(service) -> None:
     for value in unit_values(service, "Service", "EnvironmentFile"):
         path = PurePosixPath(posixpath.normpath(value.removeprefix("-")))
-        assert not path.is_relative_to(CHECKOUT), (
+        assert not any(path.is_relative_to(checkout) for checkout in CHECKOUTS), (
             f"{service.name}: EnvironmentFile={value} loads a file from the checkout; "
             f"production config belongs in {SYSTEM_ENV}"
         )
