@@ -13,7 +13,7 @@ Pure file parse over every ``deploy/*.service`` — no systemd.
 from __future__ import annotations
 
 import posixpath
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import pytest
 from systemd_units import DEPLOY, unit_value, unit_values
@@ -51,7 +51,7 @@ def test_the_scan_sees_every_unit_and_its_checkout() -> None:
 
 
 @pytest.mark.parametrize("service", SERVICES, ids=lambda path: path.name)
-def test_no_env_file_lives_in_the_checkout(service) -> None:
+def test_no_env_file_lives_in_the_checkout(service: Path) -> None:
     for value in unit_values(service, "Service", "EnvironmentFile"):
         path = PurePosixPath(posixpath.normpath(value.removeprefix("-")))
         assert not any(path.is_relative_to(checkout) for checkout in CHECKOUTS), (
