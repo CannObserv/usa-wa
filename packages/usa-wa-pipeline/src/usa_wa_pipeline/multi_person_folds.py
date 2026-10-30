@@ -146,7 +146,12 @@ def identities(
     splits: Mapping[str, int] = IDENTITY_SPLITS,
     widow_splits: Mapping[str, str] = IDENTITY_WIDOW_SPLITS,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Identity key → its rows, keyed as the resolver mints them. Nameless rows drop."""
+    """Identity key → its rows, keyed as the resolver mints them. Nameless rows drop.
+
+    The key is ``identity_keys``' ``<fold>:<first year>`` over every staged row, 1991+
+    included: a registry key only for a fold the resolver mints. A fold crossing the
+    1991 floor publishes under its WSL id, so its hit key names the group, not a key to
+    ``register`` or ``move``."""
     named = [r for r in roster if isinstance(r.get("name"), str) and r["name"].strip()]
     keys = identity_keys(
         ((r["name"], int(r["year"])) for r in named), splits=splits, widow_splits=widow_splits
