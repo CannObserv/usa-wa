@@ -1,7 +1,7 @@
 """Application settings via pydantic-settings.
 
-Env files (/etc/usa-wa/.env, repo .env) are loaded by systemd or the
-developer before launch — never by this module.
+Env files are loaded before launch — never by this module: /etc/usa-wa/.env
+by systemd, and the developer's shell adds the repo .env (#561).
 """
 
 from functools import lru_cache

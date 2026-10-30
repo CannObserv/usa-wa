@@ -40,7 +40,6 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # just never read it (only alembic does). To enforce least privilege on a
 # multi-host split, move the owner DSN into a file loaded only by this unit.
 EnvironmentFile=/etc/usa-wa/.env
-EnvironmentFile=-/home/exedev/usa-wa/.env
 
 ExecStart=/home/exedev/usa-wa/scripts/migrate.sh
 

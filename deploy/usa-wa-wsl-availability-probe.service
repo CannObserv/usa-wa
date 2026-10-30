@@ -34,7 +34,6 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # No database is touched (needs_db=False). USA_WA_WSL_MIN_REQUEST_INTERVAL (optional, #77)
 # spaces the SOAP requests through the central WSL limiter.
 EnvironmentFile=/etc/usa-wa/.env
-EnvironmentFile=-/home/exedev/usa-wa/.env
 
 # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
 # Every flag is load-bearing (pinned by scripts/tests/test_wsl_availability_unit.py):

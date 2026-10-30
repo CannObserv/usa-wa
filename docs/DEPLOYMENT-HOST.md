@@ -318,7 +318,7 @@ manager; the restore's replacement-host runbook needs its passwords to recreate 
 ([RECOVERY.md](RECOVERY.md)). The checkout's `.env` (the agent tokens) is mode `0644`:
 readable by any local user. The backup unit masks it (`InaccessiblePaths=`) rather than
 relying on its mode, since its dynamic user would otherwise read it through the bound
-checkout.
+checkout. No unit loads it as an `EnvironmentFile=` (#561).
 
 ## Host maintenance (#394)
 

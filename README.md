@@ -11,7 +11,7 @@ uv sync
 # Install pre-commit hooks (runs ruff on commit)
 uv run pre-commit install
 
-# Load environment (production secrets + repo-local overrides)
+# Load environment (production secrets, then dev/agent secrets)
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
 ```
 

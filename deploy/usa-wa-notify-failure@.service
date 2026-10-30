@@ -21,9 +21,8 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 # USA_WA_ALERT_EMAIL (recipient) is read from /etc/usa-wa/.env — uncommitted,
 # survives repo resets, configurable per box. The script fails closed if it's
-# unset. Later EnvironmentFiles override earlier ones.
+# unset.
 EnvironmentFile=/etc/usa-wa/.env
-EnvironmentFile=-/home/exedev/usa-wa/.env
 
 # %i is the failing unit's full name (carries the `.service` suffix); the script
 # uses it for `systemctl show`/`journalctl` lookups and the alert subject.
