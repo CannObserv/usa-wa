@@ -34,6 +34,8 @@
 #   registry_coverage (#412 PR B) gates the registry's coverage of the build, and
 #   must run AFTER the registrar: a first-seen identity is unregistered until it
 #   does. parity_citations gates that every published entity stays citable.
+#   multi_person_folds (#548) flags a roster identity holding two people: rows
+#   after its own death, or a widow's `Mrs.` rows beside others.
 #   chamber_move_departures (#518) flags a member-wide `departed` dated at a
 #   move to the other chamber, against a named allowlist. The
 #   canonical-oracle probes (parity_wsl, _pdc, _registry, _spans) retired with
@@ -227,7 +229,7 @@ if ! skipped usa_wa_pipeline.coverage_seed \
 fi
 
 for probe in usa_wa_pipeline.registry_coverage usa_wa_pipeline.parity_citations \
-    usa_wa_pipeline.chamber_move_departures; do
+    usa_wa_pipeline.multi_person_folds usa_wa_pipeline.chamber_move_departures; do
   if ! run_stage "$probe" $UV python -m "$probe" --db "$DB"; then
     echo "pipeline-nightly: probe failed: $probe" >&2
     failures=$((failures + 1))
