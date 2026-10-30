@@ -149,6 +149,17 @@ IDENTITY_WIDOW_SPLITS: dict[str, str] = {
 
 _WIDOW_HONORIFIC = "mrs"
 
+
+def leads_with_widow_honorific(name: str) -> bool:
+    """Whether the printed name **leads with** ``Mrs.`` — the widow split's evidence.
+
+    Public so the #548 multi-person folds probe reads the widow shape by the same rule
+    the split partitions on. A ``Mrs.`` inside a parenthetical (``(Mrs. Joseph E.)``, a
+    marital form) is not leading and does not count."""
+    tokens = name.split()
+    return bool(tokens) and fold_token(tokens[0]) == _WIDOW_HONORIFIC
+
+
 #: The §3 join residue, adjudicated: fold → WSL member id, or ``None`` to mint a roster
 #: Person. These are the crossing names the guard rejects and the corroboration floor
 #: (correctly) declines to rescue.
@@ -218,8 +229,7 @@ def split_part(
     find a row's identity again — the departures probe, ``persons`` survivorship, the citer
     — asks here rather than restating a boundary (#525)."""
     if fold in widow_splits:
-        tokens = name.split()
-        return bool(tokens) and fold_token(tokens[0]) == _WIDOW_HONORIFIC
+        return leads_with_widow_honorific(name)
     if fold in splits:
         return year >= splits[fold]
     return None

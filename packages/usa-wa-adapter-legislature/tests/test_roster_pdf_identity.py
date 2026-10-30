@@ -39,6 +39,7 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
     Seating,
     identity_fold,
     identity_keys,
+    leads_with_widow_honorific,
     resolve_identities,
     split_folds,
     split_part,
@@ -226,6 +227,16 @@ def test_widow_split_with_an_empty_side_refuses_to_resolve() -> None:
     rows = [r for r in _smith_rows() if not r.name.startswith("Mrs.")]
     with pytest.raises(ValueError, match="juriebsmith"):
         resolve_identities(rows, seatings=(), widow_splits={"juriebsmith": "his widow"})
+
+
+def test_the_widow_honorific_is_the_leading_token_only() -> None:
+    """The widow split's evidence, shared with the #548 probe: ``Mrs.`` leading the
+    printed name, in any punctuation, never a ``Mrs.`` inside a parenthetical."""
+    assert leads_with_widow_honorific("Mrs. Jurie B. Smith")
+    assert leads_with_widow_honorific("MRS Jurie B. Smith")
+    assert not leads_with_widow_honorific("Jurie B. Smith")
+    assert not leads_with_widow_honorific("Frances (Mrs. Joseph E.) Swayze")
+    assert not leads_with_widow_honorific("")
 
 
 def test_split_part_is_the_one_partition_rule() -> None:
