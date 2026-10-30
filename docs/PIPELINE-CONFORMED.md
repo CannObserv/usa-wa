@@ -301,7 +301,7 @@ its rows carry ballot names and races, never a member id — so a House-Position
 span corroborated by SOS is cited at its WSL evidence only.
 
 ```bash
-uv run python -m usa_wa_pipeline.parity_citations   # last in the nightly probe loop
+uv run python -m usa_wa_pipeline.parity_citations   # nightly probe loop, after registry_coverage
 ```
 
 The probe asks the **built artifact**, not a recomputation: that is the only
