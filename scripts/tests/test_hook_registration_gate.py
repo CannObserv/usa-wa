@@ -23,17 +23,11 @@ upstream, and asserting its behaviour here would just re-test the vendor.
 import json
 from pathlib import Path
 
-import yaml
+from precommit_hooks import local_hook_entries
 
 REPO = Path(__file__).resolve().parents[2]
-PRECOMMIT = REPO / ".pre-commit-config.yaml"
 SETTINGS = REPO / ".claude" / "settings.json"
 HOOKS_DIR = REPO / ".claude" / "hooks"
-
-
-def _local_hook_entries() -> list[dict]:
-    config = yaml.safe_load(PRECOMMIT.read_text())
-    return [hook for repo in config["repos"] if repo["repo"] == "local" for hook in repo["hooks"]]
 
 
 def test_precommit_runs_the_doctor_registration_probe() -> None:
@@ -44,7 +38,7 @@ def test_precommit_runs_the_doctor_registration_probe() -> None:
     a gate that reports damage and then signals "fine" to the thing branching on
     it.
     """
-    entries = [h for h in _local_hook_entries() if "doctor.sh" in h["entry"]]
+    entries = [h for h in local_hook_entries() if "doctor.sh" in h["entry"]]
     assert entries, (
         "no local pre-commit hook runs .skills/doctor.sh; an unregistered "
         "SessionStart hook would reach main unnoticed (#263)"
@@ -62,7 +56,7 @@ def test_precommit_doctor_gate_always_runs() -> None:
     commit that touches nothing under .claude/ slip past it — and an edit that
     REMOVES a registration is exactly the commit that would.
     """
-    for hook in _local_hook_entries():
+    for hook in local_hook_entries():
         if "doctor.sh" not in hook["entry"]:
             continue
         assert hook.get("always_run") is True, f"{hook['id']}: needs always_run"

@@ -46,6 +46,7 @@ from pathlib import Path
 
 import pytest
 from dbt_models import model_files
+from workspace_modules import module_name
 
 REPO = Path(__file__).resolve().parents[2]
 PYPROJECTS = sorted(REPO.glob("packages/*/pyproject.toml"))
@@ -71,12 +72,6 @@ def _declared(pyproject: Path) -> set[str]:
     return names
 
 
-def _module_name(src: Path, path: Path) -> str:
-    """The dotted module a file under ``src`` defines (``pkg/__init__.py`` → ``pkg``)."""
-    parts = path.relative_to(src).with_suffix("").parts
-    return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
-
-
 def _sources(package: Path) -> list[tuple[Path, Path]]:
     """``(root, file)`` for every Python file a package ships: ``src``, and its dbt models.
 
@@ -96,7 +91,7 @@ def _imports(package: Path) -> set[tuple[str, str]]:
     code makes (see :func:`_sources`), function-local ones included."""
     pairs: set[tuple[str, str]] = set()
     for root, path in _sources(package):
-        module = _module_name(root, path)
+        module = module_name(root, path)
         for node in ast.walk(ast.parse(path.read_text(), filename=str(path))):
             if isinstance(node, ast.Import):
                 pairs.update((module, alias.name.split(".")[0]) for alias in node.names)
@@ -184,7 +179,7 @@ def test_the_scan_reaches_the_pipeline_models():
     """The pipeline's dbt models are in its scan (#535) — one entry per model."""
     pipeline = REPO / "packages" / "usa-wa-pipeline"
     dbt = pipeline / "dbt"
-    models = {_module_name(dbt, path) for path in model_files(dbt)}
+    models = {module_name(dbt, path) for path in model_files(dbt)}
     scanned = {module for module, _ in _imports(pipeline)}
     assert len(models) > 1 and models <= scanned, sorted(models - scanned)
 

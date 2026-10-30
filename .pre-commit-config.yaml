@@ -26,8 +26,9 @@ repos:
   # (roster_pdf.transport was, #225 to #551), so the scan that keeps the lists
   # equal to the adapters' `transport` modules runs here too, not only in the
   # suite. Scoped to a transport file, the root pyproject (the lists), the
-  # scan's own module and the conftest that loads it; named by node id so a
-  # renamed test fails loudly rather than selecting nothing. Measured ~1.2 s
+  # scan's module, the helpers it imports and the conftest that loads them
+  # (a broken helper fails collection, #553); named by node id so a renamed
+  # test fails loudly rather than selecting nothing. Measured ~1.2 s
   # wall (#551), nearly all pytest startup. pre-commit passes no deleted file,
   # so deleting a transport alone does not fire it: the stale entry is
   # vacuous, and the suite catches it.
@@ -39,7 +40,7 @@ repos:
         entry: uv run --frozen --no-sync pytest --no-cov -q -p no:cacheprovider scripts/tests/test_import_contracts.py::test_the_transport_scan_goes_by_module_name scripts/tests/test_import_contracts.py::test_every_adapter_transport_is_banned
         language: system
         pass_filenames: false
-        files: ^(pyproject\.toml|scripts/tests/(conftest|test_import_contracts)\.py|packages/usa-wa-adapter-[^/]+/src/(.*/)?transport(/__init__)?\.py)$
+        files: ^(pyproject\.toml|scripts/tests/(conftest|precommit_hooks|test_import_contracts|workspace_modules)\.py|packages/usa-wa-adapter-[^/]+/src/(.*/)?transport(/__init__)?\.py)$
 
   # SessionStart/PostToolUse hook wiring (issue #263). A Claude Code hook is two
   # artifacts — the script under .claude/hooks/ and the settings.json entry that
@@ -104,7 +105,7 @@ repos:
         entry: uv run --frozen --no-sync pytest --no-cov -q -p no:cacheprovider scripts/tests/test_dbt_model_imports.py scripts/tests/test_declared_dependencies.py
         language: system
         pass_filenames: false
-        files: ^(pyproject\.toml|packages/[^/]+/pyproject\.toml|packages/usa-wa-pipeline/dbt/(dbt_project\.yml|models/.*\.py)|scripts/tests/(conftest|dbt_models|test_dbt_model_imports|test_declared_dependencies)\.py)$
+        files: ^(pyproject\.toml|packages/[^/]+/pyproject\.toml|packages/usa-wa-pipeline/dbt/(dbt_project\.yml|models/.*\.py)|scripts/tests/(conftest|dbt_models|precommit_hooks|test_dbt_model_imports|test_declared_dependencies|workspace_modules)\.py)$
 
   # dbt pipeline gate (issue #303). `dbt build` on packages/usa-wa-pipeline/dbt
   # against a THROWAWAY duckdb: every model must compile and every schema/data
