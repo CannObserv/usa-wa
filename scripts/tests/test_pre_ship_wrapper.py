@@ -397,7 +397,7 @@ def test_a_repo_env_any_group_or_other_bit_reaches_is_refused(tmp_path, mode):
 
     assert result.returncode == 2
     assert str(repo / ".env") in result.stderr
-    assert f"{mode:o}" in result.stderr
+    assert f"is mode {mode:o};" in result.stderr
     assert f"chmod 600 {repo / '.env'}" in result.stderr
     assert SECRET not in result.stderr + result.stdout
     assert not log.exists(), "the delegate ran anyway; the gate should not have started"
