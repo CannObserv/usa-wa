@@ -5,8 +5,8 @@ that can write the backup bucket. What that code can reach is the whole question
 so the shape follows CannObserv/watcher#297: its own dynamic user with no
 capabilities, a read-only database role reached by peer auth, the key handed over
 as a systemd credential, and a ``/home`` holding nothing but the checkout — minus
-the checkout's ``.env``, which is world-readable here (0644) and carries the agent
-tokens. docs/RECOVERY.md explains each line; this pins them.
+the checkout's ``.env``, which carries the agent tokens (0600 since #566; the mask
+is the second layer). docs/RECOVERY.md explains each line; this pins them.
 
 Pure file parse — no DB, no systemd — except one host-dependent check: the venv's
 interpreter must resolve outside the hidden ``/home`` where a venv exists to look at.

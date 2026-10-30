@@ -61,8 +61,8 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 
 # The sandbox. A read-only filesystem but for a private /tmp (the dump is written
 # there); an empty /home with only the checkout bound back in, read-only — the venv
-# and the raw store, and nothing else of exedev's. The checkout's .env is 0644 and
-# carries the agent tokens, and worktrees carry their own, so both are masked.
+# and the raw store, and nothing else of exedev's. The checkout's .env carries the
+# agent tokens, as a worktree's may, so both are masked: a second layer behind 0600.
 ProtectSystem=strict
 ProtectHome=tmpfs
 BindReadOnlyPaths=/home/exedev/usa-wa
