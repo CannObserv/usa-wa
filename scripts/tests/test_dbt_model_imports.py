@@ -40,12 +40,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-import yaml
 from dbt_models import model_files, model_paths
 from importlinter.application import use_cases
 from importlinter.application.app_config import settings
 from importlinter.application.ports.building import GraphBuilder
 from importlinter.configuration import configure
+from precommit_hooks import local_hooks
 
 if TYPE_CHECKING:
     # Annotations only: grimp is import-linter's dependency, not the root dev group's, so
@@ -54,7 +54,6 @@ if TYPE_CHECKING:
 
 REPO = Path(__file__).resolve().parents[2]
 PYPROJECT = REPO / "pyproject.toml"
-PRECOMMIT = REPO / ".pre-commit-config.yaml"
 #: The pre-commit hook that runs this gate at commit (#551).
 HOOK = "dbt-model-imports"
 DBT_PROJECT = REPO / "packages" / "usa-wa-pipeline" / "dbt"
@@ -258,13 +257,7 @@ def test_a_real_violation_in_a_model_is_rejected(tmp_path, probe, contract):
 
 
 def _hook() -> dict:
-    config = yaml.safe_load(PRECOMMIT.read_text())
-    hooks = {
-        hook["id"]: hook
-        for repo in config["repos"]
-        if repo["repo"] == "local"
-        for hook in repo["hooks"]
-    }
+    hooks = local_hooks()
     assert HOOK in hooks, f"{HOOK} is not wired into .pre-commit-config.yaml"
     return hooks[HOOK]
 
@@ -291,6 +284,7 @@ def test_the_model_gate_runs_at_commit():
         "packages/usa-wa-pipeline/pyproject.toml",  # the declarations
         "packages/usa-wa-pipeline/dbt/dbt_project.yml",  # `model-paths`
         "scripts/tests/dbt_models.py",  # the scan both tests share
+        "scripts/tests/workspace_modules.py",  # the module-name rule the declarations scan uses
         "scripts/tests/test_dbt_model_imports.py",  # the gate itself
         "scripts/tests/test_declared_dependencies.py",
         "scripts/tests/conftest.py",  # puts `dbt_models` on the path both tests import

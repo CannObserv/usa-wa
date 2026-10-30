@@ -31,7 +31,8 @@ import tomllib
 from pathlib import Path
 
 import pytest
-import yaml
+from precommit_hooks import local_hooks
+from workspace_modules import module_name
 
 REPO = Path(__file__).parent.parent.parent  # scripts/tests/ → repo
 #: The console script beside the running interpreter — `python -m importlinter.cli`
@@ -39,7 +40,6 @@ REPO = Path(__file__).parent.parent.parent  # scripts/tests/ → repo
 #: assertion below vacuous.
 LINT_IMPORTS = Path(sys.executable).parent / "lint-imports"
 PYPROJECT = REPO / "pyproject.toml"
-PRECOMMIT = REPO / ".pre-commit-config.yaml"
 
 TIER_CONTRACT = "The pipeline, the API and the raw harvests never import the retired Postgres tier"
 LAYERS_CONTRACT = "Layers: core < domain < common < adapter < facts < pipeline < deployment"
@@ -143,11 +143,9 @@ def transport_modules(packages: Path) -> set[str]:
     found = set()
     for src in packages.glob("usa-wa-adapter-*/src"):
         for path in src.rglob("*.py"):
-            parts = path.relative_to(src).with_suffix("").parts
-            if parts[-1] == "__init__":
-                parts = parts[:-1]
-            if parts and parts[-1] == "transport":
-                found.add(".".join(parts))
+            module = module_name(src, path)
+            if module.rpartition(".")[2] == "transport":
+                found.add(module)
     return found
 
 
@@ -245,9 +243,7 @@ def test_every_workspace_package_is_a_root_package():
 
 def test_import_linter_runs_in_the_same_gate_as_ruff():
     """A contract that only runs when someone remembers is not enforcement."""
-    config = yaml.safe_load(PRECOMMIT.read_text())
-    hooks = [h for repo in config["repos"] for h in repo["hooks"]]
-    by_id = {h["id"]: h for h in hooks}
+    by_id = local_hooks()
     assert "import-linter" in by_id, "import-linter is not wired into pre-commit"
     hook = by_id["import-linter"]
     assert "lint-imports" in hook["entry"]
@@ -380,8 +376,7 @@ def test_the_transport_bans_are_checked_at_commit():
     the next suite run. Named by node id, not ``-k``: a renamed test fails the hook loudly
     instead of matching nothing.
     """
-    config = yaml.safe_load(PRECOMMIT.read_text())
-    by_id = {h["id"]: h for repo in config["repos"] for h in repo["hooks"]}
+    by_id = local_hooks()
     assert "transport-bans" in by_id, "transport-bans is not wired into pre-commit"
     hook = by_id["transport-bans"]
     this = Path(__file__).relative_to(REPO).as_posix()
@@ -401,6 +396,7 @@ def test_the_transport_bans_are_checked_at_commit():
         "packages/usa-wa-adapter-sos/src/transport.py",  # a top-level wire the scan counts
         "pyproject.toml",  # the bans
         this,  # the scan
+        "scripts/tests/workspace_modules.py",  # the module-name rule the scan uses
         "scripts/tests/conftest.py",  # makes the suite's helpers importable
     ]
     assert len(wires) > 1, "found no adapter transports - the glob broke"
