@@ -39,6 +39,7 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
     Seating,
     identity_fold,
     identity_keys,
+    leads_with_widow_honorific,
     resolve_identities,
     split_folds,
     split_part,
@@ -156,6 +157,24 @@ def test_split_adjudication_partitions_at_the_boundary_year() -> None:
     assert len(by_key["elmerejohnston:1947"].records) == 2
 
 
+def test_the_shipped_tables_split_the_two_tom_browns() -> None:
+    """#548: a Republican in LD-53 who died in 1921 and a Democrat in LD-25 in 1937. The
+    16-year gap is inside :data:`WIDE_GAP_YEARS`, so without the split they mint as one
+    person and his entity publishes the second man's span."""
+    report = resolve_identities(
+        [
+            *(_rec("Tom Brown", year, district=53, party="R") for year in (1915, 1917, 1919)),
+            _rec("Tom Brown", 1921, district=53, party="R", annotation="Deceased March 27, 1921"),
+            _rec("Tom Brown", 1937, district=25, party="D"),
+        ],
+        seatings=(),
+    )
+    by_key = {i.key: i for i in report.identities}
+    assert sorted(by_key) == ["tombrown:1915", "tombrown:1937"]
+    assert [r.year for r in by_key["tombrown:1915"].records] == [1915, 1917, 1919, 1921]
+    assert [r.district for r in by_key["tombrown:1937"].records] == [25]
+
+
 def _smith_rows() -> list[RosterRecord]:
     """LD-32 House as edition 2025-06-05 prints it: his five terms, his 1943 row closed by
     his death, and his widow's two rows under his name with a leading ``Mrs.`` (#525)."""
@@ -208,6 +227,16 @@ def test_widow_split_with_an_empty_side_refuses_to_resolve() -> None:
     rows = [r for r in _smith_rows() if not r.name.startswith("Mrs.")]
     with pytest.raises(ValueError, match="juriebsmith"):
         resolve_identities(rows, seatings=(), widow_splits={"juriebsmith": "his widow"})
+
+
+def test_the_widow_honorific_is_the_leading_token_only() -> None:
+    """The widow split's evidence, shared with the #548 probe: ``Mrs.`` leading the
+    printed name, in any punctuation, never a ``Mrs.`` inside a parenthetical."""
+    assert leads_with_widow_honorific("Mrs. Jurie B. Smith")
+    assert leads_with_widow_honorific("MRS Jurie B. Smith")
+    assert not leads_with_widow_honorific("Jurie B. Smith")
+    assert not leads_with_widow_honorific("Frances (Mrs. Joseph E.) Swayze")
+    assert not leads_with_widow_honorific("")
 
 
 def test_split_part_is_the_one_partition_rule() -> None:

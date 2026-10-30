@@ -260,6 +260,22 @@ def test_the_chamber_move_probe_runs_last_and_is_counted(run_nightly):
     )
 
 
+def test_the_multi_person_folds_probe_runs_after_publish_and_is_counted(run_nightly):
+    """#548: a roster identity holding two people. In the probe loop, after publish,
+    so a hit emails the operator and never holds the catalog back."""
+    code, lines = run_nightly(STUB_FAIL="usa_wa_pipeline.multi_person_folds")
+
+    assert code == 1
+    stages = [line.removeprefix("stub-log ") for line in lines if line.startswith("stub-log ")]
+    assert stages.index("usa_wa_pipeline.publish") < stages.index(
+        "usa_wa_pipeline.multi_person_folds"
+    )
+    assert "usa_wa_pipeline.chamber_move_departures" in stages
+    assert any(
+        "failed stage: usa_wa_pipeline.multi_person_folds (exit 1)" in line for line in lines
+    )
+
+
 def test_a_dbt_warning_is_counted_after_the_build_and_publish_still_runs(run_nightly):
     """#412 PR E: a dbt ``warn`` never changes ``dbt build``'s exit code, so the chain
     gates it as its own stage. Right after the build, counted and never an abort: a
@@ -372,6 +388,7 @@ def test_a_rehearsal_writes_only_under_its_scratch_dir(run_nightly, scratch):
     for probe in (
         "usa_wa_pipeline.registry_coverage",
         "usa_wa_pipeline.parity_citations",
+        "usa_wa_pipeline.multi_person_folds",
         "usa_wa_pipeline.chamber_move_departures",
     ):
         assert f"--db {root}/pipeline.duckdb" in _argv(lines, probe)

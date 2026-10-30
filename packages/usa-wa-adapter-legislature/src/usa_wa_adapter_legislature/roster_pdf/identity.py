@@ -18,9 +18,10 @@ that design as code, recalibrated by the #252 parse corrections:
   career). A rule that split on it would fork ~44 real people to catch ~0 impostors.
 * **Odd evidence refuses; it never merges and never splits silently.** A group whose
   consecutive listing years gap more than :data:`WIDE_GAP_YEARS` with no adjudicated split
-  is refused with its subject named — 15 groups measured, adjudicable by hand. The one
-  near-certain two-person fold (``elmerejohnston``: an 1899 Populist in LD44 and a 1947-65
-  Republican in LD6) is split by :data:`IDENTITY_SPLITS`; a widow printed under her
+  is refused with its subject named — 15 groups measured, adjudicable by hand. Two-person
+  folds are split by :data:`IDENTITY_SPLITS` — ``elmerejohnston`` (an 1899 Populist in LD44
+  and a 1947-65 Republican in LD6) and ``tombrown`` (#548: a death in 1921, a namesake in
+  1937, inside the gap); a widow printed under her
   husband's name (``juriebsmith``, #525) by :data:`IDENTITY_WIDOW_SPLITS`. Both go through
   :func:`split_part`, the one rule every downstream reader of a row's identity asks.
 * **A fold crossing the 1991 floor joins the existing WSL member** — the roster key is a
@@ -119,6 +120,9 @@ IDENTITY_SPLITS: dict[str, int] = {
     # An 1899 Populist in LD44 and a 1947-65 Republican in LD6: a 48-year gap, fully
     # disjoint seat lineage, and a party era apart. Near-certainly two people.
     "elmerejohnston": 1947,
+    # A Republican in LD53 1915-21, 'Deceased March 27, 1921' on his 1921 row, and a
+    # Democrat in LD25 in 1937 (#548): a dead man's later span, inside WIDE_GAP_YEARS.
+    "tombrown": 1937,
 }
 
 #: Adjudicated widow splits: fold → evidence. Inside a listed fold, the rows whose printed
@@ -144,6 +148,17 @@ IDENTITY_WIDOW_SPLITS: dict[str, str] = {
 }
 
 _WIDOW_HONORIFIC = "mrs"
+
+
+def leads_with_widow_honorific(name: str) -> bool:
+    """Whether the printed name **leads with** ``Mrs.`` — the widow split's evidence.
+
+    Public so the #548 multi-person folds probe reads the widow shape by the same rule
+    the split partitions on. A ``Mrs.`` inside a parenthetical (``(Mrs. Joseph E.)``, a
+    marital form) is not leading and does not count."""
+    tokens = name.split()
+    return bool(tokens) and fold_token(tokens[0]) == _WIDOW_HONORIFIC
+
 
 #: The §3 join residue, adjudicated: fold → WSL member id, or ``None`` to mint a roster
 #: Person. These are the crossing names the guard rejects and the corroboration floor
@@ -214,8 +229,7 @@ def split_part(
     find a row's identity again — the departures probe, ``persons`` survivorship, the citer
     — asks here rather than restating a boundary (#525)."""
     if fold in widow_splits:
-        tokens = name.split()
-        return bool(tokens) and fold_token(tokens[0]) == _WIDOW_HONORIFIC
+        return leads_with_widow_honorific(name)
     if fold in splits:
         return year >= splits[fold]
     return None

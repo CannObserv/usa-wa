@@ -25,7 +25,7 @@ The API serves the tree at `/datasets/*` with `/health/datasets` as the
 publication probe. The nightly systemd chain (`scripts/pipeline-nightly.sh`,
 `usa-wa-pipeline.timer`, daily 08:00 UTC) runs harvests → dbt build →
 `build_warnings` → registrar → publish → serving load → `coverage_seed` → probes
-(`registry_coverage`, `parity_citations`, then `chamber_move_departures`, #518); any counted failure exits 1 so `OnFailure=` emails
+(`registry_coverage`, `parity_citations`, `multi_person_folds` #548, then `chamber_move_departures` #518); any counted failure exits 1 so `OnFailure=` emails
 the operator, with each failed stage's summary line restated last (#331). `build_warnings`
 (#412 PR E) fails the run on any dbt `warn`, which `dbt build` alone exits 0 on, except one
 named in `ACCEPTED_WARNINGS` for the rollover window (#452) or in `INFORMATIONAL_NODES` — the
