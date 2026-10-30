@@ -397,6 +397,7 @@ def test_the_transport_bans_are_checked_at_commit():
         "pyproject.toml",  # the bans
         this,  # the scan
         "scripts/tests/workspace_modules.py",  # the module-name rule the scan uses
+        "scripts/tests/precommit_hooks.py",  # imported by this module, so it can fail the hook
         "scripts/tests/conftest.py",  # makes the suite's helpers importable
     ]
     assert len(wires) > 1, "found no adapter transports - the glob broke"
