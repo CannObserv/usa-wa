@@ -157,14 +157,14 @@ build the table is the hand-review work order — both sides of every pair, sinc
 which id survives a merge is an adjudication and not something a gate may
 presume.
 
-**14 of the 17, and the allowlist is four.** The fold keeps middle initials, so
+**14 of the 17, and the allowlist is five.** The fold keeps middle initials, so
 `Stanley Johnson` / `Stanley C. Johnson` and the two Salings are invisible here.
 Loosening it to first-given-plus-surname recovers two and collides 42 groups over
 88 rows — including `N. B. Atkinson` / `N. P. Atkinson`, which
 `roster_pdf/identity.py` documents as distinct on five grounds; the miss is the
-bought half of that trade. What legitimately collides is four folds: every
-adjudicated split's fold **by derivation** (`split_folds`: `elmerejohnston`, and
-the `juriebsmith` widow split, #525), since a roster split mints two entities
+bought half of that trade. What legitimately collides is five folds: every
+adjudicated split's fold **by derivation** (`split_folds`: the `elmerejohnston` and
+`tombrown` year splits, #548, and the `juriebsmith` widow split, #525), since a roster split mints two entities
 from one fold on purpose and restating them here would break the nightly the next
 time one is added; plus `bobmccaslin` and `briansullivan`, each carrying the
 evidence that settled it — an allowlist entry tells the build to stop looking

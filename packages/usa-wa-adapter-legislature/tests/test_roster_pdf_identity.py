@@ -156,6 +156,24 @@ def test_split_adjudication_partitions_at_the_boundary_year() -> None:
     assert len(by_key["elmerejohnston:1947"].records) == 2
 
 
+def test_the_shipped_tables_split_the_two_tom_browns() -> None:
+    """#548: a Republican in LD-53 who died in 1921 and a Democrat in LD-25 in 1937. The
+    16-year gap is inside :data:`WIDE_GAP_YEARS`, so without the split they mint as one
+    person and his entity publishes the second man's span."""
+    report = resolve_identities(
+        [
+            *(_rec("Tom Brown", year, district=53, party="R") for year in (1915, 1917, 1919)),
+            _rec("Tom Brown", 1921, district=53, party="R", annotation="Deceased March 27, 1921"),
+            _rec("Tom Brown", 1937, district=25, party="D"),
+        ],
+        seatings=(),
+    )
+    by_key = {i.key: i for i in report.identities}
+    assert sorted(by_key) == ["tombrown:1915", "tombrown:1937"]
+    assert [r.year for r in by_key["tombrown:1915"].records] == [1915, 1917, 1919, 1921]
+    assert [r.district for r in by_key["tombrown:1937"].records] == [25]
+
+
 def _smith_rows() -> list[RosterRecord]:
     """LD-32 House as edition 2025-06-05 prints it: his five terms, his 1943 row closed by
     his death, and his widow's two rows under his name with a leading ``Mrs.`` (#525)."""

@@ -18,9 +18,10 @@ that design as code, recalibrated by the #252 parse corrections:
   career). A rule that split on it would fork ~44 real people to catch ~0 impostors.
 * **Odd evidence refuses; it never merges and never splits silently.** A group whose
   consecutive listing years gap more than :data:`WIDE_GAP_YEARS` with no adjudicated split
-  is refused with its subject named — 15 groups measured, adjudicable by hand. The one
-  near-certain two-person fold (``elmerejohnston``: an 1899 Populist in LD44 and a 1947-65
-  Republican in LD6) is split by :data:`IDENTITY_SPLITS`; a widow printed under her
+  is refused with its subject named — 15 groups measured, adjudicable by hand. Two-person
+  folds are split by :data:`IDENTITY_SPLITS` — ``elmerejohnston`` (an 1899 Populist in LD44
+  and a 1947-65 Republican in LD6) and ``tombrown`` (#548: a death in 1921, a namesake in
+  1937, inside the gap); a widow printed under her
   husband's name (``juriebsmith``, #525) by :data:`IDENTITY_WIDOW_SPLITS`. Both go through
   :func:`split_part`, the one rule every downstream reader of a row's identity asks.
 * **A fold crossing the 1991 floor joins the existing WSL member** — the roster key is a
@@ -119,6 +120,9 @@ IDENTITY_SPLITS: dict[str, int] = {
     # An 1899 Populist in LD44 and a 1947-65 Republican in LD6: a 48-year gap, fully
     # disjoint seat lineage, and a party era apart. Near-certainly two people.
     "elmerejohnston": 1947,
+    # A Republican in LD53 1915-21, 'Deceased March 27, 1921' on his 1921 row, and a
+    # Democrat in LD25 in 1937 (#548): a dead man's later span, inside WIDE_GAP_YEARS.
+    "tombrown": 1937,
 }
 
 #: Adjudicated widow splits: fold → evidence. Inside a listed fold, the rows whose printed
