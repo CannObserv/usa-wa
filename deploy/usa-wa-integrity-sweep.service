@@ -34,9 +34,8 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # App role only: DATABASE_URL carries the ledger row. USA_WA_RAW_ROOT names the
 # store; unset, it is raw/ under WorkingDirectory — the same store the nightly
 # harvests write. Its one write is the rolling cursor at
-# <root>/.raw_integrity_state.json. Later EnvironmentFiles override earlier ones.
+# <root>/.raw_integrity_state.json.
 EnvironmentFile=/etc/usa-wa/.env
-EnvironmentFile=-/home/exedev/usa-wa/.env
 
 # --frozen --no-sync: run against the installed venv as-is; never re-lock or sync
 # at unit start (AGENTS.md § Server Lifecycle, #30). --expect-objects: a missing

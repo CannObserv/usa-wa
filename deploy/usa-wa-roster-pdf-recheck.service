@@ -38,7 +38,6 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # App role only: the one DB write is the job ledger's run row; --dry-run writes no raw store.
 # USA_WA_LEG_MIN_REQUEST_INTERVAL (optional, #236) spaces the leg.wa.gov requests.
 EnvironmentFile=/etc/usa-wa/.env
-EnvironmentFile=-/home/exedev/usa-wa/.env
 
 # --frozen --no-sync: run against the installed venv as-is (AGENTS.md § Server Lifecycle, #30).
 # Every flag is load-bearing (pinned by scripts/tests/test_roster_recheck_unit.py):

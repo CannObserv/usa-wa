@@ -105,7 +105,7 @@ cause nor the fix; this is it.
 
 ## Environment
 
-Production secrets in `/etc/usa-wa/.env`, dev/agent secrets in `./.env` — both git-ignored, both loaded by the systemd units. Shell sessions load them manually:
+Production secrets in `/etc/usa-wa/.env`, dev/agent secrets in `./.env` — both git-ignored. The systemd units load only the first (#561); shell sessions load both manually:
 
 ```bash
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)

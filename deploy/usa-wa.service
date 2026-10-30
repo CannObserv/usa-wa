@@ -42,11 +42,10 @@ ExecStartPre=+/bin/bash -c 'mkdir -p /run/usa-wa && chown exedev:exedev /run/usa
 # Write current git SHA to a runtime env file before starting
 ExecStartPre=/bin/bash -c 'echo BUILD_ID=$(git rev-parse --short HEAD) > /run/usa-wa/build-id'
 
-# Load BUILD_ID, then system secrets, then optional repo-local overrides.
-# Order matters: later EnvironmentFiles override earlier ones.
+# Load BUILD_ID, then system secrets. Never the repo .env: it holds the dev and
+# agent tokens, which production has no use for (#561).
 EnvironmentFile=-/run/usa-wa/build-id
 EnvironmentFile=/etc/usa-wa/.env
-EnvironmentFile=-/home/exedev/usa-wa/.env
 
 # --frozen --no-sync: run against the installed venv as-is; never re-lock or
 # sync at unit start. Dependency changes land only via a deliberate `uv sync`

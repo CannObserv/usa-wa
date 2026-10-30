@@ -31,7 +31,6 @@ Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # App role only. The raw store, duckdb and dataset roots are the documented
 # defaults under WorkingDirectory (docs/ENVIRONMENT.md), so no path env needed.
 EnvironmentFile=/etc/usa-wa/.env
-EnvironmentFile=-/home/exedev/usa-wa/.env
 
 ExecStart=/home/exedev/usa-wa/scripts/pipeline-nightly.sh
 

@@ -115,7 +115,7 @@ Two env files, loaded in order (later values override):
 1. **`/etc/usa-wa/.env`** — production secrets (`DATABASE_URL`, etc.). Survives repo resets and worktree switches. Managed manually on the VM.
 2. **`.env`** (repo root, git-ignored) — dev/agent secrets (`GH_TOKEN`, `TEST_DATABASE_URL`). Never commit.
 
-The systemd service loads both automatically. For shell commands:
+Systemd units load only the first (#561). For shell commands:
 
 ```bash
 export $(cat /etc/usa-wa/.env .env 2>/dev/null | xargs)
