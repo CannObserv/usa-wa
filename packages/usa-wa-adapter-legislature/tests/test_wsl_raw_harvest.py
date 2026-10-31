@@ -529,6 +529,17 @@ class TestWsdlDrift:
 
     OK_RUN = {"biennium": BIENNIUM, "fetched": 6, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
 
+    @staticmethod
+    def _ctx(tmp_path) -> JobContext:
+        """The harvest job's context, as the harness builds it for a databaseless run."""
+        return JobContext(
+            name=raw_harvest.JOB_SLUG,
+            args=argparse.Namespace(root=str(tmp_path), ttl_days=0.0),
+            session=None,
+            session_factory=None,
+            dry_run=False,
+        )
+
     def test_drift_degrades_and_names_the_services(self, caplog) -> None:
         with caplog.at_level(logging.ERROR):
             result = job_outcome(
@@ -567,13 +578,7 @@ class TestWsdlDrift:
 
         monkeypatch.setattr(raw_harvest, "harvest_raw", fake_harvest)
         monkeypatch.setattr(raw_harvest, "binding_drift", fake_drift)
-        ctx = JobContext(
-            name=raw_harvest.JOB_SLUG,
-            args=argparse.Namespace(root=str(tmp_path), ttl_days=0.0),
-            session=None,
-            session_factory=None,
-            dry_run=False,
-        )
+        ctx = self._ctx(tmp_path)
         result = await raw_harvest._harvest_job(ctx)
 
         assert {c.service for c in harvested.values()} == {
@@ -600,13 +605,7 @@ class TestWsdlDrift:
 
         monkeypatch.setattr(raw_harvest, "harvest_raw", fake_harvest)
         monkeypatch.setattr(raw_harvest, "binding_drift", crashing_drift)
-        ctx = JobContext(
-            name=raw_harvest.JOB_SLUG,
-            args=argparse.Namespace(root=str(tmp_path), ttl_days=0.0),
-            session=None,
-            session_factory=None,
-            dry_run=False,
-        )
+        ctx = self._ctx(tmp_path)
         with caplog.at_level(logging.ERROR):
             result = await raw_harvest._harvest_job(ctx)
 

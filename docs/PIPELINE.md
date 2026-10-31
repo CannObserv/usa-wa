@@ -92,7 +92,8 @@ Eight models under `models/staging/`, each a thin adapter over a pytest-covered
 row-builder in `usa_wa_pipeline.staging` (wsl.py / roster.py); the offline SOAP
 parse goes through `usa_wa_adapter_legislature.parsing` (same operation
 bindings as the live pulls, built from the adapter's vendored WSDLs — no network, so a
-WSL outage cannot fail the build, #563):
+WSL outage cannot fail the build, #563; only a wire the vendored copy rejects re-parses
+live, MODULES-LEGISLATURE.md § Vendored WSDLs):
 
 | Model | Key | Notes |
 |---|---|---|

@@ -95,7 +95,9 @@ def binding_drift(clients: Iterable[WSLClient]) -> dict[str, list[str]]:
 @functools.cache
 def _vendored_fingerprint(service: str) -> str:
     """The vendored binding's fingerprint — a package file, so computed once per process."""
-    return _binding_fingerprint(WSLClient.offline(service)._ensure_client().wsdl)
+    return _binding_fingerprint(
+        WSLClient(service, wsdl=vendored_wsdl(service))._ensure_client().wsdl
+    )
 
 
 #: Courtesy floor between **any two** WSL SOAP operation calls, across all `WSLClient`
@@ -232,7 +234,8 @@ class WSLClient:
         self._client: Client | None = None
         #: Re-parses a wire this client's binding rejects (``offline`` clients only).
         self._fallback: WSLClient | None = None
-        self._fell_back = False
+        #: Operations whose fallback has already been logged — one warning each per client.
+        self._fell_back: set[str] = set()
 
     @classmethod
     def offline(
@@ -273,14 +276,16 @@ class WSLClient:
     def _replay(self, operation_name: str, wire: bytes) -> list[dict[str, Any]]:
         """Re-deserialize an archived ``operation_name`` reply through this client's binding;
         on a schema-level rejection, through ``_fallback``'s (see :meth:`offline`). A
-        malformed wire is a ``TransportError``, not a rejection: it raises either way."""
+        malformed wire is a ``TransportError``, not a rejection: it raises either way. So
+        does a binding that fails to *load*: only the wire is a reason to reach WSL."""
+        self._ensure_client()  # outside the try: an unloadable vendored copy never falls back
         try:
             return self._replay_through_own_binding(operation_name, wire)
         except XMLParseError:
             if self._fallback is None:
                 raise
-            if not self._fell_back:
-                self._fell_back = True
+            if operation_name not in self._fell_back:
+                self._fell_back.add(operation_name)
                 logger.warning(
                     "wsl_parse_live_wsdl_fallback",
                     extra={

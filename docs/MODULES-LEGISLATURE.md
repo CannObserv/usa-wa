@@ -87,10 +87,11 @@ loses the night's publish, even though every envelope was already in the raw sto
 - **A wire the vendored binding rejects** (`XMLParseError`, an element WSL added after the copy
   was vendored) is re-parsed through a lazily built live-URL binding, which is the pre-#563
   behaviour for that wire alone. It logs `wsl_parse_live_wsdl_fallback` (WARNING) once per
-  client. It never falls back to a lenient parse: zeep's non-strict mode nulls every field
-  after an unknown mid-sequence element, and a field added to the `LegislativeEntity` base
-  type lands mid-sequence in every `Member`/`Committee`. A malformed wire is a
-  `TransportError`, not a rejection, and raises either way.
+  operation per client. It never falls back to a lenient parse: zeep's non-strict mode nulls
+  every field after an unknown mid-sequence element, and a field added to the
+  `LegislativeEntity` base type lands mid-sequence in every `Member`/`Committee`. A malformed
+  wire is a `TransportError`, not a rejection, and raises either way; so does a vendored copy
+  zeep cannot *load*, which never goes live.
 - **Harvest stays live:** Phase A's clients still load `?wsdl`. Only the parse seam is offline.
 - **Drift:** `binding_drift` hashes zeep's *parsed* binding (namespace prefixes, global element
   and type signatures, every port's operation signatures) and never the text, per ARCHITECTURE

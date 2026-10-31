@@ -163,7 +163,7 @@ def test_an_element_the_vendored_binding_lacks_reparses_through_the_live_one(
     assert [{k: v for k, v in row.items() if k != "Nick"} for row in first] == base
     assert sum(row["Nick"] == "n" for row in first) == wire.count(b"<Nick>") > 0
     fallbacks = [r for r in caplog.records if r.message == "wsl_parse_live_wsdl_fallback"]
-    assert len(fallbacks) == 1, "warned once per client, not once per wire"
+    assert len(fallbacks) == 1, "warned once per operation, not once per wire"
     assert fallbacks[0].service == "SponsorService"
 
 
@@ -181,3 +181,44 @@ def test_a_wire_the_vendored_binding_parses_never_builds_the_live_fallback() -> 
     assert client._parse_sponsors_sync(_sponsors_envelope())
     assert client._fallback is not None
     assert client._fallback.binding_fingerprint() is None
+
+
+@pytest.mark.usefixtures("no_network")
+def test_a_vendored_wsdl_that_fails_to_load_raises_never_falls_back_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a *wire* the vendored binding rejects takes the live fallback: a vendored copy
+    zeep cannot load is a defect in the package, never a reason to reach WSL."""
+    fallback = WSLClient("SponsorService")
+    client = WSLClient.offline("SponsorService", fallback=fallback)
+
+    def unloadable() -> None:
+        raise XMLParseError("vendored copy unloadable")
+
+    monkeypatch.setattr(client, "_ensure_client", unloadable)
+    with pytest.raises(XMLParseError, match="vendored copy unloadable"):
+        client._parse_sponsors_sync(_sponsors_envelope())
+    assert fallback.binding_fingerprint() is None
+
+
+def test_the_fallback_warns_once_per_operation(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """``CommitteeService`` serves two parsed operations: each one's first fallback is news."""
+
+    class LiveStub:
+        def _replay(self, operation_name: str, wire: bytes) -> list[dict[str, Any]]:
+            return []
+
+    def rejects(operation_name: str, wire: bytes) -> list[dict[str, Any]]:
+        raise XMLParseError(f"unexpected element in {operation_name}")
+
+    client = WSLClient.offline("CommitteeService", fallback=LiveStub())  # type: ignore[arg-type]
+    monkeypatch.setattr(client, "_replay_through_own_binding", rejects)
+    with caplog.at_level(logging.WARNING):
+        client._parse_committees_sync(b"<wire/>")
+        client._parse_committees_sync(b"<wire/>")
+        client._parse_historical_committee_members_sync(b"<wire/>")
+
+    fallbacks = [r for r in caplog.records if r.message == "wsl_parse_live_wsdl_fallback"]
+    assert sorted(r.operation for r in fallbacks) == ["GetCommitteeMembers", "GetCommittees"]
