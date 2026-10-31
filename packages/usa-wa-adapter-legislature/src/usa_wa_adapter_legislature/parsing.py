@@ -2,11 +2,12 @@
 
 The #302 pipeline's parse seam: staging models re-deserialize archived SOAP
 wires through the same operation bindings the live pulls use — never a
-re-implementation keyed on upstream strings, and never a network call: each
+re-implementation keyed on upstream strings, and no network call: each
 module-singleton client binds to its service's **vendored** WSDL (#563), so a
 WSL outage during the nightly cannot fail ``dbt build`` over wires already in
-the raw store. The harvest's binding-drift check keeps the vendored copy honest
-(``transport.binding_drift``). This module exists
+the raw store. Only a wire the vendored binding rejects is re-parsed through the
+live WSDL (``WSLClient.offline``); the harvest's binding-drift check
+(``transport.binding_drift``) mails when the copy needs replacing. This module exists
 so `usa_wa_pipeline` depends on *parsing* without importing `transport`
 directly — the layer contract forbids a pipeline module naming the transport
 and driving the wire; a parse-only facade that owns its client internally is

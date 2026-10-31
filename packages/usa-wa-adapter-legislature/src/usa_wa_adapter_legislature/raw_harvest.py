@@ -26,8 +26,9 @@ degrades until it is removed — the #333 ``ACCEPTED_OUTAGES`` pattern.
 a WSL outage cannot fail ``dbt build``. The price is a copy that can go stale; the job compares
 the binding its live clients loaded for the night's pulls with the vendored one
 (``transport.binding_drift`` — no extra request), and drift degrades the run. Contained like
-any harvest failure: the chain still builds and publishes on the vendored binding, and
-``OnFailure=`` mails the operator.
+any harvest failure: the chain still builds and publishes (a wire the vendored binding rejects
+re-parses through the live WSDL, ``WSLClient.offline``), and ``OnFailure=`` mails the operator
+(MODULES-LEGISLATURE.md § Vendored WSDLs).
 """
 
 from __future__ import annotations
@@ -330,6 +331,7 @@ def job_outcome(
 
     A drifted WSDL binding (``wsdl_drift``, #563) degrades whatever else the run did — no
     acceptance covers it: the vendored copy the offline parse uses is stale until replaced.
+    A drift check that itself crashed (``wsdl_check_failed``) degrades likewise.
     """
     live = [a for a in accepted if a.biennium == counters.get("biennium")]
     sponsor_rows = counters.get("sponsor_rows")
@@ -370,7 +372,7 @@ def job_outcome(
                 "follow_up": "docs/MODULES-LEGISLATURE.md § Vendored WSDLs",
             },
         )
-    if drift or stale or (degraded and not accepting):
+    if drift or counters.get("wsdl_check_failed") or stale or (degraded and not accepting):
         return JobResult.degraded(reported)
     return JobResult.ok(reported)
 
@@ -388,7 +390,12 @@ async def _harvest_job(ctx: JobContext) -> JobResult:
         sponsor_client=sponsors,
     )
     # After the pulls, on the bindings they loaded: the check costs WSL no request (#563).
-    counters.update(binding_drift((committees, meetings, sponsors)))
+    try:
+        counters.update(binding_drift((committees, meetings, sponsors)))
+    except Exception:
+        # The wires already landed: a crashing check degrades the run, counters intact.
+        logger.exception("wsl_raw_harvest_wsdl_check_failed", extra={"issue": "#563"})
+        counters["wsdl_check_failed"] = 1
     return job_outcome(counters)
 
 

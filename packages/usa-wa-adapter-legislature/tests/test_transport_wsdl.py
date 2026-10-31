@@ -4,14 +4,20 @@ honest against the live service.
 Drift is keyed on the **parsed binding** — zeep's operation and type signatures — never on
 the document's text (ARCHITECTURE rule 2): a whitespace or line-ending change upstream is
 not drift; a type or operation change is.
+
+A wire the vendored binding rejects (an element it has never seen) is re-parsed through the
+live binding, never leniently: zeep's non-strict parse nulls every field after an unknown
+mid-sequence element, which would publish wrong rows rather than fail.
 """
 
+import logging
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 from lxml import etree
+from zeep.exceptions import XMLParseError
 
 from usa_wa_adapter_legislature.transport import (
     WSLClient,
@@ -49,6 +55,29 @@ def _drop_last_field(service: str, complex_type: str, dest: Path) -> Path:
     sequence.remove(sequence[-1])
     tree.write(str(dest), xml_declaration=True, encoding="utf-8")
     return dest
+
+
+def _sponsors_envelope() -> bytes:
+    interactions = yaml.safe_load(
+        (CASSETTE_DIR / "sponsor_service_get_sponsors_2025-26.yaml").read_text()
+    )["interactions"]
+    [post] = [i for i in interactions if i["request"]["method"] == "POST"]
+    return post["response"]["body"]["string"].encode()
+
+
+def _base_type_gains_a_field(dest: Path) -> tuple[Path, bytes]:
+    """WSL's likeliest evolution: a field appended to the ``LegislativeEntity`` base type.
+    In a derived ``Member`` it lands *mid*-sequence — after the base fields, before
+    ``Party`` — which is the case a lenient parse gets silently wrong. Returns the "live"
+    WSDL that knows the field, and a sponsors envelope that carries it."""
+    tree = etree.parse(str(vendored_wsdl("SponsorService")))
+    [sequence] = tree.xpath(
+        "//xsd:complexType[@name='LegislativeEntity']/xsd:sequence", namespaces={"xsd": XSD}
+    )
+    added = etree.SubElement(sequence, f"{{{XSD}}}element")
+    added.attrib.update({"minOccurs": "0", "maxOccurs": "1", "name": "Nick", "type": "s:string"})
+    tree.write(str(dest), xml_declaration=True, encoding="utf-8")
+    return dest, _sponsors_envelope().replace(b"<Party>", b"<Nick>n</Nick><Party>")
 
 
 def test_every_service_the_seam_parses_is_vendored() -> None:
@@ -107,3 +136,48 @@ def test_a_client_that_never_loaded_its_wsdl_is_unchecked_not_drift(wsl_vcr: Any
         "wsdl_drift": [],
         "wsdl_unchecked": ["CommitteeMeetingService"],
     }
+
+
+def test_the_cassette_scan_finds_every_vendored_service() -> None:
+    """An empty scan would skip the one-fact test rather than fail it."""
+    assert {service for service, _ in _wsdl_cassettes()} == {
+        "CommitteeService",
+        "CommitteeMeetingService",
+        "SponsorService",
+    }
+
+
+def test_an_element_the_vendored_binding_lacks_reparses_through_the_live_one(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    live_wsdl, wire = _base_type_gains_a_field(tmp_path / "SponsorService.wsdl")
+    base = WSLClient.offline("SponsorService")._parse_sponsors_sync(_sponsors_envelope())
+    client = WSLClient.offline(
+        "SponsorService", fallback=WSLClient("SponsorService", wsdl=live_wsdl)
+    )
+
+    with caplog.at_level(logging.WARNING):
+        first = client._parse_sponsors_sync(wire)
+        client._parse_sponsors_sync(wire)
+
+    assert [{k: v for k, v in row.items() if k != "Nick"} for row in first] == base
+    assert sum(row["Nick"] == "n" for row in first) == wire.count(b"<Nick>") > 0
+    fallbacks = [r for r in caplog.records if r.message == "wsl_parse_live_wsdl_fallback"]
+    assert len(fallbacks) == 1, "warned once per client, not once per wire"
+    assert fallbacks[0].service == "SponsorService"
+
+
+def test_without_a_fallback_an_unknown_element_raises_never_parses_leniently(
+    tmp_path: Path,
+) -> None:
+    _, wire = _base_type_gains_a_field(tmp_path / "SponsorService.wsdl")
+    with pytest.raises(XMLParseError):
+        WSLClient.offline("SponsorService", fallback=None)._parse_sponsors_sync(wire)
+
+
+@pytest.mark.usefixtures("no_network")
+def test_a_wire_the_vendored_binding_parses_never_builds_the_live_fallback() -> None:
+    client = WSLClient.offline("SponsorService")
+    assert client._parse_sponsors_sync(_sponsors_envelope())
+    assert client._fallback is not None
+    assert client._fallback.binding_fingerprint() is None

@@ -525,7 +525,7 @@ class TestAcceptedRosterFaults:
 class TestWsdlDrift:
     """#563: the offline parse binds to vendored WSDLs, so a live WSDL that changed shape
     must reach the operator. It degrades the harvest (contained: the chain still builds and
-    publishes on the vendored binding, then OnFailure= mails), never the build."""
+    publishes), then OnFailure= mails."""
 
     OK_RUN = {"biennium": BIENNIUM, "fetched": 6, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
 
@@ -584,3 +584,36 @@ class TestWsdlDrift:
         assert sorted(map(id, checked)) == sorted(map(id, harvested.values()))
         assert result.counters["wsdl_drift"] == ["SponsorService"]
         assert result.outcome == "degraded"
+
+    async def test_a_drift_check_that_crashes_is_contained(
+        self, tmp_path, monkeypatch, caplog
+    ) -> None:
+        """The check runs after the night's wires landed: its own crash (a zeep internals
+        change, an unparseable vendored file) degrades the run with the harvest's counters
+        intact — never a ``failed`` job that hides how far the harvest got."""
+
+        async def fake_harvest(root, *, ttl_days, **clients):
+            return dict(self.OK_RUN)
+
+        def crashing_drift(clients):
+            raise AttributeError("zeep moved an internal")
+
+        monkeypatch.setattr(raw_harvest, "harvest_raw", fake_harvest)
+        monkeypatch.setattr(raw_harvest, "binding_drift", crashing_drift)
+        ctx = JobContext(
+            name=raw_harvest.JOB_SLUG,
+            args=argparse.Namespace(root=str(tmp_path), ttl_days=0.0),
+            session=None,
+            session_factory=None,
+            dry_run=False,
+        )
+        with caplog.at_level(logging.ERROR):
+            result = await raw_harvest._harvest_job(ctx)
+
+        assert result.outcome == "degraded"
+        assert result.counters["fetched"] == self.OK_RUN["fetched"]
+        assert result.counters["wsdl_check_failed"] == 1
+        assert any(r.message == "wsl_raw_harvest_wsdl_check_failed" for r in caplog.records)
+
+    def test_a_failed_drift_check_degrades(self) -> None:
+        assert job_outcome({**self.OK_RUN, "wsdl_check_failed": 1}).outcome == "degraded"

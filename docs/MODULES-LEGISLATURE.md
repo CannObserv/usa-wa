@@ -84,6 +84,13 @@ loses the night's publish, even though every envelope was already in the raw sto
 - **Parse:** `parsing.py`'s clients are `WSLClient.offline(service)`. It is the same zeep
   binding from the same document, so the records are identical. `test_parsing.py` parses every
   cassette envelope with sockets blocked and compares the result with the live-URL binding.
+- **A wire the vendored binding rejects** (`XMLParseError`, an element WSL added after the copy
+  was vendored) is re-parsed through a lazily built live-URL binding, which is the pre-#563
+  behaviour for that wire alone. It logs `wsl_parse_live_wsdl_fallback` (WARNING) once per
+  client. It never falls back to a lenient parse: zeep's non-strict mode nulls every field
+  after an unknown mid-sequence element, and a field added to the `LegislativeEntity` base
+  type lands mid-sequence in every `Member`/`Committee`. A malformed wire is a
+  `TransportError`, not a rejection, and raises either way.
 - **Harvest stays live:** Phase A's clients still load `?wsdl`. Only the parse seam is offline.
 - **Drift:** `binding_drift` hashes zeep's *parsed* binding (namespace prefixes, global element
   and type signatures, every port's operation signatures) and never the text, per ARCHITECTURE
@@ -91,12 +98,17 @@ loses the night's publish, even though every envelope was already in the raw sto
   is. Signatures don't carry facets such as `minOccurs` or the SOAPAction, which the reply
   parse doesn't read. The check reuses the bindings the nightly harvest's live clients loaded,
   so it costs WSL no request. A service whose client never loaded (an outage before the first
-  call) is `wsdl_unchecked`, not drift.
+  call) is `wsdl_unchecked`, not drift. A check that itself crashes is `wsdl_check_failed`
+  (`wsl_raw_harvest_wsdl_check_failed`), which degrades the run with its counters intact.
 - **One fact, not two:** `test_transport_wsdl.py` holds every cassette's recorded `?wsdl` to the
   vendored binding.
 
-**On a `wsl_raw_harvest_wsdl_drift` email.** The night's chain still built and published on
-the vendored binding. Then:
+**On a `wsl_raw_harvest_wsdl_drift` email.** The chain still built and published. A dropped
+field parses on the vendored binding. An added one makes the new wires take the live fallback,
+so until the copy is replaced the build again needs WSL reachable for those wires. A *retyped*
+one is the accepted gap: zeep logs a value its old type can't convert and parses it as null,
+with no rejection to fall back on. A null key fails the `stg_wsl_*` key tests; a null
+attribute publishes until the copy is replaced. Then:
 
 1. Fetch the named service's `?wsdl` into a scratch dir.
 2. Diff `python -m zeep <scratch file>` against `python -m zeep` over the vendored one.
