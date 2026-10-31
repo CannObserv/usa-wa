@@ -6,7 +6,6 @@ every ``parse_*`` builds its binding from the vendored WSDL, never a live ``?wsd
 and returns exactly the records the live-WSDL binding parses from the same envelope.
 """
 
-import socket
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -66,18 +65,6 @@ def _stored_envelope(cassette: str) -> bytes:
     interactions = yaml.safe_load((CASSETTE_DIR / cassette).read_text())["interactions"]
     [post] = [i for i in interactions if i["request"]["method"] == "POST"]
     return post["response"]["body"]["string"].encode()
-
-
-@pytest.fixture
-def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Refuse every socket and name lookup for the test's duration."""
-
-    def refuse(*_args: Any, **_kwargs: Any) -> None:
-        raise OSError("network blocked by test (#563)")
-
-    monkeypatch.setattr(socket, "socket", refuse)
-    monkeypatch.setattr(socket, "create_connection", refuse)
-    monkeypatch.setattr(socket, "getaddrinfo", refuse)
 
 
 @pytest.fixture

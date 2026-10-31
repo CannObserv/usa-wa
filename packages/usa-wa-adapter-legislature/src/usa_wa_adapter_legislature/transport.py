@@ -15,6 +15,8 @@ network via vcrpy cassettes.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +26,7 @@ from zeep import Client
 from zeep.exceptions import Fault
 from zeep.helpers import serialize_object
 from zeep.transports import Transport
+from zeep.wsdl import Document
 
 from usa_wa_adapter_legislature.ratelimit import RateLimiter, env_float
 
@@ -41,6 +44,50 @@ def vendored_wsdl(service: str) -> Path:
     if not path.is_file():
         raise FileNotFoundError(f"no vendored WSDL for {service!r} under {WSDL_DIR}")
     return path
+
+
+def _binding_fingerprint(document: Document) -> str:
+    """sha256 over the **parsed** binding: the namespace prefixes, every global element and
+    type signature, and every service/port operation signature, each line sorted.
+
+    Keyed on what zeep built, never on the document's text (ARCHITECTURE rule 2): whitespace,
+    line endings, attribute order and documentation cannot move it; a field added, dropped,
+    renamed or retyped, or an operation's shape changing, does. Signatures carry names, types
+    and list-ness — not facets such as ``minOccurs`` or the SOAPAction, which the reply parse
+    does not read."""
+    types = document.types
+    lines = [f"prefix {prefix} {ns}" for prefix, ns in types.prefix_map.items()]
+    lines += [f"element {element.signature(schema=types)}" for element in types.elements]
+    lines += [f"type {type_.signature(schema=types)}" for type_ in types.types]
+    for service in document.services.values():
+        for port in service.ports.values():
+            lines += [
+                f"operation {service.name}/{port.name} {operation}"
+                for operation in port.binding._operations.values()
+            ]
+    return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()
+
+
+def binding_drift(clients: Iterable[WSLClient]) -> dict[str, list[str]]:
+    """Compare each client's **already-loaded** binding with its vendored WSDL's (#563).
+
+    The harvest's live clients loaded their WSDL from WSL for the night's pulls; this reuses
+    those bindings, so the check costs no request. ``wsdl_drift`` names the services whose
+    live binding differs from the vendored one the offline parse uses — the vendored copy is
+    stale and the parse may be dropping or mistyping fields. ``wsdl_unchecked`` names those
+    that never loaded (an outage before the first call): nothing to compare, not drift."""
+    drifted: list[str] = []
+    unchecked: list[str] = []
+    for client in clients:
+        live = client.binding_fingerprint()
+        if live is None:
+            unchecked.append(client.service)
+            continue
+        vendored = WSLClient.offline(client.service)
+        vendored._ensure_client()
+        if live != vendored.binding_fingerprint():
+            drifted.append(client.service)
+    return {"wsdl_drift": drifted, "wsdl_unchecked": unchecked}
 
 
 #: Courtesy floor between **any two** WSL SOAP operation calls, across all `WSLClient`
@@ -183,6 +230,13 @@ class WSLClient:
         ``zeep`` binding the live client builds from the same document, so the parse is
         identical; a drifted live WSDL is :func:`binding_drift`'s to catch."""
         return cls(service, wsdl=vendored_wsdl(service))
+
+    def binding_fingerprint(self) -> str | None:
+        """The loaded binding's structural hash (:func:`_binding_fingerprint`); ``None`` until
+        a call has loaded the WSDL — reading it never triggers the load, so never a fetch."""
+        if self._client is None:
+            return None
+        return _binding_fingerprint(self._client.wsdl)
 
     def _ensure_client(self) -> Client:
         """Build the zeep client on first call; cache it for the lifetime.
