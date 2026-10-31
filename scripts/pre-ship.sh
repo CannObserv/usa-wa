@@ -87,6 +87,22 @@ if [[ ! -f "$REPO_ENV" ]]; then
   fi
 fi
 
+# #566: the repo .env carries the agent tokens and only its owner reads it, so
+# refuse it — before reading a byte — if any group or other bit is set. The file
+# loaded, not a directory list: a worktree is checked on the primary's copy or
+# its own, and umask 0022 makes a hand-made one 0644. Group bits count because
+# /etc/usa-wa/.env is root:exedev 0640: joining group exedev is how a user gets
+# the production secrets, and must not bring the agent tokens with it. That file
+# is exempt for the same reason; exedev reads it through the group.
+if [[ -f "$REPO_ENV" ]]; then
+  mode=$(stat -L -c %a "$REPO_ENV")
+  if (( 8#$mode & 8#077 )); then
+    echo "ERROR: $REPO_ENV is mode $mode; it carries the agent tokens, so only its owner may read it." >&2
+    echo "       fix: chmod 600 $REPO_ENV" >&2
+    exit 2 # tooling/infra, like the refusals around it — one exit-code table
+  fi
+fi
+
 # The repo-wide idiom (AGENTS.md), deliberately reproduced rather than improved
 # on: the gate must run under the same environment the documented workflow
 # produces. `set -f` because the expansion is unquoted — a glob character in a

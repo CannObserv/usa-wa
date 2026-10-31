@@ -315,10 +315,10 @@ Then merge, and deploy with the `git pull` / `uv sync --locked` / restart block 
 
 `/etc/usa-wa/.env` is `0640 root` and **is not backed up** — keep its copy in the password
 manager; the restore's replacement-host runbook needs its passwords to recreate the roles
-([RECOVERY.md](RECOVERY.md)). The checkout's `.env` (the agent tokens) is mode `0644`:
-readable by any local user. The backup unit masks it (`InaccessiblePaths=`) rather than
-relying on its mode, since its dynamic user would otherwise read it through the bound
-checkout. No unit loads it as an `EnvironmentFile=` (#561).
+([RECOVERY.md](RECOVERY.md)). The checkout's `.env` (the agent tokens) is `0600`;
+`scripts/pre-ship.sh` refuses a looser one (#566). `/home/exedev` is `0750`, so only the
+backup unit's bind reaches it, and that unit masks it (`InaccessiblePaths=`) as a second
+layer. No unit loads it (#561).
 
 ## Host maintenance (#394)
 

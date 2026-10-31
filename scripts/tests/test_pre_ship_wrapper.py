@@ -20,7 +20,8 @@ and each is asserted below:
     worktree-based feature work (#87), so this fires routinely.
 
 It also exports ``PRE_SHIP_ENV_NAMES`` (#557): the names, never the values, the
-env files set, which the vendored gate folds into its per-SHA stamp.
+env files set, which the vendored gate folds into its per-SHA stamp. And it refuses
+a repo ``.env`` any group or other bit can reach (#566).
 
 Tests 1-3 run the wrapper against a *stub* delegate planted in a scratch repo:
 fast, and no gate-bypass seam has to be added to production code to make the
@@ -30,6 +31,8 @@ exactly what test 4 covers.
 
 import subprocess
 from pathlib import Path
+
+import pytest
 
 SCRIPT = Path(__file__).parent.parent / "pre-ship.sh"  # scripts/tests/ → scripts/
 
@@ -69,6 +72,8 @@ def _scratch_repo(tmp_path: Path, *, with_delegate: bool = True) -> Path:
     # The value the wrapper must surface to the delegate. Not a real DSN — the
     # stub never connects; only the export path is under test.
     (tmp_path / ".env").write_text("TEST_DATABASE_URL=postgresql://stub/testdb\n")
+    # The mode the gate demands (#566); write_text alone leaves umask's 0644.
+    (tmp_path / ".env").chmod(0o600)
     # git-ignored, exactly as in the real repo. This is the whole of #296: an
     # untracked file cannot travel to a worktree, so a scratch repo that
     # committed its .env would hand every worktree test a free pass.
@@ -252,6 +257,7 @@ def test_a_worktrees_own_env_wins_over_the_fallback(tmp_path):
     repo = _scratch_repo(tmp_path)
     wt = _worktree_of(repo, "wt")
     (wt / ".env").write_text("TEST_DATABASE_URL=postgresql://stub/worktree-db\n")
+    (wt / ".env").chmod(0o600)
     log = tmp_path / "stub.log"
 
     result = _run(wt, env_extra={"STUB_LOG": str(log)})
@@ -365,3 +371,86 @@ def test_the_worktree_fallback_names_the_primary_checkouts_env(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert _recorded_names(log) == ["TEST_DATABASE_URL"]
+
+
+# --- #566: the repo .env stays 0600 ------------------------------------------
+# It carries the agent tokens, and only exedev, its owner, reads it. /home/exedev
+# is 0750, so today only the backup unit's bind reaches it, and that unit masks
+# it; the mode is the layer that survives the next bind, a loosened home, or a
+# hand-made worktree .env under umask 0022. Any group bit counts, not just
+# other-read: /etc/usa-wa/.env is root:exedev 0640, so joining group exedev is
+# how a new user would be handed the production secrets, and that must not hand
+# over the agent tokens too.
+
+SECRET = "postgresql://stub/testdb"
+
+
+@pytest.mark.parametrize("mode", [0o644, 0o640, 0o604, 0o660, 0o601], ids=oct)
+def test_a_repo_env_any_group_or_other_bit_reaches_is_refused(tmp_path, mode):
+    """Refused before it is read: the delegate never starts, and the message
+    names the file, its mode and the fix, never a byte of its contents."""
+    repo = _scratch_repo(tmp_path)
+    (repo / ".env").chmod(mode)
+    log = tmp_path / "stub.log"
+
+    result = _run(repo, env_extra={"STUB_LOG": str(log)})
+
+    assert result.returncode == 2
+    assert str(repo / ".env") in result.stderr
+    assert f"is mode {mode:o};" in result.stderr
+    assert f"chmod 600 {repo / '.env'}" in result.stderr
+    assert SECRET not in result.stderr + result.stdout
+    assert not log.exists(), "the delegate ran anyway; the gate should not have started"
+
+
+@pytest.mark.parametrize("mode", [0o600, 0o400], ids=oct)
+def test_an_owner_only_repo_env_is_loaded(tmp_path, mode):
+    repo = _scratch_repo(tmp_path)
+    (repo / ".env").chmod(mode)
+    log = tmp_path / "stub.log"
+
+    result = _run(repo, env_extra={"STUB_LOG": str(log)})
+
+    assert result.returncode == 0, result.stderr
+    assert f"TEST_DATABASE_URL={SECRET}" in log.read_text()
+
+
+def test_the_worktree_fallback_file_is_the_one_checked(tmp_path):
+    """The guard keys on the file pre-ship loads, not on a directory list:
+    a worktree with no .env of its own is refused on the primary's mode."""
+    repo = _scratch_repo(tmp_path)
+    wt = _worktree_of(repo, "wt")
+    (repo / ".env").chmod(0o644)
+
+    result = _run(wt, env_extra={"STUB_LOG": str(tmp_path / "stub.log")})
+
+    assert result.returncode == 2
+    assert f"chmod 600 {repo / '.env'}" in result.stderr
+
+
+def test_a_hand_made_worktree_env_is_checked_too(tmp_path):
+    """umask 0022 makes a new worktree .env 0644, whatever the primary's mode."""
+    repo = _scratch_repo(tmp_path)
+    wt = _worktree_of(repo, "wt")
+    (wt / ".env").write_text("TEST_DATABASE_URL=postgresql://stub/worktree-db\n")
+    (wt / ".env").chmod(0o644)
+
+    result = _run(wt, env_extra={"STUB_LOG": str(tmp_path / "stub.log")})
+
+    assert result.returncode == 2
+    assert f"chmod 600 {wt / '.env'}" in result.stderr
+
+
+def test_the_system_env_files_group_read_is_left_alone(tmp_path):
+    """/etc/usa-wa/.env is root:exedev 0640 by design: exedev reads it through
+    the group, so the same rule there would refuse every run."""
+    repo = _scratch_repo(tmp_path)
+    system_env = tmp_path / "system.env"
+    system_env.write_text("SYSTEM_ONLY=from-system\n")
+    system_env.chmod(0o640)
+    log = tmp_path / "stub.log"
+
+    result = _run(repo, env_extra={"STUB_LOG": str(log), "PRE_SHIP_SYSTEM_ENV": str(system_env)})
+
+    assert result.returncode == 0, result.stderr
+    assert "SYSTEM_ONLY=from-system" in log.read_text()
