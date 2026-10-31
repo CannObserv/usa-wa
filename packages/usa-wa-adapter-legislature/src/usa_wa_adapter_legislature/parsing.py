@@ -2,9 +2,11 @@
 
 The #302 pipeline's parse seam: staging models re-deserialize archived SOAP
 wires through the same operation bindings the live pulls use — never a
-re-implementation keyed on upstream strings, and never a data re-pull (the one
-network dependency is each service's one-time WSDL GET for binding type info,
-amortized across a build by the module-singleton clients). This module exists
+re-implementation keyed on upstream strings, and never a network call: each
+module-singleton client binds to its service's **vendored** WSDL (#563), so a
+WSL outage during the nightly cannot fail ``dbt build`` over wires already in
+the raw store. The harvest's binding-drift check keeps the vendored copy honest
+(``transport.binding_drift``). This module exists
 so `usa_wa_pipeline` depends on *parsing* without importing `transport`
 directly — the layer contract forbids a pipeline module naming the transport
 and driving the wire; a parse-only facade that owns its client internally is
@@ -27,9 +29,9 @@ from usa_wa_adapter_legislature.transport import WSLClient
 # serialized even if a future consumer parallelizes (#302 CR).
 _parse_lock = threading.Lock()
 
-_committee_client = WSLClient("CommitteeService")
-_meeting_client = WSLClient("CommitteeMeetingService")
-_sponsor_client = WSLClient("SponsorService")
+_committee_client = WSLClient.offline("CommitteeService")
+_meeting_client = WSLClient.offline("CommitteeMeetingService")
+_sponsor_client = WSLClient.offline("SponsorService")
 
 
 def parse_committees(wire: bytes) -> list[dict[str, Any]]:

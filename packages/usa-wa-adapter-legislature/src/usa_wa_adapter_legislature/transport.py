@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from zeep import Client
@@ -27,6 +28,20 @@ from zeep.transports import Transport
 from usa_wa_adapter_legislature.ratelimit import RateLimiter, env_float
 
 WSL_BASE_URL = "https://wslwebservices.leg.wa.gov"
+
+#: The three services' WSDLs, vendored verbatim as package data (#563): what the offline
+#: parse binds to, so a Phase-B parse never GETs ``?wsdl``. Each is self-contained — inline
+#: schema, no ``import``/``schemaLocation`` — so the file is the whole binding.
+WSDL_DIR = Path(__file__).parent / "wsdl"
+
+
+def vendored_wsdl(service: str) -> Path:
+    """The vendored WSDL for ``service`` — raises if none is vendored, never falls back live."""
+    path = WSDL_DIR / f"{service}.wsdl"
+    if not path.is_file():
+        raise FileNotFoundError(f"no vendored WSDL for {service!r} under {WSDL_DIR}")
+    return path
+
 
 #: Courtesy floor between **any two** WSL SOAP operation calls, across all `WSLClient`
 #: instances/services (WSL is a single upstream host). A global min-interval gate so no
@@ -153,11 +168,21 @@ class WSLClient:
     on first call. Re-using a single instance amortises the WSDL fetch.
     """
 
-    def __init__(self, service: str, *, base_url: str = WSL_BASE_URL) -> None:
+    def __init__(
+        self, service: str, *, base_url: str = WSL_BASE_URL, wsdl: Path | None = None
+    ) -> None:
         self.service = service
-        self._wsdl_url = f"{base_url}/{service}.asmx?wsdl"
+        self._wsdl_url = str(wsdl) if wsdl is not None else f"{base_url}/{service}.asmx?wsdl"
         self._transport = _CapturingTransport()
         self._client: Client | None = None
+
+    @classmethod
+    def offline(cls, service: str) -> WSLClient:
+        """A parse-only client bound to the **vendored** WSDL (#563): building its binding
+        reads a package file, so re-parsing an archived wire needs no network. The same
+        ``zeep`` binding the live client builds from the same document, so the parse is
+        identical; a drifted live WSDL is :func:`binding_drift`'s to catch."""
+        return cls(service, wsdl=vendored_wsdl(service))
 
     def _ensure_client(self) -> Client:
         """Build the zeep client on first call; cache it for the lifetime.
