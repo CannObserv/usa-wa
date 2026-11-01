@@ -185,7 +185,7 @@ def _retired_skills() -> set[str]:
     One "<old> <new>" pair per line, `#` starts a comment — the grammar the
     doctor reads. A retired skill still resolves until its vendor deletes it.
     """
-    vendors = SCRIPT.parent.parent / "skills-vendor"
+    vendors = REPO / "skills-vendor"
     return {
         fields[0]
         for path in vendors.glob("*/retired-skills")
