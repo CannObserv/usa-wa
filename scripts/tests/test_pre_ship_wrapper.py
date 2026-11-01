@@ -179,13 +179,6 @@ def test_a_failing_audit_never_changes_the_gates_verdict(tmp_path):
     assert "audit-lock.sh exited 3" in result.stderr
 
 
-def test_real_delegate_path_resolves():
-    """The scratch-repo tests plant their own stub, so nothing above would notice
-    the vendored script moving. Pin the hardcoded path against vendor drift."""
-    delegate = SCRIPT.parent.parent / DELEGATE_REL
-    assert delegate.is_file(), f"vendored gate missing at {DELEGATE_REL}"
-
-
 def _retired_skills() -> set[str]:
     """Every `<old>` in a vendor's `retired-skills` map (gregoryfoster/skills#537).
 
@@ -201,19 +194,22 @@ def _retired_skills() -> set[str]:
     }
 
 
-@pytest.mark.parametrize(
-    "pinned",
-    [DELEGATE_REL, str(VENDORED.relative_to(REPO))],
-    ids=["wrapper-delegate", "doc-check-lists"],
-)
-def test_no_pinned_gate_path_names_a_retired_skill(pinned):
-    """#568: `is_file()` above stays green on a deprecated variant until the
-    vendor deletes it, and then every ship dies at once. The retired-skills map
-    says so a release earlier. `doc_check_lists.VENDORED` is built from path
-    parts, so neither the doctor's hold nor a `git grep` for the path sees it."""
+def test_real_delegate_path_resolves():
+    """The scratch-repo tests plant their own stub, so nothing above would notice
+    the vendored script moving. Pin the hardcoded path against vendor drift.
+
+    #568: `is_file()` stays green on a deprecated variant until the vendor
+    deletes it, and then every ship dies at once; the retired-skills map says so
+    a release earlier. `doc_check_lists.VENDORED` is checked here too: it is
+    built from path parts, so neither the doctor's hold nor a `git grep` for the
+    path sees it. One test, not two: it stays one of the five a missing
+    submodule fails (docs/SKILLS.md § Worktree submodule population)."""
+    delegate = SCRIPT.parent.parent / DELEGATE_REL
+    assert delegate.is_file(), f"vendored gate missing at {DELEGATE_REL}"
     retired = _retired_skills()
     assert retired, "no retired-skills map found: the guard would pass vacuously"
-    assert not set(Path(pinned).parts) & retired, f"{pinned} names a retired skill"
+    for pinned in (DELEGATE_REL, str(VENDORED.relative_to(REPO))):
+        assert not set(Path(pinned).parts) & retired, f"{pinned} names a retired skill"
 
 
 # --- #296: the env file a worktree never has ---------------------------------

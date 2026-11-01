@@ -186,7 +186,7 @@ that a vendored file is missing:
 | `test_doc_sections.py::test_the_snapshot_still_matches_the_vendor` | the local snapshot still matches the vendor's `DOC_SECTIONS` defaults |
 | `test_doc_sections.py::test_the_vendored_gate_still_reads_this_file` | `doc-check.sh` still reads `.skills/doc-sections` (gregoryfoster/skills#284) |
 | `test_doc_sensitive_paths.py::test_the_vendored_matcher_is_still_segment_based` | `doc-check.sh` still has `path_matches()` (gregoryfoster/skills#252) |
-| `test_pre_ship_wrapper.py::test_real_delegate_path_resolves` | the hardcoded `shipping-work/scripts/pre-ship.sh` path |
+| `test_pre_ship_wrapper.py::test_real_delegate_path_resolves` | the hardcoded `shipping-work/scripts/pre-ship.sh` path, and no pinned gate path names a retired skill |
 | `test_hook_registration_gate.py::test_manifest_scan_finds_the_vendored_hooks` | the `<hook>.install` manifests the timeout guard reads ([§ Hook timeouts](#hook-timeouts)) |
 
 One further test depends on state outside the checkout for a different reason: `test_assert_venv_integrity.py::test_the_production_venv_is_intact` runs the #279 guard against `/home/exedev/usa-wa/.venv` whichever checkout invokes it, so a **worktree** suite can go red for a condition in the primary checkout. That is deliberate — a guard about to become an `ExecStartPre=` on thirteen units should be known to pass against the venv those units start from — and a red there is a live finding, repaired with `uv sync --locked` in the primary checkout ([`docs/DEPLOYMENT-HOST.md` § Shared-venv integrity](DEPLOYMENT-HOST.md#shared-venv-integrity-issue-279)). It skips where that checkout does not exist.
