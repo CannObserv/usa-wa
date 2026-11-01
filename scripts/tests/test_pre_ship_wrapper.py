@@ -20,7 +20,7 @@ and each is asserted below:
     worktree-based feature work (#87), so this fires routinely.
 
 It also exports ``PRE_SHIP_ENV_NAMES`` (#557): the names, never the values, the
-env files set, which the vendored gate folds into its per-SHA stamp. And it refuses
+env files set, which the vendored gate folds into its pass stamp. And it refuses
 a repo ``.env`` any group or other bit can reach (#566).
 
 Tests 1-3 run the wrapper against a *stub* delegate planted in a scratch repo:
@@ -33,10 +33,11 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from doc_check_lists import REPO, VENDORED
 
 SCRIPT = Path(__file__).parent.parent / "pre-ship.sh"  # scripts/tests/ → scripts/
 
-DELEGATE_REL = "skills/shipping-work-python-fastapi/scripts/pre-ship.sh"
+DELEGATE_REL = "skills/shipping-work/scripts/pre-ship.sh"
 
 # Records the delegate's view of the environment, then exits with a caller-chosen
 # code. `$@` is captured too so argument pass-through stays observable.
@@ -185,6 +186,36 @@ def test_real_delegate_path_resolves():
     assert delegate.is_file(), f"vendored gate missing at {DELEGATE_REL}"
 
 
+def _retired_skills() -> set[str]:
+    """Every `<old>` in a vendor's `retired-skills` map (gregoryfoster/skills#537).
+
+    One "<old> <new>" pair per line, `#` starts a comment — the grammar the
+    doctor reads. A retired skill still resolves until its vendor deletes it.
+    """
+    vendors = SCRIPT.parent.parent / "skills-vendor"
+    return {
+        fields[0]
+        for path in vendors.glob("*/retired-skills")
+        for line in path.read_text().splitlines()
+        if (fields := line.split("#", 1)[0].split())
+    }
+
+
+@pytest.mark.parametrize(
+    "pinned",
+    [DELEGATE_REL, str(VENDORED.relative_to(REPO))],
+    ids=["wrapper-delegate", "doc-check-lists"],
+)
+def test_no_pinned_gate_path_names_a_retired_skill(pinned):
+    """#568: `is_file()` above stays green on a deprecated variant until the
+    vendor deletes it, and then every ship dies at once. The retired-skills map
+    says so a release earlier. `doc_check_lists.VENDORED` is built from path
+    parts, so neither the doctor's hold nor a `git grep` for the path sees it."""
+    retired = _retired_skills()
+    assert retired, "no retired-skills map found: the guard would pass vacuously"
+    assert not set(Path(pinned).parts) & retired, f"{pinned} names a retired skill"
+
+
 # --- #296: the env file a worktree never has ---------------------------------
 # `.env` is git-ignored, so `git worktree add` never produces one and nothing in
 # worktree-create.sh seeds it. AGENTS.md § Server Lifecycle *mandates* worktree
@@ -318,7 +349,7 @@ def test_the_default_system_env_path_is_the_documented_one():
 
 # --- #557: the env names the vendored gate keys its stamp on -----------------
 # The vendored gate (gregoryfoster/skills#497) folds a hash of
-# PRE_SHIP_ENV_NAMES into its per-SHA stamp, so a run in one environment cannot
+# PRE_SHIP_ENV_NAMES into its pass stamp, so a run in one environment cannot
 # be suppressed by a stamp from another. Names only: the stamp key lands in a
 # file under the cache dir, and a secret has no business there.
 
