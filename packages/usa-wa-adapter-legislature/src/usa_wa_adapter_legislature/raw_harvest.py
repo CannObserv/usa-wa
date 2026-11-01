@@ -21,6 +21,14 @@ degrades every night. ``ACCEPTED_ROSTER_FAULTS`` names that biennium: while
 ``sponsors:<biennium>`` answers empty, that one fault exits 0 (logged
 ``wsl_raw_harvest_accepted_fault``); the night sponsors land, the entry goes stale and
 degrades until it is removed — the #333 ``ACCEPTED_OUTAGES`` pattern.
+
+**The WSDL drift check (#563).** The pipeline parses these wires against *vendored* WSDLs, so
+a WSL outage cannot fail ``dbt build``. The price is a copy that can go stale; the job compares
+the binding its live clients loaded for the night's pulls with the vendored one
+(``transport.binding_drift`` — no extra request), and drift degrades the run. Contained like
+any harvest failure: the chain still builds and publishes (a wire the vendored binding rejects
+re-parses through the live WSDL, ``WSLClient.offline``), and ``OnFailure=`` mails the operator
+(MODULES-LEGISLATURE.md § Vendored WSDLs).
 """
 
 from __future__ import annotations
@@ -46,7 +54,7 @@ from usa_wa_adapter_legislature.resources import (
     SPONSORS_RESOURCE_PREFIX,
     committee_members_hist_resource_id,
 )
-from usa_wa_adapter_legislature.transport import WSL_BASE_URL, WSLClient
+from usa_wa_adapter_legislature.transport import WSL_BASE_URL, WSLClient, binding_drift
 
 logger = get_logger(__name__)
 
@@ -320,6 +328,10 @@ def job_outcome(
     ``ok``, logged at WARNING. Once that biennium's sponsors land the acceptance is a
     false claim: it degrades the run and names its follow-ups in ``stale_acceptances``,
     whatever else the run did — what forces its removal.
+
+    A drifted WSDL binding (``wsdl_drift``, #563) degrades whatever else the run did — no
+    acceptance covers it: the vendored copy the offline parse uses is stale until replaced.
+    A drift check that itself crashed (``wsdl_check_failed``) degrades likewise.
     """
     live = [a for a in accepted if a.biennium == counters.get("biennium")]
     sponsor_rows = counters.get("sponsor_rows")
@@ -349,14 +361,42 @@ def job_outcome(
                 "observed": [a.observed for a in accepting],
             },
         )
-    if stale or (degraded and not accepting):
+    drift = counters.get("wsdl_drift") or []
+    if drift:
+        logger.error(
+            "wsl_raw_harvest_wsdl_drift",
+            extra={
+                "services": drift,
+                "issue": "#563",
+                "detail": "the live WSDL binding differs from the vendored copy the parse uses",
+                "follow_up": "docs/MODULES-LEGISLATURE.md § Vendored WSDLs",
+            },
+        )
+    if drift or counters.get("wsdl_check_failed") or stale or (degraded and not accepting):
         return JobResult.degraded(reported)
     return JobResult.ok(reported)
 
 
 async def _harvest_job(ctx: JobContext) -> JobResult:
     root = Path(ctx.args.root) if ctx.args.root else get_raw_root()
-    return job_outcome(await harvest_raw(root, ttl_days=ctx.args.ttl_days))
+    committees = WSLClient("CommitteeService")
+    meetings = WSLClient("CommitteeMeetingService")
+    sponsors = WSLClient("SponsorService")
+    counters = await harvest_raw(
+        root,
+        ttl_days=ctx.args.ttl_days,
+        committee_client=committees,
+        meeting_client=meetings,
+        sponsor_client=sponsors,
+    )
+    # After the pulls, on the bindings they loaded: the check costs WSL no request (#563).
+    try:
+        counters.update(binding_drift((committees, meetings, sponsors)))
+    except Exception:
+        # The wires already landed: a crashing check degrades the run, counters intact.
+        logger.exception("wsl_raw_harvest_wsdl_check_failed", extra={"issue": "#563"})
+        counters["wsdl_check_failed"] = 1
+    return job_outcome(counters)
 
 
 def main(argv: list[str] | None = None) -> int:

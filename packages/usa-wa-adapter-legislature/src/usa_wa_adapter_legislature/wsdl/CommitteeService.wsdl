@@ -1,0 +1,734 @@
+<?xml version="1.0" encoding="utf-8"?>
+<wsdl:definitions xmlns:s="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://schemas.xmlsoap.org/wsdl/soap12/" xmlns:http="http://schemas.xmlsoap.org/wsdl/http/" xmlns:mime="http://schemas.xmlsoap.org/wsdl/mime/" xmlns:tns="http://WSLWebServices.leg.wa.gov/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tm="http://microsoft.com/wsdl/mime/textMatching/" xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/" targetNamespace="http://WSLWebServices.leg.wa.gov/" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">
+  <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">Information on committees of the Washington State Legislature.</wsdl:documentation>
+  <wsdl:types>
+    <s:schema elementFormDefault="qualified" targetNamespace="http://WSLWebServices.leg.wa.gov/">
+      <s:element name="GetCommittees">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="biennium" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetCommitteesResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetCommitteesResult" type="tns:ArrayOfCommittee" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfCommittee">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="Committee" nillable="true" type="tns:Committee" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="Committee">
+        <s:complexContent mixed="false">
+          <s:extension base="tns:LegislativeEntity">
+            <s:sequence>
+              <s:element minOccurs="0" maxOccurs="1" name="Phone" type="s:string" />
+            </s:sequence>
+          </s:extension>
+        </s:complexContent>
+      </s:complexType>
+      <s:complexType name="LegislativeEntity">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="Id" type="s:int" />
+          <s:element minOccurs="0" maxOccurs="1" name="Name" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="LongName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Agency" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Acronym" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="GetHouseCommittees">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="biennium" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetHouseCommitteesResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetHouseCommitteesResult" type="tns:ArrayOfCommittee" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetSenateCommittees">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="biennium" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetSenateCommitteesResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetSenateCommitteesResult" type="tns:ArrayOfCommittee" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetCommitteeMembers">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="biennium" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="agency" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="committeeName" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetCommitteeMembersResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetCommitteeMembersResult" type="tns:ArrayOfMember" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfMember">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="Member" nillable="true" type="tns:Member" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="Member">
+        <s:complexContent mixed="false">
+          <s:extension base="tns:LegislativeEntity">
+            <s:sequence>
+              <s:element minOccurs="0" maxOccurs="1" name="Party" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="District" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="Phone" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="Email" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="FirstName" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="LastName" type="s:string" />
+            </s:sequence>
+          </s:extension>
+        </s:complexContent>
+      </s:complexType>
+      <s:element name="GetActiveCommittees">
+        <s:complexType />
+      </s:element>
+      <s:element name="GetActiveCommitteesResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetActiveCommitteesResult" type="tns:ArrayOfCommittee" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetActiveHouseCommittees">
+        <s:complexType />
+      </s:element>
+      <s:element name="GetActiveHouseCommitteesResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetActiveHouseCommitteesResult" type="tns:ArrayOfCommittee" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetActiveSenateCommittees">
+        <s:complexType />
+      </s:element>
+      <s:element name="GetActiveSenateCommitteesResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetActiveSenateCommitteesResult" type="tns:ArrayOfCommittee" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetActiveCommitteeMembers">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="agency" type="s:string" />
+            <s:element minOccurs="0" maxOccurs="1" name="committeeName" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetActiveCommitteeMembersResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetActiveCommitteeMembersResult" type="tns:ArrayOfMember" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="ArrayOfCommittee" nillable="true" type="tns:ArrayOfCommittee" />
+      <s:element name="ArrayOfMember" nillable="true" type="tns:ArrayOfMember" />
+    </s:schema>
+  </wsdl:types>
+  <wsdl:message name="GetCommitteesSoapIn">
+    <wsdl:part name="parameters" element="tns:GetCommittees" />
+  </wsdl:message>
+  <wsdl:message name="GetCommitteesSoapOut">
+    <wsdl:part name="parameters" element="tns:GetCommitteesResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseCommitteesSoapIn">
+    <wsdl:part name="parameters" element="tns:GetHouseCommittees" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseCommitteesSoapOut">
+    <wsdl:part name="parameters" element="tns:GetHouseCommitteesResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateCommitteesSoapIn">
+    <wsdl:part name="parameters" element="tns:GetSenateCommittees" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateCommitteesSoapOut">
+    <wsdl:part name="parameters" element="tns:GetSenateCommitteesResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetCommitteeMembersSoapIn">
+    <wsdl:part name="parameters" element="tns:GetCommitteeMembers" />
+  </wsdl:message>
+  <wsdl:message name="GetCommitteeMembersSoapOut">
+    <wsdl:part name="parameters" element="tns:GetCommitteeMembersResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveCommitteesSoapIn">
+    <wsdl:part name="parameters" element="tns:GetActiveCommittees" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveCommitteesSoapOut">
+    <wsdl:part name="parameters" element="tns:GetActiveCommitteesResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveHouseCommitteesSoapIn">
+    <wsdl:part name="parameters" element="tns:GetActiveHouseCommittees" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveHouseCommitteesSoapOut">
+    <wsdl:part name="parameters" element="tns:GetActiveHouseCommitteesResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveSenateCommitteesSoapIn">
+    <wsdl:part name="parameters" element="tns:GetActiveSenateCommittees" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveSenateCommitteesSoapOut">
+    <wsdl:part name="parameters" element="tns:GetActiveSenateCommitteesResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveCommitteeMembersSoapIn">
+    <wsdl:part name="parameters" element="tns:GetActiveCommitteeMembers" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveCommitteeMembersSoapOut">
+    <wsdl:part name="parameters" element="tns:GetActiveCommitteeMembersResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetCommitteesHttpGetIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetCommitteesHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseCommitteesHttpGetIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseCommitteesHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateCommitteesHttpGetIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateCommitteesHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetCommitteeMembersHttpGetIn">
+    <wsdl:part name="biennium" type="s:string" />
+    <wsdl:part name="agency" type="s:string" />
+    <wsdl:part name="committeeName" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetCommitteeMembersHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfMember" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveCommitteesHttpGetIn" />
+  <wsdl:message name="GetActiveCommitteesHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveHouseCommitteesHttpGetIn" />
+  <wsdl:message name="GetActiveHouseCommitteesHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveSenateCommitteesHttpGetIn" />
+  <wsdl:message name="GetActiveSenateCommitteesHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveCommitteeMembersHttpGetIn">
+    <wsdl:part name="agency" type="s:string" />
+    <wsdl:part name="committeeName" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveCommitteeMembersHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfMember" />
+  </wsdl:message>
+  <wsdl:message name="GetCommitteesHttpPostIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetCommitteesHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseCommitteesHttpPostIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseCommitteesHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateCommitteesHttpPostIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateCommitteesHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetCommitteeMembersHttpPostIn">
+    <wsdl:part name="biennium" type="s:string" />
+    <wsdl:part name="agency" type="s:string" />
+    <wsdl:part name="committeeName" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetCommitteeMembersHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfMember" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveCommitteesHttpPostIn" />
+  <wsdl:message name="GetActiveCommitteesHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveHouseCommitteesHttpPostIn" />
+  <wsdl:message name="GetActiveHouseCommitteesHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveSenateCommitteesHttpPostIn" />
+  <wsdl:message name="GetActiveSenateCommitteesHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfCommittee" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveCommitteeMembersHttpPostIn">
+    <wsdl:part name="agency" type="s:string" />
+    <wsdl:part name="committeeName" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetActiveCommitteeMembersHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfMember" />
+  </wsdl:message>
+  <wsdl:portType name="CommitteeServiceSoap">
+    <wsdl:operation name="GetCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All House and Senate standing committees during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects iennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetCommitteesSoapIn" />
+      <wsdl:output message="tns:GetCommitteesSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All House standing committees during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetHouseCommitteesSoapIn" />
+      <wsdl:output message="tns:GetHouseCommitteesSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Senate standing committees during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetSenateCommitteesSoapIn" />
+      <wsdl:output message="tns:GetSenateCommitteesSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetCommitteeMembers">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">Lists committee members for the given standing committee. &lt;BR&gt;Exception thrown for invalid biennium, agency, or committee name. &lt;BR&gt;Expects biennium to be in the format: 2005-06. Agency should be House or Senate.  CommitteeName is the Name Property returned in GetHouseCommittees/GetSenateCommittees.</wsdl:documentation>
+      <wsdl:input message="tns:GetCommitteeMembersSoapIn" />
+      <wsdl:output message="tns:GetCommitteeMembersSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All active House and Senate standing committees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveCommitteesSoapIn" />
+      <wsdl:output message="tns:GetActiveCommitteesSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveHouseCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All active House standing committees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveHouseCommitteesSoapIn" />
+      <wsdl:output message="tns:GetActiveHouseCommitteesSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveSenateCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All active Senate standing committees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveSenateCommitteesSoapIn" />
+      <wsdl:output message="tns:GetActiveSenateCommitteesSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommitteeMembers">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">Lists active committee members for the given standing committee. &lt;BR&gt;Exception thrown for invalid agency or committee name. &lt;BR&gt;Agency should be House or Senate.  CommitteeName is the Name Property returned in GetActiveHouseCommittees/GetActiveSenateCommittees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveCommitteeMembersSoapIn" />
+      <wsdl:output message="tns:GetActiveCommitteeMembersSoapOut" />
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:portType name="CommitteeServiceHttpGet">
+    <wsdl:operation name="GetCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All House and Senate standing committees during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects iennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetCommitteesHttpGetIn" />
+      <wsdl:output message="tns:GetCommitteesHttpGetOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All House standing committees during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetHouseCommitteesHttpGetIn" />
+      <wsdl:output message="tns:GetHouseCommitteesHttpGetOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Senate standing committees during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetSenateCommitteesHttpGetIn" />
+      <wsdl:output message="tns:GetSenateCommitteesHttpGetOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetCommitteeMembers">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">Lists committee members for the given standing committee. &lt;BR&gt;Exception thrown for invalid biennium, agency, or committee name. &lt;BR&gt;Expects biennium to be in the format: 2005-06. Agency should be House or Senate.  CommitteeName is the Name Property returned in GetHouseCommittees/GetSenateCommittees.</wsdl:documentation>
+      <wsdl:input message="tns:GetCommitteeMembersHttpGetIn" />
+      <wsdl:output message="tns:GetCommitteeMembersHttpGetOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All active House and Senate standing committees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveCommitteesHttpGetIn" />
+      <wsdl:output message="tns:GetActiveCommitteesHttpGetOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveHouseCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All active House standing committees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveHouseCommitteesHttpGetIn" />
+      <wsdl:output message="tns:GetActiveHouseCommitteesHttpGetOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveSenateCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All active Senate standing committees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveSenateCommitteesHttpGetIn" />
+      <wsdl:output message="tns:GetActiveSenateCommitteesHttpGetOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommitteeMembers">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">Lists active committee members for the given standing committee. &lt;BR&gt;Exception thrown for invalid agency or committee name. &lt;BR&gt;Agency should be House or Senate.  CommitteeName is the Name Property returned in GetActiveHouseCommittees/GetActiveSenateCommittees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveCommitteeMembersHttpGetIn" />
+      <wsdl:output message="tns:GetActiveCommitteeMembersHttpGetOut" />
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:portType name="CommitteeServiceHttpPost">
+    <wsdl:operation name="GetCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All House and Senate standing committees during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects iennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetCommitteesHttpPostIn" />
+      <wsdl:output message="tns:GetCommitteesHttpPostOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All House standing committees during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetHouseCommitteesHttpPostIn" />
+      <wsdl:output message="tns:GetHouseCommitteesHttpPostOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Senate standing committees during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetSenateCommitteesHttpPostIn" />
+      <wsdl:output message="tns:GetSenateCommitteesHttpPostOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetCommitteeMembers">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">Lists committee members for the given standing committee. &lt;BR&gt;Exception thrown for invalid biennium, agency, or committee name. &lt;BR&gt;Expects biennium to be in the format: 2005-06. Agency should be House or Senate.  CommitteeName is the Name Property returned in GetHouseCommittees/GetSenateCommittees.</wsdl:documentation>
+      <wsdl:input message="tns:GetCommitteeMembersHttpPostIn" />
+      <wsdl:output message="tns:GetCommitteeMembersHttpPostOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All active House and Senate standing committees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveCommitteesHttpPostIn" />
+      <wsdl:output message="tns:GetActiveCommitteesHttpPostOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveHouseCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All active House standing committees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveHouseCommitteesHttpPostIn" />
+      <wsdl:output message="tns:GetActiveHouseCommitteesHttpPostOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveSenateCommittees">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All active Senate standing committees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveSenateCommitteesHttpPostIn" />
+      <wsdl:output message="tns:GetActiveSenateCommitteesHttpPostOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommitteeMembers">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">Lists active committee members for the given standing committee. &lt;BR&gt;Exception thrown for invalid agency or committee name. &lt;BR&gt;Agency should be House or Senate.  CommitteeName is the Name Property returned in GetActiveHouseCommittees/GetActiveSenateCommittees.</wsdl:documentation>
+      <wsdl:input message="tns:GetActiveCommitteeMembersHttpPostIn" />
+      <wsdl:output message="tns:GetActiveCommitteeMembersHttpPostOut" />
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:binding name="CommitteeServiceSoap" type="tns:CommitteeServiceSoap">
+    <soap:binding transport="http://schemas.xmlsoap.org/soap/http" />
+    <wsdl:operation name="GetCommittees">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetCommittees" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseCommittees">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetHouseCommittees" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateCommittees">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetSenateCommittees" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetCommitteeMembers">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetCommitteeMembers" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommittees">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetActiveCommittees" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveHouseCommittees">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetActiveHouseCommittees" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveSenateCommittees">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetActiveSenateCommittees" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommitteeMembers">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetActiveCommitteeMembers" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:binding name="CommitteeServiceSoap12" type="tns:CommitteeServiceSoap">
+    <soap12:binding transport="http://schemas.xmlsoap.org/soap/http" />
+    <wsdl:operation name="GetCommittees">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetCommittees" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseCommittees">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetHouseCommittees" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateCommittees">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetSenateCommittees" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetCommitteeMembers">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetCommitteeMembers" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommittees">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetActiveCommittees" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveHouseCommittees">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetActiveHouseCommittees" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveSenateCommittees">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetActiveSenateCommittees" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommitteeMembers">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetActiveCommitteeMembers" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:binding name="CommitteeServiceHttpGet" type="tns:CommitteeServiceHttpGet">
+    <http:binding verb="GET" />
+    <wsdl:operation name="GetCommittees">
+      <http:operation location="/GetCommittees" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseCommittees">
+      <http:operation location="/GetHouseCommittees" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateCommittees">
+      <http:operation location="/GetSenateCommittees" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetCommitteeMembers">
+      <http:operation location="/GetCommitteeMembers" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommittees">
+      <http:operation location="/GetActiveCommittees" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveHouseCommittees">
+      <http:operation location="/GetActiveHouseCommittees" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveSenateCommittees">
+      <http:operation location="/GetActiveSenateCommittees" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommitteeMembers">
+      <http:operation location="/GetActiveCommitteeMembers" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:binding name="CommitteeServiceHttpPost" type="tns:CommitteeServiceHttpPost">
+    <http:binding verb="POST" />
+    <wsdl:operation name="GetCommittees">
+      <http:operation location="/GetCommittees" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseCommittees">
+      <http:operation location="/GetHouseCommittees" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateCommittees">
+      <http:operation location="/GetSenateCommittees" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetCommitteeMembers">
+      <http:operation location="/GetCommitteeMembers" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommittees">
+      <http:operation location="/GetActiveCommittees" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveHouseCommittees">
+      <http:operation location="/GetActiveHouseCommittees" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveSenateCommittees">
+      <http:operation location="/GetActiveSenateCommittees" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetActiveCommitteeMembers">
+      <http:operation location="/GetActiveCommitteeMembers" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:service name="CommitteeService">
+    <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">Information on committees of the Washington State Legislature.</wsdl:documentation>
+    <wsdl:port name="CommitteeServiceSoap" binding="tns:CommitteeServiceSoap">
+      <soap:address location="https://wslwebservices.leg.wa.gov/CommitteeService.asmx" />
+    </wsdl:port>
+    <wsdl:port name="CommitteeServiceSoap12" binding="tns:CommitteeServiceSoap12">
+      <soap12:address location="https://wslwebservices.leg.wa.gov/CommitteeService.asmx" />
+    </wsdl:port>
+    <wsdl:port name="CommitteeServiceHttpGet" binding="tns:CommitteeServiceHttpGet">
+      <http:address location="https://wslwebservices.leg.wa.gov/CommitteeService.asmx" />
+    </wsdl:port>
+    <wsdl:port name="CommitteeServiceHttpPost" binding="tns:CommitteeServiceHttpPost">
+      <http:address location="https://wslwebservices.leg.wa.gov/CommitteeService.asmx" />
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>
