@@ -347,7 +347,7 @@ def test_the_default_system_env_path_is_the_documented_one():
 # The vendored gate (gregoryfoster/skills#497) folds a hash of
 # PRE_SHIP_ENV_NAMES into its pass stamp, so a run in one environment cannot
 # be suppressed by a stamp from another. Names only: the stamp key lands in a
-# file under the cache dir, and a secret has no business there.
+# file under <git-common-dir>/gate-stamps/, and a secret has no business there.
 
 
 def _recorded_names(log: Path) -> list[str]:
