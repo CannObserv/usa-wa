@@ -17,15 +17,15 @@ from pathlib import Path
 #: Repo root: this file is ``<repo>/scripts/tests/doc_check_lists.py``.
 REPO = Path(__file__).resolve().parents[2]
 
-#: The gate both modules pin their premises against. This repo ships the
-#: python-fastapi variant of the shipping skill; the other variants carry their
-#: own copy of the script with different defaults.
+#: The gate both modules pin their premises against: the unified shipping
+#: skill's one doc-check.sh (#568; gregoryfoster/skills#537 retired the
+#: per-stack variants, which each carried a copy with different defaults).
 VENDORED = (
     REPO
     / "skills-vendor"
     / "gregoryfoster-skills"
     / "skills"
-    / "shipping-work-python-fastapi"
+    / "shipping-work"
     / "scripts"
     / "doc-check.sh"
 )

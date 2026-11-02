@@ -15,9 +15,9 @@
 # checkout's copy, and refuses outright rather than exec'ing the gate with a
 # half-loaded environment.
 #
-# A wrapper, not a fork: the ~200 lines upstream owns (per-SHA stamp cache,
-# pytest-cov detection, the JS block, the worktree-zombie preflight) stay in one
-# place and keep improving without a merge. The shipping skill's script
+# A wrapper, not a fork: the gate upstream owns (stack detection, tree-keyed pass
+# stamp, pytest-cov detection, the worktree-zombie preflight) stays in one place
+# and keeps improving without a merge. The shipping skill's script
 # resolution probes `scripts/` before the skill's own directory, so this file
 # wins with no skill edit — do not delete it as a stray copy.
 set -euo pipefail
@@ -27,7 +27,7 @@ cd "$PROJECT_ROOT"
 
 # Delegate through the symlink, not skills-vendor/… — the symlink is the stable
 # interface (docs/SKILLS.md § layout).
-DELEGATE="skills/shipping-work-python-fastapi/scripts/pre-ship.sh"
+DELEGATE="skills/shipping-work/scripts/pre-ship.sh"
 if [[ ! -f "$DELEGATE" ]]; then
   # Worktrees don't populate submodules and AGENTS.md mandates worktree-based
   # feature work (#87), so this is a routine state, not an exotic one. Without
@@ -113,7 +113,7 @@ fi
 #
 # #557: the words are kept so PRE_SHIP_ENV_NAMES can name what was exported —
 # the part before each word's first `=`, never a value. The vendored gate folds
-# a hash of the list into its per-SHA stamp and writes none when it is empty, so
+# a hash of the list into its pass stamp and writes none when it is empty, so
 # a run in one environment cannot bless a commit for another (skills#497).
 # Assigned after the load, so neither the caller's shell nor an env file sets it.
 ENV_FILES=()
