@@ -60,7 +60,11 @@ def wsl_vcr() -> vcr.VCR:
 @pytest.fixture
 def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """Refuse every socket and name lookup for the test's duration (#563) — stronger than a
-    cassette's ``record_mode='none'``, which guards only the HTTP layer vcr patches."""
+    cassette's ``record_mode='none'``, which guards only the HTTP layer vcr patches.
+
+    Sync tests only. An async test that runs first builds the session event loop under this
+    fixture, and the loop's own ``socketpair`` is refused; async tests use the root's
+    ``no_dns`` (#569)."""
 
     def refuse(*_args: Any, **_kwargs: Any) -> None:
         raise OSError("network blocked by test (#563)")
