@@ -1,0 +1,408 @@
+<?xml version="1.0" encoding="utf-8"?>
+<wsdl:definitions xmlns:s="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://schemas.xmlsoap.org/wsdl/soap12/" xmlns:http="http://schemas.xmlsoap.org/wsdl/http/" xmlns:mime="http://schemas.xmlsoap.org/wsdl/mime/" xmlns:tns="http://WSLWebServices.leg.wa.gov/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:tm="http://microsoft.com/wsdl/mime/textMatching/" xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/" targetNamespace="http://WSLWebServices.leg.wa.gov/" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">
+  <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">Information on sponsors of legislation in the Washington State Legislature.</wsdl:documentation>
+  <wsdl:types>
+    <s:schema elementFormDefault="qualified" targetNamespace="http://WSLWebServices.leg.wa.gov/">
+      <s:element name="GetSponsors">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="biennium" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetSponsorsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetSponsorsResult" type="tns:ArrayOfMember" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfMember">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="Member" nillable="true" type="tns:Member" />
+        </s:sequence>
+      </s:complexType>
+      <s:complexType name="Member">
+        <s:complexContent mixed="false">
+          <s:extension base="tns:LegislativeEntity">
+            <s:sequence>
+              <s:element minOccurs="0" maxOccurs="1" name="Party" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="District" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="Phone" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="Email" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="FirstName" type="s:string" />
+              <s:element minOccurs="0" maxOccurs="1" name="LastName" type="s:string" />
+            </s:sequence>
+          </s:extension>
+        </s:complexContent>
+      </s:complexType>
+      <s:complexType name="LegislativeEntity">
+        <s:sequence>
+          <s:element minOccurs="1" maxOccurs="1" name="Id" type="s:int" />
+          <s:element minOccurs="0" maxOccurs="1" name="Name" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="LongName" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Agency" type="s:string" />
+          <s:element minOccurs="0" maxOccurs="1" name="Acronym" type="s:string" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="GetHouseSponsors">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="biennium" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetHouseSponsorsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetHouseSponsorsResult" type="tns:ArrayOfMember" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetSenateSponsors">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="biennium" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetSenateSponsorsResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetSenateSponsorsResult" type="tns:ArrayOfMember" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetRequesters">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="biennium" type="s:string" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:element name="GetRequestersResponse">
+        <s:complexType>
+          <s:sequence>
+            <s:element minOccurs="0" maxOccurs="1" name="GetRequestersResult" type="tns:ArrayOfLegislativeEntity" />
+          </s:sequence>
+        </s:complexType>
+      </s:element>
+      <s:complexType name="ArrayOfLegislativeEntity">
+        <s:sequence>
+          <s:element minOccurs="0" maxOccurs="unbounded" name="LegislativeEntity" nillable="true" type="tns:LegislativeEntity" />
+        </s:sequence>
+      </s:complexType>
+      <s:element name="ArrayOfMember" nillable="true" type="tns:ArrayOfMember" />
+      <s:element name="ArrayOfLegislativeEntity" nillable="true" type="tns:ArrayOfLegislativeEntity" />
+    </s:schema>
+  </wsdl:types>
+  <wsdl:message name="GetSponsorsSoapIn">
+    <wsdl:part name="parameters" element="tns:GetSponsors" />
+  </wsdl:message>
+  <wsdl:message name="GetSponsorsSoapOut">
+    <wsdl:part name="parameters" element="tns:GetSponsorsResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseSponsorsSoapIn">
+    <wsdl:part name="parameters" element="tns:GetHouseSponsors" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseSponsorsSoapOut">
+    <wsdl:part name="parameters" element="tns:GetHouseSponsorsResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateSponsorsSoapIn">
+    <wsdl:part name="parameters" element="tns:GetSenateSponsors" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateSponsorsSoapOut">
+    <wsdl:part name="parameters" element="tns:GetSenateSponsorsResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetRequestersSoapIn">
+    <wsdl:part name="parameters" element="tns:GetRequesters" />
+  </wsdl:message>
+  <wsdl:message name="GetRequestersSoapOut">
+    <wsdl:part name="parameters" element="tns:GetRequestersResponse" />
+  </wsdl:message>
+  <wsdl:message name="GetSponsorsHttpGetIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetSponsorsHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfMember" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseSponsorsHttpGetIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseSponsorsHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfMember" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateSponsorsHttpGetIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateSponsorsHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfMember" />
+  </wsdl:message>
+  <wsdl:message name="GetRequestersHttpGetIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetRequestersHttpGetOut">
+    <wsdl:part name="Body" element="tns:ArrayOfLegislativeEntity" />
+  </wsdl:message>
+  <wsdl:message name="GetSponsorsHttpPostIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetSponsorsHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfMember" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseSponsorsHttpPostIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetHouseSponsorsHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfMember" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateSponsorsHttpPostIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetSenateSponsorsHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfMember" />
+  </wsdl:message>
+  <wsdl:message name="GetRequestersHttpPostIn">
+    <wsdl:part name="biennium" type="s:string" />
+  </wsdl:message>
+  <wsdl:message name="GetRequestersHttpPostOut">
+    <wsdl:part name="Body" element="tns:ArrayOfLegislativeEntity" />
+  </wsdl:message>
+  <wsdl:portType name="SponsorServiceSoap">
+    <wsdl:operation name="GetSponsors">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Representatives and Senators that have served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetSponsorsSoapIn" />
+      <wsdl:output message="tns:GetSponsorsSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseSponsors">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Representatives that have served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetHouseSponsorsSoapIn" />
+      <wsdl:output message="tns:GetHouseSponsorsSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateSponsors">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Senators that have served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetSenateSponsorsSoapIn" />
+      <wsdl:output message="tns:GetSenateSponsorsSoapOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetRequesters">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All entities that can request legislation for the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetRequestersSoapIn" />
+      <wsdl:output message="tns:GetRequestersSoapOut" />
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:portType name="SponsorServiceHttpGet">
+    <wsdl:operation name="GetSponsors">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Representatives and Senators that have served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetSponsorsHttpGetIn" />
+      <wsdl:output message="tns:GetSponsorsHttpGetOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseSponsors">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Representatives that have served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetHouseSponsorsHttpGetIn" />
+      <wsdl:output message="tns:GetHouseSponsorsHttpGetOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateSponsors">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Senators that have served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetSenateSponsorsHttpGetIn" />
+      <wsdl:output message="tns:GetSenateSponsorsHttpGetOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetRequesters">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All entities that can request legislation for the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetRequestersHttpGetIn" />
+      <wsdl:output message="tns:GetRequestersHttpGetOut" />
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:portType name="SponsorServiceHttpPost">
+    <wsdl:operation name="GetSponsors">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Representatives and Senators that have served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetSponsorsHttpPostIn" />
+      <wsdl:output message="tns:GetSponsorsHttpPostOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseSponsors">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Representatives that have served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetHouseSponsorsHttpPostIn" />
+      <wsdl:output message="tns:GetHouseSponsorsHttpPostOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateSponsors">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All Senators that have served during the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetSenateSponsorsHttpPostIn" />
+      <wsdl:output message="tns:GetSenateSponsorsHttpPostOut" />
+    </wsdl:operation>
+    <wsdl:operation name="GetRequesters">
+      <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">All entities that can request legislation for the given biennium. &lt;BR&gt;Exception thrown for invalid biennium. &lt;BR&gt;Expects biennium to be in the format: 2005-06</wsdl:documentation>
+      <wsdl:input message="tns:GetRequestersHttpPostIn" />
+      <wsdl:output message="tns:GetRequestersHttpPostOut" />
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:binding name="SponsorServiceSoap" type="tns:SponsorServiceSoap">
+    <soap:binding transport="http://schemas.xmlsoap.org/soap/http" />
+    <wsdl:operation name="GetSponsors">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetSponsors" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseSponsors">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetHouseSponsors" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateSponsors">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetSenateSponsors" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetRequesters">
+      <soap:operation soapAction="http://WSLWebServices.leg.wa.gov/GetRequesters" style="document" />
+      <wsdl:input>
+        <soap:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:binding name="SponsorServiceSoap12" type="tns:SponsorServiceSoap">
+    <soap12:binding transport="http://schemas.xmlsoap.org/soap/http" />
+    <wsdl:operation name="GetSponsors">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetSponsors" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseSponsors">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetHouseSponsors" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateSponsors">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetSenateSponsors" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetRequesters">
+      <soap12:operation soapAction="http://WSLWebServices.leg.wa.gov/GetRequesters" style="document" />
+      <wsdl:input>
+        <soap12:body use="literal" />
+      </wsdl:input>
+      <wsdl:output>
+        <soap12:body use="literal" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:binding name="SponsorServiceHttpGet" type="tns:SponsorServiceHttpGet">
+    <http:binding verb="GET" />
+    <wsdl:operation name="GetSponsors">
+      <http:operation location="/GetSponsors" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseSponsors">
+      <http:operation location="/GetHouseSponsors" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateSponsors">
+      <http:operation location="/GetSenateSponsors" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetRequesters">
+      <http:operation location="/GetRequesters" />
+      <wsdl:input>
+        <http:urlEncoded />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:binding name="SponsorServiceHttpPost" type="tns:SponsorServiceHttpPost">
+    <http:binding verb="POST" />
+    <wsdl:operation name="GetSponsors">
+      <http:operation location="/GetSponsors" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetHouseSponsors">
+      <http:operation location="/GetHouseSponsors" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetSenateSponsors">
+      <http:operation location="/GetSenateSponsors" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+    <wsdl:operation name="GetRequesters">
+      <http:operation location="/GetRequesters" />
+      <wsdl:input>
+        <mime:content type="application/x-www-form-urlencoded" />
+      </wsdl:input>
+      <wsdl:output>
+        <mime:mimeXml part="Body" />
+      </wsdl:output>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:service name="SponsorService">
+    <wsdl:documentation xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/">Information on sponsors of legislation in the Washington State Legislature.</wsdl:documentation>
+    <wsdl:port name="SponsorServiceSoap" binding="tns:SponsorServiceSoap">
+      <soap:address location="https://wslwebservices.leg.wa.gov/SponsorService.asmx" />
+    </wsdl:port>
+    <wsdl:port name="SponsorServiceSoap12" binding="tns:SponsorServiceSoap12">
+      <soap12:address location="https://wslwebservices.leg.wa.gov/SponsorService.asmx" />
+    </wsdl:port>
+    <wsdl:port name="SponsorServiceHttpGet" binding="tns:SponsorServiceHttpGet">
+      <http:address location="https://wslwebservices.leg.wa.gov/SponsorService.asmx" />
+    </wsdl:port>
+    <wsdl:port name="SponsorServiceHttpPost" binding="tns:SponsorServiceHttpPost">
+      <http:address location="https://wslwebservices.leg.wa.gov/SponsorService.asmx" />
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>

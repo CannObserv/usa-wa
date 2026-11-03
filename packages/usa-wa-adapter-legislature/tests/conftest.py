@@ -7,7 +7,9 @@ Re-recording is a deliberate one-shot dev workflow (see package README).
 
 from __future__ import annotations
 
+import socket
 from pathlib import Path
+from typing import Any
 
 import pytest
 import vcr
@@ -53,6 +55,19 @@ def wsl_vcr() -> vcr.VCR:
         match_on=["method", "scheme", "host", "port", "path"],
         decode_compressed_response=True,
     )
+
+
+@pytest.fixture
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse every socket and name lookup for the test's duration (#563) — stronger than a
+    cassette's ``record_mode='none'``, which guards only the HTTP layer vcr patches."""
+
+    def refuse(*_args: Any, **_kwargs: Any) -> None:
+        raise OSError("network blocked by test (#563)")
+
+    monkeypatch.setattr(socket, "socket", refuse)
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
 
 
 @pytest.fixture(scope="session")

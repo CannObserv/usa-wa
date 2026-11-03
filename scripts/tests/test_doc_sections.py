@@ -31,24 +31,31 @@ import re
 
 from doc_check_lists import DOC_SECTIONS_FILE, SENSITIVE_PATHS_FILE, VENDORED, entries, tracked
 
-#: The vendored python-fastapi advice, snapshotted. Committing either verbatim
+#: The vendored default advice, snapshotted. Committing any of it verbatim
 #: would tailor the file's existence and nothing else — the #371 state with the
 #: note silenced, which is strictly worse than not having the file.
 #:
+#: The unified doc-check.sh (#568) appends each detected framework's inventory
+#: to the AGENTS.md line at run time, so the gate prints the generic line when
+#: it detects no framework (this workspace root today) and the `route table`
+#: form once it detects fastapi. Both are refused; each piece is a literal in
+#: the script.
+#:
 #: A snapshot goes stale in silence: were upstream to edit its defaults, the
-#: test below would keep passing while checking two strings nobody could ever
+#: test below would keep passing while checking strings nobody could ever
 #: have committed — the same vacuous-green class gregoryfoster/skills#284 was
 #: filed about. test_the_snapshot_still_matches_the_vendor is what stops that
 #: (#371 CR 1).
+_AGENTS_DEFAULT = "AGENTS.md: project structure, conventions, skill inventory"
+_FASTAPI_INVENTORY = ", route table"
+_README_DEFAULT = (
+    "README.md: orientation + curated links into canonical docs; only the "
+    "README-owned bits (e.g. top-level CLI list, two-line quick start) "
+    "should change here"
+)
+_SNAPSHOTTED = (_AGENTS_DEFAULT, _FASTAPI_INVENTORY, _README_DEFAULT)
 DEFAULT_SECTIONS = frozenset(
-    {
-        "AGENTS.md: project structure, conventions, skill inventory, route table",
-        (
-            "README.md: orientation + curated links into canonical docs; only the "
-            "README-owned bits (e.g. top-level CLI list, two-line quick start) "
-            "should change here"
-        ),
-    }
+    {_AGENTS_DEFAULT, _AGENTS_DEFAULT + _FASTAPI_INVENTORY, _README_DEFAULT}
 )
 
 #: A line's trailing parenthesised group: the sensitive-path entries it routes.
@@ -93,13 +100,13 @@ def test_the_snapshot_still_matches_the_vendor() -> None:
     Checked by substring rather than by parsing the ``DOC_SECTIONS=()`` array:
     a parser would have to model bash quoting to decide the same question, and
     the question here is only whether the line upstream ships is still the line
-    we refuse. A refresh that reworded either default fails here, naming the
+    we refuse. A refresh that reworded a default fails here, naming the
     string to re-snapshot, instead of leaving the refusal above pointed at
     prose that no longer exists.
     """
     assert VENDORED.is_file(), f"vendored gate missing at {VENDORED}"
     source = VENDORED.read_text()
-    stale = sorted(default for default in DEFAULT_SECTIONS if default not in source)
+    stale = sorted(piece for piece in _SNAPSHOTTED if piece not in source)
     assert not stale, (
         "these no longer appear in the vendored doc-check.sh, so refusing them "
         f"proves nothing — re-snapshot from its DOC_SECTIONS array: {stale}"

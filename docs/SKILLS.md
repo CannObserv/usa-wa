@@ -64,12 +64,12 @@ Pinned by [`scripts/tests/test_hook_registration_gate.py`](../scripts/tests/test
 | `patching-hosts` | The monthly OS-patch run; reads the knob `.skills/patching-hosts` — [DEPLOYMENT-HOST.md § OS updates](DEPLOYMENT-HOST.md#os-updates-497). Problems go upstream as issues, never into the vendored copy. |
 | `reviewing-architecture` | Architectural review of a design doc or large change. Delegates to `enforcing-architecture` on a `fix + fitness` / `fitness` directive — both must be symlinked or the delegation fails to resolve. |
 | `reviewing-code-python-fastapi` | Python/FastAPI-stack code review (the review workflow for this repo). |
-| `shipping-work-python-fastapi` | Python/FastAPI ship workflow with `pre-ship.sh` (the ship workflow for this repo). |
+| `shipping-work` | Ship workflow; its `pre-ship.sh` detects the stack (#568). |
 | `using-git-worktrees` | Worktree-based branch workflow for parallel work. |
 | `using-mayfly-chat` | Live agent-to-agent exchange over a [Mayfly Chat](https://mayfly.chat) channel; vendored Node 18+ client + `scripts/mayfly.sh`. Triggers: `mayfly`, `open a channel`, `join the channel`, `chat with <repo>`, `agent chat`. **Never commit a channel URL** (read, write and delete access); nothing here tests for one, so run its `references/security.md` leak check first. |
 | `writing-plans` | Drafting an implementation plan in `docs/plans/` before coding. |
 
-Only the Python/FastAPI variants of the review and ship workflows are symlinked here. The vendor also ships stack-neutral, PHP, and Python/Click variants (`reviewing-code{,-php,-python-click}`, `shipping-work{,-php,-python-click}`); those are intentionally **not** symlinked into this FastAPI repo. They remain available under `skills-vendor/gregoryfoster-skills/skills/` if ever needed.
+Only the Python/FastAPI review variant is symlinked here; the stack-neutral, PHP, and Python/Click ones (`reviewing-code{,-php,-python-click}`) are intentionally **not**. They remain available under `skills-vendor/gregoryfoster-skills/skills/` if ever needed.
 
 ## Vendor preferences on name collisions
 
@@ -105,9 +105,9 @@ Every `reviewing-*` / `shipping-*` skill resolves its scripts by probing `script
 
 | Script | Why |
 |---|---|
-| [`scripts/pre-ship.sh`](../scripts/pre-ship.sh) | Loads the two env files, then `exec`s the vendored gate. The gate runs the full suite, whose `db`-marked majority needs `TEST_DATABASE_URL`, so on a clean shell its test phase died wholesale (#172; pre-#185 it died at conftest import). This is the override point the vendored script documents. It exports `PRE_SHIP_ENV_NAMES`, the names (never the values) the files set, which the gate folds into its per-SHA stamp (#557). Before the `exec` it runs `scripts/audit-lock.sh`, the report-only `uv.lock` audit (#499). It refuses a repo `.env` any group or other bit reaches, before reading it (#566). |
+| [`scripts/pre-ship.sh`](../scripts/pre-ship.sh) | Loads the two env files, then `exec`s the vendored gate. The gate runs the full suite, whose `db`-marked majority needs `TEST_DATABASE_URL`, so on a clean shell its test phase died wholesale (#172; pre-#185 it died at conftest import). This is the override point the vendored script documents. It exports `PRE_SHIP_ENV_NAMES`, the names (never the values) the files set, which the gate folds into its pass stamp (#557). Before the `exec` it runs `scripts/audit-lock.sh`, the report-only `uv.lock` audit (#499). It refuses a repo `.env` any group or other bit reaches, before reading it (#566). |
 
-**It is a wrapper, not a fork — keep it that way.** The ~200 lines upstream owns (per-SHA stamp cache, `pytest-cov` detection, the JS block, the zombie preflight) stay in one place and keep improving without a merge; a copy would drift silently on every submodule bump. Pinned by [`scripts/tests/test_pre_ship_wrapper.py`](../scripts/tests/test_pre_ship_wrapper.py), whose last test fails if the vendored delegate path moves. Upstream ask to make this recipe the sanctioned idiom (it currently says "keep a thin local fork", and only 1 of the 4 `shipping-work*` variants says even that): [gregoryfoster/skills#105](https://github.com/gregoryfoster/skills/issues/105).
+**It is a wrapper, not a fork — keep it that way.** The gate upstream owns (stack detection, the tree-keyed pass stamp, `pytest-cov` detection, the zombie preflight) stays in one place and keeps improving without a merge; a copy would drift silently on every submodule bump. Pinned by [`scripts/tests/test_pre_ship_wrapper.py`](../scripts/tests/test_pre_ship_wrapper.py), which fails if the delegate path moves or names a skill its vendor retired. Upstream made this recipe the sanctioned idiom in [gregoryfoster/skills#105](https://github.com/gregoryfoster/skills/issues/105).
 
 ## SocratiCode health
 
@@ -186,7 +186,7 @@ that a vendored file is missing:
 | `test_doc_sections.py::test_the_snapshot_still_matches_the_vendor` | the local snapshot still matches the vendor's `DOC_SECTIONS` defaults |
 | `test_doc_sections.py::test_the_vendored_gate_still_reads_this_file` | `doc-check.sh` still reads `.skills/doc-sections` (gregoryfoster/skills#284) |
 | `test_doc_sensitive_paths.py::test_the_vendored_matcher_is_still_segment_based` | `doc-check.sh` still has `path_matches()` (gregoryfoster/skills#252) |
-| `test_pre_ship_wrapper.py::test_real_delegate_path_resolves` | the hardcoded `shipping-work-python-fastapi/scripts/pre-ship.sh` path |
+| `test_pre_ship_wrapper.py::test_real_delegate_path_resolves` | the hardcoded `shipping-work/scripts/pre-ship.sh` path, and no pinned gate path names a retired skill |
 | `test_hook_registration_gate.py::test_manifest_scan_finds_the_vendored_hooks` | the `<hook>.install` manifests the timeout guard reads ([§ Hook timeouts](#hook-timeouts)) |
 
 One further test depends on state outside the checkout for a different reason: `test_assert_venv_integrity.py::test_the_production_venv_is_intact` runs the #279 guard against `/home/exedev/usa-wa/.venv` whichever checkout invokes it, so a **worktree** suite can go red for a condition in the primary checkout. That is deliberate — a guard about to become an `ExecStartPre=` on thirteen units should be known to pass against the venv those units start from — and a red there is a live finding, repaired with `uv sync --locked` in the primary checkout ([`docs/DEPLOYMENT-HOST.md` § Shared-venv integrity](DEPLOYMENT-HOST.md#shared-venv-integrity-issue-279)). It skips where that checkout does not exist.

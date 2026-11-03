@@ -15,18 +15,90 @@ network via vcrpy cassettes.
 from __future__ import annotations
 
 import asyncio
+import functools
+import hashlib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
 from zeep import Client
-from zeep.exceptions import Fault
+from zeep.exceptions import Fault, XMLParseError
 from zeep.helpers import serialize_object
 from zeep.transports import Transport
+from zeep.wsdl import Document
 
+from clearinghouse_core.logging import get_logger
 from usa_wa_adapter_legislature.ratelimit import RateLimiter, env_float
 
+logger = get_logger(__name__)
+
 WSL_BASE_URL = "https://wslwebservices.leg.wa.gov"
+
+#: The three services' WSDLs, vendored verbatim as package data (#563): what the offline
+#: parse binds to, so a Phase-B parse never GETs ``?wsdl``. Each is self-contained — inline
+#: schema, no ``import``/``schemaLocation`` — so the file is the whole binding.
+WSDL_DIR = Path(__file__).parent / "wsdl"
+
+
+def vendored_wsdl(service: str) -> Path:
+    """The vendored WSDL for ``service`` — raises if none is vendored, never falls back live."""
+    path = WSDL_DIR / f"{service}.wsdl"
+    if not path.is_file():
+        raise FileNotFoundError(f"no vendored WSDL for {service!r} under {WSDL_DIR}")
+    return path
+
+
+def _binding_fingerprint(document: Document) -> str:
+    """sha256 over the **parsed** binding: the namespace prefixes, every global element and
+    type signature, and every service/port operation signature, each line sorted.
+
+    Keyed on what zeep built, never on the document's text (ARCHITECTURE rule 2): whitespace,
+    line endings, attribute order and documentation cannot move it; a field added, dropped,
+    renamed or retyped, or an operation's shape changing, does. Signatures carry names, types
+    and list-ness — not facets such as ``minOccurs`` or the SOAPAction, which the reply parse
+    does not read."""
+    types = document.types
+    lines = [f"prefix {prefix} {ns}" for prefix, ns in types.prefix_map.items()]
+    lines += [f"element {element.signature(schema=types)}" for element in types.elements]
+    lines += [f"type {type_.signature(schema=types)}" for type_ in types.types]
+    for service in document.services.values():
+        for port in service.ports.values():
+            lines += [
+                f"operation {service.name}/{port.name} {operation}"
+                for operation in port.binding.all().values()
+            ]
+    return hashlib.sha256("\n".join(sorted(lines)).encode()).hexdigest()
+
+
+def binding_drift(clients: Iterable[WSLClient]) -> dict[str, list[str]]:
+    """Compare each client's **already-loaded** binding with its vendored WSDL's (#563).
+
+    The harvest's live clients loaded their WSDL from WSL for the night's pulls; this reuses
+    those bindings, so the check costs no request. ``wsdl_drift`` names the services whose
+    live binding differs from the vendored one the offline parse uses — the vendored copy is
+    stale and the parse may be dropping or mistyping fields. ``wsdl_unchecked`` names those
+    that never loaded (an outage before the first call): nothing to compare, not drift."""
+    drifted: list[str] = []
+    unchecked: list[str] = []
+    for client in clients:
+        live = client.binding_fingerprint()
+        if live is None:
+            unchecked.append(client.service)
+            continue
+        if live != _vendored_fingerprint(client.service):
+            drifted.append(client.service)
+    return {"wsdl_drift": drifted, "wsdl_unchecked": unchecked}
+
+
+@functools.cache
+def _vendored_fingerprint(service: str) -> str:
+    """The vendored binding's fingerprint — a package file, so computed once per process."""
+    return _binding_fingerprint(
+        WSLClient(service, wsdl=vendored_wsdl(service))._ensure_client().wsdl
+    )
+
 
 #: Courtesy floor between **any two** WSL SOAP operation calls, across all `WSLClient`
 #: instances/services (WSL is a single upstream host). A global min-interval gate so no
@@ -153,11 +225,42 @@ class WSLClient:
     on first call. Re-using a single instance amortises the WSDL fetch.
     """
 
-    def __init__(self, service: str, *, base_url: str = WSL_BASE_URL) -> None:
+    def __init__(
+        self, service: str, *, base_url: str = WSL_BASE_URL, wsdl: Path | None = None
+    ) -> None:
         self.service = service
-        self._wsdl_url = f"{base_url}/{service}.asmx?wsdl"
+        self._wsdl_url = str(wsdl) if wsdl is not None else f"{base_url}/{service}.asmx?wsdl"
         self._transport = _CapturingTransport()
         self._client: Client | None = None
+        #: Re-parses a wire this client's binding rejects (``offline`` clients only).
+        self._fallback: WSLClient | None = None
+        #: Operations whose fallback has already been logged — one warning each per client.
+        self._fell_back: set[str] = set()
+
+    @classmethod
+    def offline(
+        cls, service: str, *, fallback: WSLClient | None | Literal["live"] = "live"
+    ) -> WSLClient:
+        """A parse-only client bound to the **vendored** WSDL (#563): building its binding
+        reads a package file, so re-parsing an archived wire needs no network. The same
+        ``zeep`` binding the live client builds from the same document, so the parse is
+        identical; a drifted live WSDL is :func:`binding_drift`'s to catch.
+
+        A wire the vendored binding **rejects** (``XMLParseError``: an element WSL added since
+        the copy was vendored) is re-parsed through ``fallback`` — by default a lazily built
+        live-URL client, which is the pre-#563 behaviour for exactly that wire. Never a
+        lenient parse: zeep's non-strict mode nulls every field after an unknown mid-sequence
+        element. ``None`` makes the rejection raise."""
+        client = cls(service, wsdl=vendored_wsdl(service))
+        client._fallback = cls(service) if fallback == "live" else fallback
+        return client
+
+    def binding_fingerprint(self) -> str | None:
+        """The loaded binding's structural hash (:func:`_binding_fingerprint`); ``None`` until
+        a call has loaded the WSDL — reading it never triggers the load, so never a fetch."""
+        if self._client is None:
+            return None
+        return _binding_fingerprint(self._client.wsdl)
 
     def _ensure_client(self) -> Client:
         """Build the zeep client on first call; cache it for the lifetime.
@@ -169,6 +272,38 @@ class WSLClient:
         if self._client is None:
             self._client = Client(self._wsdl_url, transport=self._transport)
         return self._client
+
+    def _replay(self, operation_name: str, wire: bytes) -> list[dict[str, Any]]:
+        """Re-deserialize an archived ``operation_name`` reply through this client's binding;
+        on a schema-level rejection, through ``_fallback``'s (see :meth:`offline`). A
+        malformed wire is a ``TransportError``, not a rejection: it raises either way. So
+        does a binding that fails to *load*: only the wire is a reason to reach WSL."""
+        self._ensure_client()  # outside the try: an unloadable vendored copy never falls back
+        try:
+            return self._replay_through_own_binding(operation_name, wire)
+        except XMLParseError:
+            if self._fallback is None:
+                raise
+            if operation_name not in self._fell_back:
+                self._fell_back.add(operation_name)
+                logger.warning(
+                    "wsl_parse_live_wsdl_fallback",
+                    extra={
+                        "service": self.service,
+                        "operation": operation_name,
+                        "issue": "#563",
+                        "detail": "the vendored WSDL rejected an archived wire; replace it",
+                    },
+                )
+            return self._fallback._replay(operation_name, wire)
+
+    def _replay_through_own_binding(self, operation_name: str, wire: bytes) -> list[dict[str, Any]]:
+        client = self._ensure_client()
+        binding = client.service._binding
+        operation = binding.get(operation_name)
+        result = binding.process_reply(client, operation, _StoredResponse(wire))
+        serialized = serialize_object(result, dict)
+        return list(serialized) if serialized is not None else []
 
     def _fetch_active_committees_sync(self) -> WireFetch:
         result = self._ensure_client().service.GetActiveCommittees()
@@ -191,20 +326,10 @@ class WSLClient:
         )
 
     def _parse_committee_meetings_sync(self, wire: bytes) -> list[dict[str, Any]]:
-        client = self._ensure_client()
-        binding = client.service._binding
-        operation = binding.get("GetCommitteeMeetings")
-        result = binding.process_reply(client, operation, _StoredResponse(wire))
-        serialized = serialize_object(result, dict)
-        return list(serialized) if serialized is not None else []
+        return self._replay("GetCommitteeMeetings", wire)
 
     def _parse_committees_sync(self, wire: bytes) -> list[dict[str, Any]]:
-        client = self._ensure_client()
-        binding = client.service._binding
-        operation = binding.get("GetCommittees")
-        result = binding.process_reply(client, operation, _StoredResponse(wire))
-        serialized = serialize_object(result, dict)
-        return list(serialized) if serialized is not None else []
+        return self._replay("GetCommittees", wire)
 
     def _get_committees_sync(self, biennium: str) -> list[dict[str, Any]]:
         try:
@@ -243,12 +368,7 @@ class WSLClient:
         )
 
     def _parse_sponsors_sync(self, wire: bytes) -> list[dict[str, Any]]:
-        client = self._ensure_client()
-        binding = client.service._binding
-        operation = binding.get("GetSponsors")
-        result = binding.process_reply(client, operation, _StoredResponse(wire))
-        serialized = serialize_object(result, dict)
-        return list(serialized) if serialized is not None else []
+        return self._replay("GetSponsors", wire)
 
     def _fetch_historical_committee_members_sync(
         self, biennium: str, agency: str, committee_name: str
@@ -270,12 +390,7 @@ class WSLClient:
         )
 
     def _parse_historical_committee_members_sync(self, wire: bytes) -> list[dict[str, Any]]:
-        client = self._ensure_client()
-        binding = client.service._binding
-        operation = binding.get("GetCommitteeMembers")
-        result = binding.process_reply(client, operation, _StoredResponse(wire))
-        serialized = serialize_object(result, dict)
-        return list(serialized) if serialized is not None else []
+        return self._replay("GetCommitteeMembers", wire)
 
     def _fetch_committees_sync(self, biennium: str) -> WireFetch:
         try:

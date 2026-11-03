@@ -5,6 +5,7 @@ from Postgres, as the deleted daily refresh did) — the raw tier must be builda
 no database at all.
 """
 
+import argparse
 import json
 import logging
 from dataclasses import dataclass, field
@@ -12,8 +13,9 @@ from dataclasses import dataclass, field
 import pytest
 from zeep.exceptions import Fault
 
-from clearinghouse_core.job import JobFailure
+from clearinghouse_core.job import JobContext, JobFailure
 from clearinghouse_core.rawstore import RawRun, RawStore
+from usa_wa_adapter_legislature import raw_harvest
 from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.raw_harvest import (
     ACCEPTED_ROSTER_FAULTS,
@@ -518,3 +520,99 @@ class TestAcceptedRosterFaults:
         [shipped] = ACCEPTED_ROSTER_FAULTS
         assert any("ACCEPTED_ROSTER_FAULTS" in step for step in shipped.follow_up)
         assert any("ACCEPTED_WARNINGS" in step for step in shipped.follow_up)
+
+
+class TestWsdlDrift:
+    """#563: the offline parse binds to vendored WSDLs, so a live WSDL that changed shape
+    must reach the operator. It degrades the harvest (contained: the chain still builds and
+    publishes), then OnFailure= mails."""
+
+    OK_RUN = {"biennium": BIENNIUM, "fetched": 6, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
+
+    @staticmethod
+    def _ctx(tmp_path) -> JobContext:
+        """The harvest job's context, as the harness builds it for a databaseless run."""
+        return JobContext(
+            name=raw_harvest.JOB_SLUG,
+            args=argparse.Namespace(root=str(tmp_path), ttl_days=0.0),
+            session=None,
+            session_factory=None,
+            dry_run=False,
+        )
+
+    def test_drift_degrades_and_names_the_services(self, caplog) -> None:
+        with caplog.at_level(logging.ERROR):
+            result = job_outcome(
+                {**self.OK_RUN, "wsdl_drift": ["SponsorService"], "wsdl_unchecked": []}
+            )
+        assert result.outcome == "degraded"
+        [record] = [r for r in caplog.records if r.message == "wsl_raw_harvest_wsdl_drift"]
+        assert record.services == ["SponsorService"]
+        assert record.issue == "#563"
+
+    def test_an_unchecked_binding_alone_stays_ok(self) -> None:
+        """An outage before the first call loads no WSDL; the outage reports itself."""
+        result = job_outcome(
+            {**self.OK_RUN, "wsdl_drift": [], "wsdl_unchecked": ["CommitteeMeetingService"]}
+        )
+        assert result.outcome == "ok"
+
+    async def test_a_rollover_acceptance_does_not_cover_drift(self, tmp_path) -> None:
+        summary = await _rollover_night(tmp_path, sponsors=0)
+        summary["wsdl_drift"] = ["CommitteeService"]
+        assert job_outcome(summary, accepted=TestAcceptedRosterFaults.ACCEPT).outcome == "degraded"
+
+    async def test_the_job_checks_the_clients_it_harvested_with(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        harvested: dict[str, object] = {}
+        checked: list[object] = []
+
+        async def fake_harvest(root, *, ttl_days, **clients):
+            harvested.update(clients)
+            return dict(self.OK_RUN)
+
+        def fake_drift(clients):
+            checked.extend(clients)
+            return {"wsdl_drift": ["SponsorService"], "wsdl_unchecked": []}
+
+        monkeypatch.setattr(raw_harvest, "harvest_raw", fake_harvest)
+        monkeypatch.setattr(raw_harvest, "binding_drift", fake_drift)
+        ctx = self._ctx(tmp_path)
+        result = await raw_harvest._harvest_job(ctx)
+
+        assert {c.service for c in harvested.values()} == {
+            "CommitteeService",
+            "CommitteeMeetingService",
+            "SponsorService",
+        }
+        assert sorted(map(id, checked)) == sorted(map(id, harvested.values()))
+        assert result.counters["wsdl_drift"] == ["SponsorService"]
+        assert result.outcome == "degraded"
+
+    async def test_a_drift_check_that_crashes_is_contained(
+        self, tmp_path, monkeypatch, caplog
+    ) -> None:
+        """The check runs after the night's wires landed: its own crash (a zeep internals
+        change, an unparseable vendored file) degrades the run with the harvest's counters
+        intact — never a ``failed`` job that hides how far the harvest got."""
+
+        async def fake_harvest(root, *, ttl_days, **clients):
+            return dict(self.OK_RUN)
+
+        def crashing_drift(clients):
+            raise AttributeError("zeep moved an internal")
+
+        monkeypatch.setattr(raw_harvest, "harvest_raw", fake_harvest)
+        monkeypatch.setattr(raw_harvest, "binding_drift", crashing_drift)
+        ctx = self._ctx(tmp_path)
+        with caplog.at_level(logging.ERROR):
+            result = await raw_harvest._harvest_job(ctx)
+
+        assert result.outcome == "degraded"
+        assert result.counters["fetched"] == self.OK_RUN["fetched"]
+        assert result.counters["wsdl_check_failed"] == 1
+        assert any(r.message == "wsl_raw_harvest_wsdl_check_failed" for r in caplog.records)
+
+    def test_a_failed_drift_check_degrades(self) -> None:
+        assert job_outcome({**self.OK_RUN, "wsdl_check_failed": 1}).outcome == "degraded"
