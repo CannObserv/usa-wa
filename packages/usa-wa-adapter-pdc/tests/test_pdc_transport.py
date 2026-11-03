@@ -94,10 +94,10 @@ async def test_fetch_senate_winners_round_trip(pdc_vcr) -> None:
 async def test_an_unmatched_request_raises_rather_than_going_live(
     pdc_vcr, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``record_mode='none'`` is the tier's no-live-PDC guarantee, so pin it, not just the
-    replays that happen to match (#569: vcrpy 9 rewrote the unmatched-request path). The
-    Senate query is not in the House cassette. With name lookups refused, a request vcr let
-    through would fail as ``httpx.ConnectError`` instead."""
+    """``record_mode='none'`` is the tier's no-live-PDC guarantee, so pin it, not just the replays
+    that happen to match (#569: vcrpy 9.0 rewrote the error an unmatched request raises). The Senate
+    query is not in the House cassette. With name lookups refused, a request vcr let through would
+    fail as ``httpx.ConnectError`` instead."""
 
     def refuse(*_args: object, **_kwargs: object) -> None:
         raise OSError("network blocked by test (#569)")

@@ -78,8 +78,8 @@ async def test_an_unmatched_request_raises_rather_than_going_live(
     sos_vcr, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``record_mode='none'`` is the tier's no-live-votewa guarantee, so pin it, not just the
-    replays that happen to match (#569: vcrpy 9 rewrote the unmatched-request path). The 2018
-    election date is not in the 2016 cassette. With name lookups refused, a request vcr let
+    replays that happen to match (#569: vcrpy 9.0 rewrote the error an unmatched request raises).
+    The 2018 election date is not in the 2016 cassette. With name lookups refused, a request vcr let
     through would fail as ``httpx.ConnectError`` instead."""
 
     def refuse(*_args: object, **_kwargs: object) -> None:

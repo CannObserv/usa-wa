@@ -80,12 +80,12 @@ async def test_fetch_active_committees_captures_pristine_wire(wsl_vcr):
 
 
 async def test_an_unmatched_request_raises_rather_than_going_live(wsl_vcr, monkeypatch):
-    """``record_mode='none'`` is the tier's no-live-WSL guarantee, so pin it, not just the
-    replays that happen to match (#569: vcrpy 9 rewrote the unmatched-request path). The
-    SponsorService WSDL GET is not in a CommitteeService cassette. With name lookups refused,
-    a request vcr let through would fail as a ``ConnectionError`` instead. Not ``no_network``:
-    run first, this async test's session loop is built under that fixture, and it refuses
-    the loop's own ``socketpair``."""
+    """``record_mode='none'`` is the tier's no-live-WSL guarantee, so pin it, not just the replays
+    that happen to match (#569: vcrpy 9.0 rewrote the error an unmatched request raises). The
+    SponsorService WSDL GET is not in a CommitteeService cassette. With name lookups refused, a
+    request vcr let through would fail as a ``ConnectionError`` instead. Not ``no_network``: run
+    first, this async test's session loop is built under that fixture, and it refuses the loop's own
+    ``socketpair``."""
 
     def refuse(*_args: object, **_kwargs: object) -> None:
         raise OSError("network blocked by test (#569)")
