@@ -41,7 +41,7 @@ and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.m
       restore.py      — by hand, as root: list / fetch + prove / load into an empty database, then check the schema version, registry counts and the ULIDs of the crosswalks published at or before the dump (a crashed publish passed over); `--raw-into`
     tests/            — API tests; conftest adds the AsyncClient over the root db_session
 alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
-conftest.py           — DB-free test base: prod-DSN guard (CR #191), `db` auto-marker (#185)
+conftest.py           — DB-free test base: prod-DSN guard (CR #191), `db` auto-marker (#185), `no_dns` lookup refusal (#569)
 conftest_db.py        — the `db` tier's fixtures (test_engine/db_session); fails lazily
 conftest_coverage.py  — the second coverage profile: the #198 unit-tier floor and the #216 integration exemption, both applied here rather than by a flag
 docs/specs/           — Architecture specs (source of truth for design decisions)
