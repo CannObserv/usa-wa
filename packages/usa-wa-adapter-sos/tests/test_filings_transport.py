@@ -7,7 +7,10 @@ parse from the archived wire (the #56 cache path).
 
 from __future__ import annotations
 
+import socket
+
 import pytest
+from vcr.errors import CannotOverwriteExistingCassetteException
 
 from usa_wa_adapter_sos.filings.transport import (
     ALL_COUNTIES,
@@ -68,6 +71,24 @@ async def test_fetch_whofiled_round_trip(sos_vcr) -> None:
 
     # Offline re-parse of the archived wire recovers the live parse (#56 cache path).
     assert parse_whofiled(fetch.wire) == fetch.records
+
+
+@pytest.mark.asyncio
+async def test_an_unmatched_request_raises_rather_than_going_live(
+    sos_vcr, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``record_mode='none'`` is the tier's no-live-votewa guarantee, so pin it, not just the
+    replays that happen to match (#569: vcrpy 9 rewrote the unmatched-request path). The 2018
+    election date is not in the 2016 cassette. With name lookups refused, a request vcr let
+    through would fail as ``httpx.ConnectError`` instead."""
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise OSError("network blocked by test (#569)")
+
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
+    with sos_vcr.use_cassette("whofiled_2016.yaml"):
+        with pytest.raises(CannotOverwriteExistingCassetteException):
+            await SOSFilingsClient().fetch_whofiled(2018)
 
 
 class _FakeClock:
