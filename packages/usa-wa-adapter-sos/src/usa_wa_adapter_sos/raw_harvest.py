@@ -173,7 +173,8 @@ async def harvest_raw(
                     results_run,
                     results_store,
                     legresults_resource_id(year),
-                    # the export index the traversal starts from — computable and real
+                    # the export index the traversal starts from — computable and real; a
+                    # platform payload's own URL replaces it in the record (#575)
                     results_url_source.export_index_url(results_election_date(year)),
                     lambda y=year: results.fetch_legislative_results(y),
                     results_counters,

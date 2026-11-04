@@ -204,6 +204,33 @@ async def test_manifest_urls_are_real_endpoints(tmp_path) -> None:
         assert entry["url"].endswith("/export.html")
 
 
+async def test_a_platform_fetch_records_the_url_it_came_from(tmp_path) -> None:
+    """A 2026+ year comes off the results.votewa.gov platform (#575): its manifest row is the
+    platform URL the transport reports, not the old export index it 404'd on."""
+    platform = "https://results.votewa.gov/results/public/api/elections/washington/20251104"
+
+    @dataclass
+    class _PlatformWire(_Wire):
+        url: str | None = None
+
+    class PlatformForOneYear(FakeResultsClient):
+        async def fetch_legislative_results(self, election_year: int) -> _Wire:
+            wire = f"results-{election_year}".encode()
+            return _PlatformWire(wire=wire, url=platform if election_year == 2025 else None)
+
+    await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        today=TODAY,
+        filings_client=FakeFilingsClient(),
+        results_client=PlatformForOneYear(),
+    )
+    results = json.loads(RawStore(tmp_path, "usa_wa_sos_results").manifest_paths()[0].read_text())
+    urls = {e["resource_id"]: e["url"] for e in results["entries"]}
+    assert urls[legresults_resource_id(2025)] == platform
+    assert urls[legresults_resource_id(2024)].endswith("/export.html")
+
+
 HEALTHY = {"fetched": 2, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
 DEAD = {"fetched": 0, "unchanged": 0, "skipped_fresh": 0, "errors": 2}
 
