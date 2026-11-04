@@ -1,4 +1,4 @@
-"""Pure ``results.vote.wa.gov`` → House-position primitives (#101).
+"""Pure WA SOS results → House-position primitives (#101): the CSV or 2026+ workbook (#575).
 
 Parses the legislative election-**results** CSV rows into the shared ``{LD: [HousePosition]}`` map
 the ``house/`` application consumes, **and** the ``{LD: SenateWinner}`` map (#106 A′) — the wire is

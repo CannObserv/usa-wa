@@ -231,9 +231,12 @@ def test_update_latest_serializes_on_source_lock(store: RawStore) -> None:
 
 
 class _Payload:
-    def __init__(self, wire: bytes, content_type: str | None = None) -> None:
+    def __init__(
+        self, wire: bytes, content_type: str | None = None, url: str | None = None
+    ) -> None:
         self.wire = wire
         self.content_type = content_type
+        self.url = url
 
 
 def _fresh_counters() -> dict[str, int]:
@@ -255,6 +258,24 @@ async def test_record_fetch_stores_and_counts(store: RawStore) -> None:
     assert counters == {"fetched": 1, "unchanged": 0, "skipped_fresh": 0, "errors": 0}
     run.close()
     assert store.latest()["r1"]["sha256"] == SHA
+
+
+async def test_record_fetch_records_the_url_the_payload_reports(store: RawStore) -> None:
+    """A fetcher that learns its real URL while fetching (#575) reports it; one that reports
+    none keeps the caller's."""
+    run = store.open_run()
+    counters = _fresh_counters()
+
+    async def found_elsewhere() -> _Payload:
+        return _Payload(BODY, url="https://elsewhere.example/r1")
+
+    async def as_called() -> _Payload:
+        return _Payload(BODY + b"2")
+
+    await record_fetch(run, store, "r1", "u", found_elsewhere, counters, 0.0, log_event="t")
+    await record_fetch(run, store, "r2", "u", as_called, counters, 0.0, log_event="t")
+    entries = json.loads(run.close().read_text())["entries"]
+    assert [e["url"] for e in entries] == ["https://elsewhere.example/r1", "u"]
 
 
 async def test_record_fetch_contains_errors(store: RawStore) -> None:
