@@ -7,18 +7,27 @@ and the two distinct failure modes the harvest keys on (no-Legislative-link vs a
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import pytest
 import respx
 
 from usa_wa_adapter_sos.results.transport import (
+    PLATFORM_BASE_URL,
     RESULTS_BASE_URL,
     LegislativeExportNotFound,
     SOSResultsClient,
     general_election_date,
     legislative_href,
     parse_legislative_results,
+    workbook_report,
 )
+
+_FIXTURE = Path(__file__).parent / "fixtures" / "results_20261103_all_results.xlsx"
+_JURISDICTION = "01000000-f977-1a83-1ed4-08ddd69e9e69"
+_ALL = "All Results_3c8977b5-5200-47af-bfea-3237dec12f54.xlsx"
+_SUMMARY_AND_PRECINCT = "Results_fbdeaae4-2eb5-45e0-9461-0075d8c19985.xlsx"
 
 _CSV = (
     b'"Race","Candidate","Party","Votes","PercentageOfTotalVotes","JurisdictionName"\r\n'
@@ -106,10 +115,111 @@ async def test_fetch_raises_when_no_legislative_link() -> None:
         await SOSResultsClient().fetch_legislative_results(2024)
 
 
+def _election(reports: list[dict[str, object]]) -> dict[str, object]:
+    """The slice of the platform's election JSON the client reads."""
+    return {
+        "jurisdictionId": _JURISDICTION,
+        "electionDate": "2026-11-03",
+        "publicReportCategories": [{"categoryName": None, "reports": reports}],
+    }
+
+
+def _report(name: str, blob: str) -> dict[str, object]:
+    return {"reportName": name, "blobName": blob, "order": 0, "versions": None, "county": None}
+
+
+def _platform_api(d: str) -> str:
+    return f"{PLATFORM_BASE_URL}/results/public/api/elections/washington/{d}"
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_fetch_propagates_http_error_for_unheld_year() -> None:
-    d = "20261103"  # Nov 2026 hasn't happened — the index 404s
+    d = "20301105"  # held on neither site: the old index and the platform both 404
     respx.get(f"{RESULTS_BASE_URL}/results/{d}/export.html").mock(return_value=httpx.Response(404))
+    respx.get(_platform_api(d)).mock(return_value=httpx.Response(404))
     with pytest.raises(httpx.HTTPStatusError):
+        await SOSResultsClient().fetch_legislative_results(2030)
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_an_old_site_404_falls_back_to_the_platform_workbook() -> None:
+    d = "20261103"  # 2026+ is published only on results.votewa.gov (#575)
+    respx.get(f"{RESULTS_BASE_URL}/results/{d}/export.html").mock(return_value=httpx.Response(404))
+    respx.get(_platform_api(d)).mock(
+        return_value=httpx.Response(
+            200,
+            json=_election(
+                [
+                    _report("Summary and Precinct Results Excel", _SUMMARY_AND_PRECINCT),
+                    _report("All Results Excel", _ALL),
+                ]
+            ),
+        )
+    )
+    workbook = _FIXTURE.read_bytes()
+    cdn = respx.get(
+        f"{PLATFORM_BASE_URL}/cdn/results/{_JURISDICTION}/All%20Results_3c8977b5-5200-47af-bfea-3237dec12f54.xlsx"
+    ).mock(return_value=httpx.Response(200, content=workbook))
+
+    fetch = await SOSResultsClient().fetch_legislative_results(2026)
+
+    assert cdn.called
+    assert fetch.wire == workbook  # the pristine workbook is the archived wire (#54)
+    assert fetch.url == _platform_api(d)  # the traversal's real entry point, not the old index
+    assert fetch.records[0]["Race"].startswith("Legislative District 1 - ")
+    assert parse_legislative_results(fetch.wire) == fetch.records  # #56 offline re-parse
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_an_old_site_fetch_reports_no_url_of_its_own() -> None:
+    d = "20241105"
+    respx.get(f"{RESULTS_BASE_URL}/results/{d}/export.html").mock(
+        return_value=httpx.Response(200, text=f'<a href="export/{d}_Legislative.csv">CSV</a>')
+    )
+    respx.get(f"{RESULTS_BASE_URL}/results/{d}/export/{d}_Legislative.csv").mock(
+        return_value=httpx.Response(200, content=_CSV)
+    )
+    # The harvest's export.html URL stays the recorded one, so past provenance doesn't move.
+    assert (await SOSResultsClient().fetch_legislative_results(2024)).url is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_an_old_site_server_error_does_not_fall_back() -> None:
+    d = "20241105"
+    respx.get(f"{RESULTS_BASE_URL}/results/{d}/export.html").mock(return_value=httpx.Response(503))
+    platform = respx.get(_platform_api(d)).mock(
+        return_value=httpx.Response(200, json=_election([]))
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        await SOSResultsClient().fetch_legislative_results(2024)
+    assert not platform.called
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_a_platform_election_with_no_workbook_raises_not_found() -> None:
+    d = "20261103"
+    respx.get(f"{RESULTS_BASE_URL}/results/{d}/export.html").mock(return_value=httpx.Response(404))
+    respx.get(_platform_api(d)).mock(
+        return_value=httpx.Response(200, json=_election([_report("Canvass PDF", "canvass.pdf")]))
+    )
+    with pytest.raises(LegislativeExportNotFound):
         await SOSResultsClient().fetch_legislative_results(2026)
+
+
+def test_workbook_report_prefers_all_results_then_any_workbook() -> None:
+    both = _election(
+        [
+            _report("Summary and Precinct Results Excel", _SUMMARY_AND_PRECINCT),
+            _report("ALL RESULTS (xlsx)", _ALL),
+        ]
+    )
+    assert workbook_report(both) == _ALL
+    renamed = _election([_report("Canvass PDF", "c.pdf"), _report("Results Workbook", "r.XLSX")])
+    assert workbook_report(renamed) == "r.XLSX"
+    assert workbook_report(_election([])) is None
+    assert workbook_report({}) is None
