@@ -14,10 +14,10 @@ transport it mirrors the :class:`WireFetch` contract: the pristine CSV body is a
 (#54); the derived parse is a convenience so a caller doesn't re-decode.
 
 **From 2026 the SOS publishes on a vendor platform instead (#575).** ``results.vote.wa.gov``
-keeps every earlier election but 404s a 2026+ one, which lives only at ``results.votewa.gov``. So a
-404 from the old index — and only a 404 — falls back to the platform: its election JSON
-(``/results/public/api/elections/washington/<YYYYMMDD>``) lists the downloadable reports, whose blob
-names carry a per-publish GUID and so are discovered, never derived; the *All Results* workbook
+keeps every earlier election but 404s a 2026+ one, which lives only at ``results.votewa.gov``. So
+an old index the host disowns — a 404, or a redirect off the host — falls back to the platform: its
+election JSON (``/results/public/api/elections/washington/<YYYYMMDD>``) lists the reports, whose
+blob names carry a per-publish GUID and so are discovered, never derived; the *All Results* workbook
 (:func:`workbook_report`) is fetched from ``/cdn/results/<jurisdictionId>/<blob>`` and archived as
 the wire, parsed by :mod:`usa_wa_adapter_sos.results.workbook`. A platform fetch reports its
 election-JSON URL as :attr:`WireFetch.url`, the traversal's real entry point, so the harvest records
@@ -176,7 +176,8 @@ class SOSResultsClient:
     async def fetch_legislative_results(self, election_year: int) -> WireFetch:
         """Traverse the election's ``export.html`` → fetch the Legislative CSV (archived + hashed,
         #54). Each GET passes the courtesy gate; follows the CSV's lowercase redirect. An index
-        404 falls back to the platform workbook (#575). Raises ``httpx.HTTPStatusError`` on a
+        the old host doesn't hold (:meth:`_not_held_here`) falls back to the platform workbook
+        (#575). Raises ``httpx.HTTPStatusError`` on a
         non-2xx (e.g. a year neither site holds) or :class:`LegislativeExportNotFound` when the
         index has no Legislative CSV or the platform election no workbook."""
         election_date = general_election_date(election_year)
@@ -184,7 +185,7 @@ class SOSResultsClient:
         async with httpx.AsyncClient(timeout=self._timeout, follow_redirects=True) as client:
             await _RESULTS_LIMITER.acquire()
             index = await client.get(index_url)
-            if index.status_code == httpx.codes.NOT_FOUND:
+            if self._not_held_here(index):
                 return await self._fetch_platform_workbook(client, election_date)
             index.raise_for_status()
             href = legislative_href(index.text)
@@ -198,6 +199,14 @@ class SOSResultsClient:
         return WireFetch(
             records=parse_legislative_results(wire), wire=wire, content_type=content_type
         )
+
+    def _not_held_here(self, index: httpx.Response) -> bool:
+        """Whether the old host disowned this election's index: a 404, or a redirect that left
+        the host (it already 302s ``/results/current/`` to the platform). Any other error still
+        raises, so a 5xx never sends a held year to the platform."""
+        if index.status_code == httpx.codes.NOT_FOUND:
+            return True
+        return index.url.host != httpx.URL(self._base_url).host
 
     async def _fetch_platform_workbook(
         self, client: httpx.AsyncClient, election_date: str
