@@ -313,8 +313,10 @@ async def record_fetch(
     ``fetcher`` returns an adapter fetch object exposing ``.wire`` (bytes) and
     optionally ``.content_type`` and ``.url``. A non-``None`` ``.url`` replaces
     ``url`` in the record: a fetcher that found its wire somewhere other than
-    where the caller pointed it (#575) says where. An error is contained:
-    recorded ``err``, logged under ``log_event``, counted — never raised.
+    where the caller pointed it (#575) says where. A skipped or failed fetch has
+    no payload, so its record keeps ``url``, where the attempt began. An error
+    is contained: recorded ``err``, logged under ``log_event``, counted — never
+    raised.
 
     One exception: a payload with ``wire=None`` raises ``ValueError``. That is a
     broken transport contract, not per-resource weather (CR 44), so a caller
