@@ -201,7 +201,14 @@ def _cell_text(cell: ElementTree.Element, strings: list[str]) -> str | None:
     value = cell.find(f"{_MAIN}v")
     if value is None or value.text is None:
         return None
-    return strings[int(value.text)] if kind == "s" else value.text
+    if kind != "s":
+        return value.text
+    try:
+        return strings[int(value.text)]
+    except (IndexError, ValueError) as exc:
+        raise WorkbookUnreadable(
+            f"cell names shared string {value.text!r}, not in the table"
+        ) from exc
 
 
 def _read_xml(archive: zipfile.ZipFile, path: str) -> ElementTree.Element:
@@ -216,7 +223,10 @@ def _read_xml(archive: zipfile.ZipFile, path: str) -> ElementTree.Element:
         data = member.read(MAX_MEMBER_BYTES + 1)
     if len(data) > MAX_MEMBER_BYTES:  # a header that understates its member
         raise WorkbookUnreadable(f"{path} decompresses past the size cap")
-    return _parse_xml(data)
+    try:
+        return _parse_xml(data)
+    except ElementTree.ParseError as exc:
+        raise WorkbookUnreadable(f"{path} is not well-formed XML") from exc
 
 
 def _parse_xml(data: bytes) -> ElementTree.Element:
