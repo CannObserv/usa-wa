@@ -174,6 +174,32 @@ async def test_an_old_site_404_falls_back_to_the_platform_workbook() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_an_old_index_redirected_off_host_falls_back_too() -> None:
+    """The old host already 302s /results/current/ to the platform; an unheld date sent the same
+    way lands on the platform's HTML shell with no Legislative link. That is "not held here",
+    not "a year with no legislative race", so it falls back like a 404 (#575)."""
+    d = "20261103"
+    landing = f"{PLATFORM_BASE_URL}/results/public/washington/elections/{d}"
+    respx.get(f"{RESULTS_BASE_URL}/results/{d}/export.html").mock(
+        return_value=httpx.Response(302, headers={"Location": landing})
+    )
+    respx.get(landing).mock(return_value=httpx.Response(200, text="<html><app-root></app-root>"))
+    respx.get(_platform_api(d)).mock(
+        return_value=httpx.Response(200, json=_election([_report("All Results Excel", _ALL)]))
+    )
+    workbook = _FIXTURE.read_bytes()
+    respx.get(url__startswith=f"{PLATFORM_BASE_URL}/cdn/results/{_JURISDICTION}/").mock(
+        return_value=httpx.Response(200, content=workbook)
+    )
+
+    fetch = await SOSResultsClient().fetch_legislative_results(2026)
+
+    assert fetch.wire == workbook
+    assert fetch.url == _platform_api(d)
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_an_old_site_fetch_reports_no_url_of_its_own() -> None:
     d = "20241105"
     respx.get(f"{RESULTS_BASE_URL}/results/{d}/export.html").mock(
