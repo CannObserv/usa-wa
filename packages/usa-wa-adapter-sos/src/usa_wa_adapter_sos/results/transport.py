@@ -1,9 +1,10 @@
-"""Transport — ``httpx`` client for the WA SOS ``results.vote.wa.gov`` legislative results.
+"""Transport — ``httpx`` client for the WA SOS legislative results: ``results.vote.wa.gov``
+through 2025, the ``results.votewa.gov`` platform from 2026 (#575).
 
 The SOS retired the ``eledataweb.votewa.gov`` *Export To Excel* filings export for elections
-**2020+** (migrated to Power BI), but publishes each general election's certified results at
-``results.vote.wa.gov/results/<YYYYMMDD>/`` — including a **Legislative** offices CSV carrying the
-ballot ``Position 1/2`` this source exists to supply (2008→present, incl. the current cycle).
+**2020+** (migrated to Power BI), but published each general election's results from 2008 to 2025
+at ``results.vote.wa.gov/results/<YYYYMMDD>/`` — including a **Legislative** offices CSV carrying
+the ballot ``Position 1/2`` this source exists to supply.
 
 The export filename is **not derivable** — recent years are ``export/<date>_Legislative.csv`` but
 older ones carry a certification timestamp (``export/20121106_Legislative_20121205_1451.csv``), so
