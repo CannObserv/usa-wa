@@ -205,7 +205,7 @@ The House Position seat (`chamber-house`, `Position 1/2`) is an **application** 
 
 | | `filings/` (source `usa_wa_sos`) | `results/` (source `usa_wa_sos_results`) |
 |---|---|---|
-| feed | votewa `ExportToExcel` candidate filings | `results.vote.wa.gov` legislative election results |
+| feed | votewa `ExportToExcel` candidate filings | `results.vote.wa.gov` legislative election results (2026+: the `results.votewa.gov` workbook, #575) |
 | coverage | 2008–2018 (retired to Power BI for 2020+) | 2008–present (incl. current cycle) |
 | unique value | candidacy metadata (filing date, withdrawal, contact — #99) | ballot Position **+** vote counts, current-cycle |
 | archive key | `sos-whofiled:<YYYYMMDD>` | `sos-legresults:<YYYYMMDD>` |
