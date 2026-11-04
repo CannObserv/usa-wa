@@ -22,6 +22,7 @@ keeps it from creeping back.
 
 import logging
 import os
+import socket
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -124,6 +125,22 @@ def pytest_collection_modifyitems(items: Iterable[Any]) -> None:
     for item in items:
         if DB_FIXTURES.intersection(getattr(item, "fixturenames", ())):
             item.add_marker(pytest.mark.db)
+
+
+@pytest.fixture
+def no_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Refuse every name lookup for the test's duration (#569), so a request that should
+    never leave the process fails as a connect error instead of reaching a live host.
+
+    Lookups only, unlike the legislature package's ``no_network``, which also replaces
+    ``socket.socket``: an async test that runs first builds the session event loop under
+    that one, and the loop's own ``socketpair`` is refused. A request to an IP literal
+    resolves nothing and gets past this; every host the cassettes name is a hostname."""
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise OSError("name lookup blocked by test (no_dns)")
+
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
 
 
 @pytest.fixture(scope="session")

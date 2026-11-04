@@ -8,6 +8,7 @@ the archived wire (the #56 cache path).
 from __future__ import annotations
 
 import pytest
+from vcr.errors import CannotOverwriteExistingCassetteException
 
 from usa_wa_adapter_pdc.transport import (
     OFFICE_STATE_REPRESENTATIVE,
@@ -85,3 +86,15 @@ async def test_fetch_senate_winners_round_trip(pdc_vcr) -> None:
 
     # Offline re-parse of the archived wire recovers the live parse (#56 cache path).
     assert parse_senate_winners(fetch.wire) == fetch.records
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("no_dns")
+async def test_an_unmatched_request_raises_rather_than_going_live(pdc_vcr) -> None:
+    """``record_mode='none'`` is the tier's no-live-PDC guarantee, so pin it, not just the replays
+    that happen to match (#569: vcrpy 9.0 rewrote the error an unmatched request raises). The Senate
+    query is not in the House cassette. With name lookups refused, a request vcr let through would
+    fail as ``httpx.ConnectError`` instead."""
+    with pdc_vcr.use_cassette("campaign_finance_summary_house_2024.yaml"):
+        with pytest.raises(CannotOverwriteExistingCassetteException):
+            await PDCClient().fetch_senate_winners(ELECTION_YEAR)

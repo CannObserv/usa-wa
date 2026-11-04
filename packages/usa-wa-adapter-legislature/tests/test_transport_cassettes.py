@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
+from vcr.errors import CannotOverwriteExistingCassetteException
 
 from usa_wa_adapter_legislature.transport import WSLClient
 
@@ -75,6 +76,18 @@ async def test_fetch_active_committees_captures_pristine_wire(wsl_vcr):
     expected_keys = {"Id", "Name", "LongName", "Agency", "Acronym", "Phone"}
     for row in fetched.records:
         assert expected_keys.issubset(row.keys())
+
+
+@pytest.mark.usefixtures("no_dns")
+async def test_an_unmatched_request_raises_rather_than_going_live(wsl_vcr):
+    """``record_mode='none'`` is the tier's no-live-WSL guarantee, so pin it, not just the replays
+    that happen to match (#569: vcrpy 9.0 rewrote the error an unmatched request raises). The
+    SponsorService WSDL GET is not in a CommitteeService cassette. With name lookups refused, a
+    request vcr let through would fail as a ``ConnectionError`` instead. ``no_dns``, not
+    ``no_network``: this test is async (the fixture's docstring says why that matters)."""
+    with wsl_vcr.use_cassette("committee_service_get_active_committees_2025-26.yaml"):
+        with pytest.raises(CannotOverwriteExistingCassetteException):
+            await WSLClient("SponsorService").fetch_sponsors("2025-26")
 
 
 async def test_fetch_active_committees_wrong_service_raises():
