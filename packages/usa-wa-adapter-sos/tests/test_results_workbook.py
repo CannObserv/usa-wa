@@ -16,6 +16,7 @@ from xml.sax.saxutils import escape
 
 import pytest
 
+from usa_wa_adapter_sos.results import workbook
 from usa_wa_adapter_sos.results.normalize import build_house_positions, build_senate_winners
 from usa_wa_adapter_sos.results.workbook import (
     WorkbookUnreadable,
@@ -152,6 +153,15 @@ def test_the_2026_general_workbook_seats_every_district() -> None:
     assert all(
         {p.qualifier for p in seats} == {"Position 1", "Position 2"} for seats in positions.values()
     )
-    # Only the senate seats up in 2026 are on the ballot, and each has a winner.
-    assert build_senate_winners(rows)
+    # The 24 Senate seats up in 2026, each with a winner on the election-night count.
+    senate = {r["Race"] for r in rows if "senator" in r["Race"].lower()}
+    assert len(senate) == 24
+    assert len(build_senate_winners(rows)) == 24
     assert all(r["JurisdictionName"] == "Legislative" for r in rows)
+
+
+def test_a_member_past_the_size_cap_is_unreadable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The decompressed-size cap is what stands between a hostile upstream and a zip bomb."""
+    monkeypatch.setattr(workbook, "MAX_MEMBER_BYTES", 64)
+    with pytest.raises(WorkbookUnreadable, match="size cap"):
+        legislative_rows(_workbook({"Summary Results": _SUMMARY}))

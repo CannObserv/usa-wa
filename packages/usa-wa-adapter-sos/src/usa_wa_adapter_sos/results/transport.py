@@ -12,9 +12,20 @@ fetches it (the CSV 302s to a lowercase path — redirects are followed). Like t
 transport it mirrors the :class:`WireFetch` contract: the pristine CSV body is archived + hashed
 (#54); the derived parse is a convenience so a caller doesn't re-decode.
 
+**From 2026 the SOS publishes on a vendor platform instead (#575).** ``results.vote.wa.gov``
+keeps every earlier election but 404s a 2026+ one, which lives only at ``results.votewa.gov``. So a
+404 from the old index — and only a 404 — falls back to the platform: its election JSON
+(``/results/public/api/elections/washington/<YYYYMMDD>``) lists the downloadable reports, whose blob
+names carry a per-publish GUID and so are discovered, never derived; the *All Results* workbook
+(:func:`workbook_report`) is fetched from ``/cdn/results/<jurisdictionId>/<blob>`` and archived as
+the wire, parsed by :mod:`usa_wa_adapter_sos.results.workbook`. A platform fetch reports its
+election-JSON URL as :attr:`WireFetch.url`, the traversal's real entry point, so the harvest records
+that rather than the old index it began from (#54); an old-site fetch reports none.
+
 A central courtesy min-interval gate (:data:`_RESULTS_LIMITER`, the #77 pattern) spaces calls to
-the ``results.vote.wa.gov`` host — a *distinct* host from the filings source, hence its own limiter
-and env knob ``USA_WA_SOS_RESULTS_MIN_REQUEST_INTERVAL`` (default 1.0s, ``0`` disables).
+the results hosts — *distinct* from the filings source, hence its own limiter and env knob
+``USA_WA_SOS_RESULTS_MIN_REQUEST_INTERVAL`` (default 1.0s, ``0`` disables). One gate spans both
+results hosts: a fallback is one more call in the same sequential harvest.
 """
 
 from __future__ import annotations
@@ -24,14 +35,22 @@ import io
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from usa_wa_adapter_sos.ratelimit import AsyncRateLimiter, env_float
+from usa_wa_adapter_sos.results.workbook import is_workbook, legislative_rows
 from usa_wa_common.elections import general_election_day
 
-#: The WA SOS election-results host.
+#: The WA SOS election-results host (every general election before 2026).
 RESULTS_BASE_URL = "https://results.vote.wa.gov"
+
+#: The vendor results platform the SOS publishes on from 2026 (#575).
+PLATFORM_BASE_URL = "https://results.votewa.gov"
+
+#: The platform's state slug in its election-JSON path.
+PLATFORM_STATE = "washington"
 
 #: Env knob for the results-host courtesy floor (seconds); overridable via
 #: :func:`configure_results_rate_limit`. Distinct from the filings host's knob.
@@ -46,23 +65,31 @@ DEFAULT_RESULTS_MIN_REQUEST_INTERVAL = 1.0
 class WireFetch:
     """An archival fetch result: the pristine results-CSV wire bytes plus the derived row parse.
 
-    ``wire`` is the raw CSV body — the provenance source of truth archived + hashed (#54);
-    ``records`` is the decoded row list, derivative (``wire`` wins on any disagreement).
+    ``wire`` is the raw CSV (or, from the platform, workbook) body — the provenance source of
+    truth archived + hashed (#54); ``records`` is the decoded row list, derivative (``wire`` wins
+    on any disagreement). ``url`` is set only when the wire came from somewhere other than the
+    old export index the harvest records by default — the platform's election JSON (#575).
     """
 
     records: list[dict[str, Any]]
     wire: bytes
     content_type: str
+    url: str | None = None
 
 
 class LegislativeExportNotFound(LookupError):
-    """An election's ``export.html`` index carried no Legislative results CSV link (a year the
-    harvest skips-and-logs, distinct from an HTTP error on the index itself)."""
+    """An election's ``export.html`` index carried no Legislative results CSV link, or its
+    platform election listed no workbook (a year the harvest skips-and-logs, distinct from an
+    HTTP error on the index itself)."""
 
 
 def parse_legislative_results(wire: bytes) -> list[dict[str, Any]]:
-    """Decode an **archived** legislative-results CSV body offline back into row dicts (#56 cache
-    path). UTF-8 BOM-tolerant; the header row (``Race``/``Candidate``/``Party``/…) becomes keys."""
+    """Decode an **archived** legislative-results wire offline back into row dicts (#56 cache
+    path). A platform workbook (its zip magic, #575) reads through
+    :func:`~usa_wa_adapter_sos.results.workbook.legislative_rows`; a CSV is UTF-8 BOM-tolerant,
+    its header row (``Race``/``Candidate``/``Party``/…) becoming keys. Both yield the same keys."""
+    if is_workbook(wire):
+        return legislative_rows(wire)
     text = wire.decode("utf-8-sig")
     return list(csv.DictReader(io.StringIO(text)))
 
@@ -99,27 +126,65 @@ def legislative_href(index_html: str) -> str | None:
     return match.group(0) if match else None
 
 
-class SOSResultsClient:
-    """Thin async ``results.vote.wa.gov`` reader for a general election's Legislative CSV."""
+#: A report name for the whole-election results, whatever its suffix (``All Results Excel``).
+_ALL_RESULTS = re.compile(r"\ball\s+results\b", re.IGNORECASE)
 
-    def __init__(self, *, base_url: str = RESULTS_BASE_URL, timeout: float = 60.0) -> None:
+
+def workbook_report(election: dict[str, Any]) -> str | None:
+    """The blob name of a platform election's results workbook, or ``None`` if it lists none.
+
+    Prefers the report named for *all* results; else the first ``.xlsx`` listed (the other
+    published workbook carries the same summary sheet). Never an exact report-name match."""
+    workbooks = [
+        report
+        for category in election.get("publicReportCategories") or []
+        for report in category.get("reports") or []
+        if str(report.get("blobName") or "").lower().endswith(".xlsx")
+    ]
+    preferred = [r for r in workbooks if _ALL_RESULTS.search(str(r.get("reportName") or ""))]
+    chosen = (preferred or workbooks or [None])[0]
+    return None if chosen is None else chosen["blobName"]
+
+
+class SOSResultsClient:
+    """Thin async reader for a general election's Legislative results: the ``results.vote.wa.gov``
+    CSV, else (2026+, #575) the ``results.votewa.gov`` workbook."""
+
+    def __init__(
+        self,
+        *,
+        base_url: str = RESULTS_BASE_URL,
+        platform_base_url: str = PLATFORM_BASE_URL,
+        timeout: float = 60.0,
+    ) -> None:
         self._base_url = base_url.rstrip("/")
+        self._platform_base_url = platform_base_url.rstrip("/")
         self._timeout = timeout
 
     def export_index_url(self, election_date: str) -> str:
         """The ``export.html`` index URL for a ``YYYYMMDD`` election date."""
         return f"{self._base_url}/results/{election_date}/export.html"
 
+    def platform_election_url(self, election_date: str) -> str:
+        """The platform's election-JSON URL for a ``YYYYMMDD`` election date."""
+        return (
+            f"{self._platform_base_url}/results/public/api/elections/"
+            f"{PLATFORM_STATE}/{election_date}"
+        )
+
     async def fetch_legislative_results(self, election_year: int) -> WireFetch:
         """Traverse the election's ``export.html`` → fetch the Legislative CSV (archived + hashed,
-        #54). Each GET passes the courtesy gate; follows the CSV's lowercase redirect. Raises
-        ``httpx.HTTPStatusError`` on a non-2xx (e.g. an unheld year's index 404s) or
-        :class:`LegislativeExportNotFound` when the index has no Legislative CSV."""
+        #54). Each GET passes the courtesy gate; follows the CSV's lowercase redirect. An index
+        404 falls back to the platform workbook (#575). Raises ``httpx.HTTPStatusError`` on a
+        non-2xx (e.g. a year neither site holds) or :class:`LegislativeExportNotFound` when the
+        index has no Legislative CSV or the platform election no workbook."""
         election_date = general_election_date(election_year)
         index_url = self.export_index_url(election_date)
         async with httpx.AsyncClient(timeout=self._timeout, follow_redirects=True) as client:
             await _RESULTS_LIMITER.acquire()
             index = await client.get(index_url)
+            if index.status_code == httpx.codes.NOT_FOUND:
+                return await self._fetch_platform_workbook(client, election_date)
             index.raise_for_status()
             href = legislative_href(index.text)
             if href is None:
@@ -131,4 +196,30 @@ class SOSResultsClient:
             content_type = response.headers.get("content-type", "text/csv")
         return WireFetch(
             records=parse_legislative_results(wire), wire=wire, content_type=content_type
+        )
+
+    async def _fetch_platform_workbook(
+        self, client: httpx.AsyncClient, election_date: str
+    ) -> WireFetch:
+        """The platform's election JSON → its results workbook (#575)."""
+        election_url = self.platform_election_url(election_date)
+        await _RESULTS_LIMITER.acquire()
+        election_response = await client.get(election_url)
+        election_response.raise_for_status()
+        election = election_response.json()
+        blob = workbook_report(election)
+        jurisdiction = election.get("jurisdictionId")
+        if blob is None or not jurisdiction:
+            raise LegislativeExportNotFound(f"no results workbook in {election_url}")
+        await _RESULTS_LIMITER.acquire()
+        response = await client.get(
+            f"{self._platform_base_url}/cdn/results/{jurisdiction}/{quote(blob)}"
+        )
+        response.raise_for_status()
+        wire = response.content
+        return WireFetch(
+            records=parse_legislative_results(wire),
+            wire=wire,
+            content_type=response.headers.get("content-type", "application/octet-stream"),
+            url=election_url,
         )
