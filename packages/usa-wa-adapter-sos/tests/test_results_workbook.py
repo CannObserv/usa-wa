@@ -165,3 +165,30 @@ def test_a_member_past_the_size_cap_is_unreadable(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(workbook, "MAX_MEMBER_BYTES", 64)
     with pytest.raises(WorkbookUnreadable, match="size cap"):
         legislative_rows(_workbook({"Summary Results": _SUMMARY}))
+
+
+def _rewritten(wire: bytes, member: str, body: bytes) -> bytes:
+    """``wire`` with one member's bytes replaced."""
+    source = zipfile.ZipFile(io.BytesIO(wire))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as out:
+        for info in source.infolist():
+            out.writestr(info.filename, body if info.filename == member else source.read(info))
+    return buffer.getvalue()
+
+
+def test_malformed_member_xml_is_unreadable() -> None:
+    wire = _rewritten(_workbook({"Summary Results": _SUMMARY}), "xl/workbook.xml", b"<workbook")
+    with pytest.raises(WorkbookUnreadable, match="xl/workbook.xml"):
+        legislative_rows(wire)
+
+
+def test_a_shared_string_index_past_the_table_is_unreadable() -> None:
+    ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    wire = _rewritten(
+        _workbook({"Summary Results": _SUMMARY}),
+        "xl/sharedStrings.xml",
+        f'<sst xmlns="{ns}"/>'.encode(),
+    )
+    with pytest.raises(WorkbookUnreadable, match="shared string"):
+        legislative_rows(wire)
