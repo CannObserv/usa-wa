@@ -29,7 +29,8 @@ from clearinghouse_core.source_coverage import CoverageClaim, CoverageStatus, cl
 #: The filings source slug (votewa ``ExportToExcel`` candidate filings).
 SOS_FILINGS_SOURCE_SLUG = "usa_wa_sos"
 
-#: The results source slug (``results.vote.wa.gov`` legislative election results).
+#: The results source slug (``results.vote.wa.gov`` legislative election results; 2026+ from
+#: the ``results.votewa.gov`` platform, #575).
 SOS_RESULTS_SOURCE_SLUG = "usa_wa_sos_results"
 
 #: Cohorts keyed by general-election year — the dimension both SOS feeds publish on.
