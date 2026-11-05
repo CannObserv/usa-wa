@@ -46,6 +46,15 @@ DAY = 24 * 60
 
 PUBLIC_CALLERS = {"CannObserv/power-map"}
 
+#: The canonical disk GC (#508) ships its units in the image layer, not in
+#: ``deploy/``, so its schedule is pinned here from the installed VERSION 3:
+#: ``OnCalendar=*-*-* 05:15:00 UTC``, ``RandomizedDelaySec=30min``,
+#: ``TimeoutStartSec=1800``. Checked against the installed copy where there is one.
+CANONICAL_GC = "cannobserv-disk-gc"
+CANONICAL_GC_SCHEDULE = {"OnCalendar": "*-*-* 05:15:00 UTC", "RandomizedDelaySec": "30min"}
+CANONICAL_GC_TIMEOUT = "1800"
+CANONICAL_UNIT_DIR = Path("/usr/local/lib/systemd/system")
+
 
 def _read_knob(today: str | None = None) -> dict:
     """The knob as the vendored reader resolves it for this host."""
@@ -116,22 +125,34 @@ def _covered(start: int, end: int, ranges: list[tuple[int, int]]) -> bool:
     )
 
 
+def _run(name: str, calendar: str, delay: str, timeout: str) -> tuple[str, int, int]:
+    """A timer's (name, earliest, latest) minute of day its run can be active."""
+    hours, minutes = re.search(r"(\d\d):(\d\d):\d\d", calendar).groups()
+    at = int(hours) * 60 + int(minutes)
+    latest = at + -(-(_seconds(delay) + _seconds(timeout)) // 60)
+    return (name, at - LEAD_MINUTES, latest)
+
+
 def _timer_runs() -> list[tuple[str, int, int]]:
     """Each timer's (name, earliest, latest) minute of day a run can be active."""
     runs = []
     for timer in sorted(DEPLOY.glob("usa-wa-*.timer")):
         calendar = _unit_setting(timer, "OnCalendar")
         assert calendar, timer
-        hours, minutes = re.search(r"(\d\d):(\d\d):\d\d", calendar).groups()
-        at = int(hours) * 60 + int(minutes)
-        delay = _seconds(_unit_setting(timer, "RandomizedDelaySec") or "0")
         service = timer.with_suffix(".service")
         timeout = _unit_setting(service, "TimeoutStartSec")
         # A oneshot's default is infinity: no quiet range can cover an unbounded run.
         assert timeout, f"{service.name}: a oneshot without TimeoutStartSec= has no bound"
-        timeout = _seconds(timeout)
-        latest = at + -(-(delay + timeout) // 60)
-        runs.append((timer.name, at - LEAD_MINUTES, latest))
+        delay = _unit_setting(timer, "RandomizedDelaySec") or "0"
+        runs.append(_run(timer.name, calendar, delay, timeout))
+    runs.append(
+        _run(
+            f"{CANONICAL_GC}.timer",
+            CANONICAL_GC_SCHEDULE["OnCalendar"],
+            CANONICAL_GC_SCHEDULE["RandomizedDelaySec"],
+            CANONICAL_GC_TIMEOUT,
+        )
+    )
     return runs
 
 
@@ -160,6 +181,22 @@ def test_every_timer_run_sits_inside_a_quiet_range() -> None:
         assert _covered(start, end, ranges), f"{name}: the run from {at} meets no quiet range"
 
 
+def test_the_pinned_canonical_gc_schedule_is_the_installed_one() -> None:
+    """The constants above, against the layer's own units where they are installed."""
+    timer = CANONICAL_UNIT_DIR / f"{CANONICAL_GC}.timer"
+    if not timer.is_file():
+        pytest.skip("the canonical disk GC is not installed on this host")
+    for key, value in CANONICAL_GC_SCHEDULE.items():
+        assert _unit_setting(timer, key) == value, key
+    service = CANONICAL_UNIT_DIR / f"{CANONICAL_GC}.service"
+    assert _unit_setting(service, "TimeoutStartSec") == CANONICAL_GC_TIMEOUT
+
+
+def test_the_cadence_is_monthly() -> None:
+    """The owner's round is monthly (Tue/Wed windows, #497); absent, the reader says weekly."""
+    assert _read_knob()["cadence"]["value"] == "monthly"
+
+
 def test_no_window_meets_a_quiet_range() -> None:
     ranges = _quiet_ranges()
     for words in _named("window"):
@@ -176,6 +213,8 @@ def test_inflight_counts_running_oneshots_but_not_migrate() -> None:
     states = oneshots.split("--state=", 1)[1].split()[0].split(",")
     assert "activating" in states
     assert "usa-wa-migrate.service" in oneshots
+    # The canonical disk GC took over usa-wa-disk-gc's place in the count (#508).
+    assert f"{CANONICAL_GC}.service" in oneshots
     assert "RemainAfterExit=yes" in (DEPLOY / "usa-wa-migrate.service").read_text()
 
 
