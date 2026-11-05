@@ -67,24 +67,17 @@ def _serving_ops(migration_context: MigrationContext) -> list:
     return [op for op in script.upgrade_ops.ops if getattr(op, "schema", None) == SCHEMA]
 
 
-async def test_unfiltered_reflection_would_drop_serving(committed_serving: AsyncEngine):
-    """Control: without the hook the fixture's tables *are* seen, so the test below
-    cannot pass vacuously by reflecting nothing."""
-
-    def compare(conn) -> list:
-        ctx = MigrationContext.configure(
-            conn, opts={"include_schemas": True, "target_metadata": Base.metadata}
-        )
-        return _serving_ops(ctx)
-
-    async with committed_serving.connect() as conn:
-        ops = await conn.run_sync(compare)
-    dropped = {op.table_name for op in ops if isinstance(op, DropTableOp)}
-    assert dropped == {table.name for table in ServingBase.metadata.tables.values()}
+def _unfiltered_serving_ops(migration_context: MigrationContext) -> list:
+    """The same comparison on the same connection, minus env.py's hook — the control."""
+    bare = MigrationContext.configure(
+        migration_context.connection,
+        opts={"include_schemas": True, "target_metadata": Base.metadata},
+    )
+    return _serving_ops(bare)
 
 
-def _ops_through_env_py() -> list:
-    """Run ``alembic/env.py`` itself and return the `serving` ops it would propose.
+def _ops_through_env_py() -> tuple[list, list]:
+    """Run ``alembic/env.py`` itself; return its `serving` ops, filtered and not.
 
     Mirrors ``alembic.command.check``'s ``EnvironmentContext`` + ``run_env()``, but the
     work function compares instead of demanding the DB be at head (``test_engine``
@@ -95,24 +88,32 @@ def _ops_through_env_py() -> list:
     config = Config()
     config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
     script = ScriptDirectory.from_config(config)
-    found: list = []
+    filtered: list = []
+    unfiltered: list = []
 
     def work(_rev, migration_context: MigrationContext) -> list:
-        found.extend(_serving_ops(migration_context))
+        filtered.extend(_serving_ops(migration_context))
+        unfiltered.extend(_unfiltered_serving_ops(migration_context))
         return []
 
     with EnvironmentContext(config, script, fn=work, as_sql=False, dont_mutate=True):
         script.run_env()
-    return found
+    return filtered, unfiltered
 
 
 async def test_env_py_autogenerate_proposes_nothing_for_serving(
     committed_serving: AsyncEngine, monkeypatch: pytest.MonkeyPatch
 ):
     """The behaviour #573 is about, through the real ``env.py``: a DB holding a
-    `serving` schema yields no upgrade op touching it."""
+    `serving` schema yields no upgrade op touching it.
+
+    The control runs on env.py's *own* connection, so a wrong DSN (a database with no
+    `serving`) cannot make the empty answer pass vacuously."""
     # The root conftest blocks both DSNs, and env.py prefers the owner one.
-    monkeypatch.setenv("DATABASE_URL_OWNER", committed_serving.url.render_as_string(False))
+    test_url = committed_serving.url.render_as_string(hide_password=False)
+    monkeypatch.setenv("DATABASE_URL_OWNER", test_url)
     # env.py drives its own asyncio.run(); give it a thread with no running loop.
-    ops = await asyncio.to_thread(_ops_through_env_py)
-    assert ops == []
+    filtered, unfiltered = await asyncio.to_thread(_ops_through_env_py)
+    dropped = {op.table_name for op in unfiltered if isinstance(op, DropTableOp)}
+    assert dropped == {table.name for table in ServingBase.metadata.tables.values()}
+    assert filtered == []
