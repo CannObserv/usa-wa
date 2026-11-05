@@ -54,14 +54,15 @@ Pinned by [`scripts/tests/test_hook_registration_gate.py`](../scripts/tests/test
 
 | Skill | What it does |
 |---|---|
-| `coordinating-epics` | Operator-paced epic burn-down (#414 runs on it): check-ins start with `scripts/scan.sh`; epic-body edits go only through `scripts/epic-edit.sh`. On this host's `gh` 2.45, `scan.sh` still attributes commits through their subject refs, but loses any attribution that would come only through a PR's closing links ([gregoryfoster/skills#412](https://github.com/gregoryfoster/skills/issues/412)). Problems go upstream as issues, never into the vendored copy. |
+| `coordinating-epics` | Operator-paced epic burn-down (#414 runs on it): check-ins start with `scripts/scan.sh`; epic-body edits go only through `scripts/epic-edit.sh`. On this host's `gh` 2.45, `scan.sh` attributes by commit-subject refs only, not a PR's closing links, and warns once ([gregoryfoster/skills#412](https://github.com/gregoryfoster/skills/issues/412)). |
 | `curating-context` | Curate the agent-context surface (`AGENTS.md` + the docs it links) against a token budget, verifying facts before removing anything. Triggers: `curate context`, `context budget`, `trim AGENTS.md`. Also installs the write guard — see [§ Context budget](#context-budget). |
 | `enforcing-architecture` | Graduate an accepted architecture finding into an executable fitness function (import-linter / module-size gate / OpenAPI drift guard). Triggers: `add a fitness function`, `enforce this contract`, `lock this rule`. |
 | `init-project-fastapi` | Bootstrap a new FastAPI service (this project's origin). |
 | `init-socraticode` | Set up / repair SocratiCode indexing, the context-artifact manifest, and the code-exploration policy. Vendors the two `SessionStart` hooks — the prefetch reminder and the daily health check (see [§ SocratiCode health](#socraticode-health)). |
+| `maintaining-host-disk` | The canonical disk GC (#508): install from the pin, turn on, retire-check — [DEPLOYMENT-HOST.md § Host maintenance](DEPLOYMENT-HOST.md#host-maintenance-394-508). |
 | `managing-skills` | Add/update/audit skills across vendors and overrides. |
 | `orchestrating-issue-backlog` | Triage and sequence open GitHub issues into actionable work. |
-| `patching-hosts` | The monthly OS-patch run; reads the knob `.skills/patching-hosts` — [DEPLOYMENT-HOST.md § OS updates](DEPLOYMENT-HOST.md#os-updates-497). Problems go upstream as issues, never into the vendored copy. |
+| `patching-hosts` | The monthly OS-patch run; reads the knob `.skills/patching-hosts` — [DEPLOYMENT-HOST.md § OS updates](DEPLOYMENT-HOST.md#os-updates-497). |
 | `reviewing-architecture` | Architectural review of a design doc or large change. Delegates to `enforcing-architecture` on a `fix + fitness` / `fitness` directive — both must be symlinked or the delegation fails to resolve. |
 | `reviewing-code-python-fastapi` | Python/FastAPI-stack code review (the review workflow for this repo). |
 | `shipping-work` | Ship workflow; its `pre-ship.sh` detects the stack (#568). |
@@ -69,7 +70,7 @@ Pinned by [`scripts/tests/test_hook_registration_gate.py`](../scripts/tests/test
 | `using-mayfly-chat` | Live agent-to-agent exchange over a [Mayfly Chat](https://mayfly.chat) channel; vendored Node 18+ client + `scripts/mayfly.sh`. Triggers: `mayfly`, `open a channel`, `join the channel`, `chat with <repo>`, `agent chat`. **Never commit a channel URL** (read, write and delete access); nothing here tests for one, so run its `references/security.md` leak check first. |
 | `writing-plans` | Drafting an implementation plan in `docs/plans/` before coding. |
 
-Only the Python/FastAPI review variant is symlinked here; the stack-neutral, PHP, and Python/Click ones (`reviewing-code{,-php,-python-click}`) are intentionally **not**. They remain available under `skills-vendor/gregoryfoster-skills/skills/` if ever needed.
+A vendored skill's problems go upstream as issues, never into the vendored copy. Only the Python/FastAPI review variant is symlinked; the stack-neutral, PHP and Python/Click ones (`reviewing-code{,-php,-python-click}`) stay unlinked in `skills-vendor/gregoryfoster-skills/skills/`.
 
 ## Vendor preferences on name collisions
 

@@ -18,8 +18,10 @@
 # Why a script and not a one-off: `docker pull ollama/ollama:latest` restores the
 # fat image, and SocratiCode hardcodes that exact tag (`OLLAMA_IMAGE` in its
 # constants.ts) while `isOllamaImagePresent()` gates the pull on the tag being
-# present locally. So the rebuild keeps the tag, stamps a label, and
-# scripts/disk-gc.sh reports the day a pull undoes it.
+# present locally. So the rebuild keeps the tag and stamps a label, which tells
+# a slim image from a pulled one. Nothing reads it on a timer since #508 retired
+# scripts/disk-gc.sh; check it by hand (docs/DEPLOYMENT-HOST.md § Host
+# maintenance) until #556 retires the local image.
 #
 # The model itself lives in the `socraticode_ollama_data` volume, not the image,
 # and is untouched.

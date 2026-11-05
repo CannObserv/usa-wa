@@ -98,7 +98,7 @@ environment) are indexed under **Detail Docs** in [`AGENTS.md`](AGENTS.md).
 ## Deploy
 
 The systemd units live under [`deploy/`](deploy/) — the live API, a migrate
-oneshot, and six timer-driven oneshots. (The PM sync sidecar and its three weekly
+oneshot, and five timer-driven oneshots. (The PM sync sidecar and its three weekly
 committee reconcilers were four more until usa-wa#314 retired the PM sync stack, and
 the Postgres canonical tier's refreshes and invariant gates nine more until #412.)
 
@@ -141,16 +141,13 @@ Enable **every** timer the block enables. The nightly pipeline is the one that
 matters most: its dbt tests and probes are the invariant gates, and they exit 1 and
 email the operator (`OnFailure=`, #49) when the data drifts — skip it and nothing
 fails, nothing alerts, and the absence looks identical to "no drift". The disk GC
-(#394) is the same bargain one layer down: it exits 1
-when free space runs out, which is how a nightly publish dies on ENOSPC instead
-of publishing. The monthly roster re-check (#237) is the same bargain for a
+and headroom sensor are the cohort's canonical ones, not this repo's units: a fresh
+host adopts them with the `maintaining-host-disk` skill (#508,
+[`docs/DEPLOYMENT-HOST.md`](docs/DEPLOYMENT-HOST.md) § Host maintenance). The monthly roster re-check (#237) is the same bargain for a
 document revised about twice a decade: it archives nothing and exits 4 when a new
 edition is published — the alert is the only notice that one exists.
 
 ```bash
-# Host hygiene (daily) — reclaim before the day's work, not after it fails
-sudo systemctl enable --now usa-wa-disk-gc.timer                            # daily 05:45 UTC (#394)
-
 # Dataset pipeline (daily) — the #302 publish chain
 sudo systemctl enable --now usa-wa-pipeline.timer                           # daily 08:00 UTC (#311)
 

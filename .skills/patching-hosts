@@ -5,6 +5,8 @@
 
 class production
 posture scheduled
+# The owner's round is monthly (the windows below); absent, the reader says weekly.
+cadence monthly
 
 # --- when -----------------------------------------------------------------
 # The owner's monthly window (2026-10-14): Tuesday or Wednesday, 09:00-16:30
@@ -14,11 +16,12 @@ posture scheduled
 window Tue 16:00-23:30
 window Wed 16:00-23:30
 
-# The host's timers (deploy/*.timer): each range runs from 5 min before
-# OnCalendar to its RandomizedDelaySec plus the service's TimeoutStartSec, so
-# a step can't meet a run however late it starts or long it takes. The test
-# pins each range to its unit files.
-quiet 05:40-06:00                  # usa-wa-disk-gc, 05:45
+# The host's timers (deploy/*.timer, and the canonical disk GC's in the image
+# layer, #508): each range runs from 5 min before OnCalendar to its
+# RandomizedDelaySec plus the service's TimeoutStartSec, so a step can't meet a
+# run however late it starts or long it takes. The test pins each range to its
+# unit files. The headroom sensor (every 10 min, seconds long) needs none.
+quiet 05:10-06:15                  # cannobserv-disk-gc, 05:15 + 30 min + 1800 s
 quiet 07:55-08:40                  # usa-wa-pipeline, 08:00; usa-wa-integrity-sweep, Sun 08:00
 quiet 08:55-09:45                  # usa-wa-roster-pdf-recheck, the 1st 09:00; usa-wa-wsl-availability-probe, 09:20; power-map's 09:00 pull
 quiet 10:12-11:30                  # usa-wa-backup, 10:17
@@ -30,7 +33,8 @@ quiet 23:55-00:10
 # Every usa-wa-* oneshot is Type=oneshot without RemainAfterExit, so a running
 # one is "activating". usa-wa-migrate has RemainAfterExit=yes and stays
 # "active (exited)" after boot: excluded. usa-wa.service doesn't match the glob.
-inflight systemctl list-units 'usa-wa-*.service' --state=activating,active,deactivating --no-legend --plain | awk '$1 != "usa-wa-migrate.service"' | wc -l
+# The canonical disk GC, a oneshot too, took usa-wa-disk-gc's place (#508).
+inflight systemctl list-units 'usa-wa-*.service' cannobserv-disk-gc.service --state=activating,active,deactivating --no-legend --plain | awk '$1 != "usa-wa-migrate.service"' | wc -l
 # A hand-started dev server (AGENTS.md: port 8001) is a second instance on the
 # same database and venv.
 inflight ss -Hltn 'sport = :8001' | wc -l

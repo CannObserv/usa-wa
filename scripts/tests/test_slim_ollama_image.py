@@ -8,7 +8,8 @@ That was 35% of a 25 GB volume, and the largest single item on the host.
 
 Stripping them by hand once is not a fix: `docker pull` restores the fat image,
 and SocratiCode's `OLLAMA_IMAGE` constant hardcodes that tag. So the reclaim is
-a script (repeatable, guarded, verified) and `disk-gc.sh` reports the regression.
+a script (repeatable, guarded, verified) and its label tells a slim image from a
+pulled one (read by hand since #508 retired `disk-gc.sh`).
 
 The dangerous parts are what the tests pin: the script destroys and recreates a
 container, and deletes an 8 GB image. It must refuse on a host that would be
@@ -177,8 +178,8 @@ def test_strips_every_accelerator_runtime_and_nothing_wider(stubs, tmp_path):
     assert "rm -rf /usr/lib/ollama " not in strip + " "
 
 
-def test_stamps_the_slim_label_the_sensor_looks_for(stubs, tmp_path):
-    """disk-gc.sh reads exactly this label to detect a pull that undid the work."""
+def test_stamps_the_slim_label_the_runbook_looks_for(stubs, tmp_path):
+    """The runbook's check reads exactly this label to detect a pull that undid the work."""
     _docker_stub(tmp_path)
     assert run_slim(tmp_path).returncode == 0
     imported = next(line for line in log_lines(tmp_path) if line.startswith("import"))
@@ -287,8 +288,7 @@ exit 0
 
 
 def test_an_explicitly_empty_gpu_glob_disables_the_check(stubs, tmp_path):
-    """CR 9. `DISK_GC_DOCKER=''` disables its check rather than crashing; the
-    glob must behave the same way instead of tripping `set -u`."""
+    """CR 9. An empty glob disables the check rather than tripping `set -u`."""
     _docker_stub(tmp_path)
     result = run_slim(tmp_path, SLIM_GPU_GLOB="")
     assert result.returncode == 0, result.stderr
@@ -314,8 +314,10 @@ def test_script_is_executable():
     assert SCRIPT.stat().st_mode & 0o111
 
 
-def test_agrees_with_the_sensor_about_the_label():
-    """One label, two readers — a drifting pair would make the sensor report a
+def test_agrees_with_the_runbook_about_the_label():
+    """One label, two readers — a drifting pair would make the hand check report a
     healthy image as fat forever, or never report a fat one at all."""
     assert SLIM_LABEL in SCRIPT.read_text()
-    assert SLIM_LABEL in (SCRIPT.parent / "disk-gc.sh").read_text()
+    runbook = (SCRIPT.parents[1] / "docs" / "DEPLOYMENT-HOST.md").read_text()
+    assert '"dev.usa-wa.slim"' in runbook
+    assert SLIM_LABEL in runbook

@@ -22,10 +22,8 @@ timer runs `uv run --frozen --no-sync` from whatever is checked out — no human
 sequencing error involved). Convention alone enforced nothing. Do **feature work
 in a git worktree** (see the `using-git-worktrees` skill), leaving the prod
 checkout on `main`. `USA_WA_DEPLOY_BRANCH` overrides the expected branch for a
-non-standard host. Two units are exempt: the notify handler
-(`usa-wa-notify-failure@.service`, the alerting path) and the disk GC
-(`usa-wa-disk-gc.service`, which runs no repo code and must keep reporting in the
-worktree-heavy state the guard refuses — its unit says why); timers carry no guard (they run no code, only
+non-standard host. One unit is exempt: the notify handler
+(`usa-wa-notify-failure@.service`, the alerting path); timers carry no guard (they run no code, only
 activate their guarded `.service`). The serving unit (`usa-wa`) carries a
 widened `StartLimitIntervalSec=300`/
 `StartLimitBurst=10` so an off-main checkout — which fails the guard on every
@@ -71,8 +69,8 @@ worktree with `uv sync --locked`. Neither older guard covers this direction:
 
 **The guard.** [`scripts/assert-venv-integrity.sh`](../scripts/assert-venv-integrity.sh) is
 wired as the second `ExecStartPre=` on all seven code-running `.service` units,
-directly after the #87 branch guard — same two exemptions (`usa-wa-notify-failure@`,
-the alerting path, and `usa-wa-disk-gc`) and the same cross-check in `test_unit_ordering.py`, so a new
+directly after the #87 branch guard — same exemption (`usa-wa-notify-failure@`,
+the alerting path) and the same cross-check in `test_unit_ordering.py`, so a new
 service either carries both or is an explicit exemption. Branch guard first
 because it answers the prior question: off-main the venv legitimately points
 elsewhere, and a venv finding reported first sends the operator after a symptom.
@@ -180,14 +178,15 @@ A fifth landed with #394, on the same copy-don't-symlink rule — the journal ca
 
 ```bash
 sudo mkdir -p /etc/systemd/journald.conf.d
-sudo cp deploy/journald.conf.d/10-usa-wa-journal-cap.conf /etc/systemd/journald.conf.d/
+sudo cp deploy/journald.conf.d/zz-cannobserv-journal.conf /etc/systemd/journald.conf.d/
 sudo systemctl restart systemd-journald
 ```
 
 `/etc/systemd/journald.conf` sets no `SystemMaxUse=`, so the journal grows to
 journald's default 10% of the filesystem (~2.5 G here) and had drifted to 695 M
-before #394. The cap is why `usa-wa-disk-gc.service` does not vacuum the journal
-and therefore needs no privilege.
+before #394. No GC vacuums it. The name is the canonical disk GC layer's own
+drop-in's (512M): journald applies drop-ins by file name across directories, so
+only this name under `/etc` masks it (#508; owner kept 200M).
 
 A sixth landed with #520 — PID1's log target, so systemd's own `Started` /
 `Failed with result` / `Deactivated successfully` lines stay in `journalctl -u`:
@@ -320,62 +319,35 @@ manager; the restore's replacement-host runbook needs its passwords to recreate 
 backup unit's bind reaches it, and that unit masks it (`InaccessiblePaths=`) as a second
 layer. No unit loads it (#561).
 
-## Host maintenance (#394)
+## Host maintenance (#394, #508)
 
-Not job-harness CLIs — plain bash, no venv, no database. Both exist because the
-25 GB root volume hit 98% with 565 MB free and killed a `pytest` run on ENOSPC,
-and because nothing on the box reported it beforehand.
+The root volume hit 98% with 565 MB free and killed a `pytest` run on ENOSPC (#394).
+Since #508 the cohort's canonical disk GC and headroom sensor (CannObserv/provisioner#61)
+guard it, adopted through the vendored `maintaining-host-disk` skill; they replaced
+`scripts/disk-gc.sh` and `usa-wa-disk-gc.timer`. The GC's files are the image layer's,
+under `/usr/local/lib/` — never edit them: a change goes to Provisioner, a new release
+arrives as a skills-vendor bump and the skill's `install-disk-gc.sh`. This host's own:
+
+| What | Here |
+|---|---|
+| `/etc/cannobserv/disk-gc/disk-gc.conf` | the template's tiers (VS Code builds and CLIs, Claude extensions, VSIX cache, plugin cache, npx, npm cache, pytest garbage, uv), docker and worktrees off; `npx_spec_files` keeps the `SOCRATICODE_SPEC` pin's tree (#485); lines 85/80 |
+| `/etc/cannobserv/disk-gc/checkin.key` | the `co-usa-wa` tenant key, a root copy of `backup-checkin.key` |
+| `cannobserv-disk-gc.timer` | daily 05:15 UTC + ≤ 30 min, `--prune`, no catch-up at boot |
+| `cannobserv-disk-headroom.timer` | every 10 min; checks in to co-status `co-usa-wa-disk-headroom` (CannObserv/status#96) |
+| `deploy/cannobserv-disk-gc.service.d/on-failure.conf` | a failed GC run → the #49 email (`turning-on.md` § 5, close (a)) |
 
 ```bash
-# Report: free space, what is reclaimable, per-tier repo sizes. Removes nothing.
-scripts/disk-gc.sh
-scripts/disk-gc.sh --json                  # machine-readable, one object
-
-# Reclaim, then report. What prod runs daily at 05:45 UTC (usa-wa-disk-gc.timer).
-scripts/disk-gc.sh --prune
+sudo /usr/bin/python3 -I /usr/local/lib/cannobserv/disk-gc/disk-gc gc   # report only; removes nothing
+sudo systemctl start cannobserv-disk-gc.service                          # reclaim now
+sudo journalctl -u cannobserv-disk-gc.service -p warning --since -1d      # sudo, or "-- No entries --"
+# After editing the drop-in:
+sudo install -D -m 0644 deploy/cannobserv-disk-gc.service.d/on-failure.conf /etc/systemd/system/cannobserv-disk-gc.service.d/on-failure.conf
+sudo systemctl daemon-reload
 ```
 
-Exit `0` healthy or warning, `1` free space under the fail floor (→ operator
-email via `OnFailure=`), `2` tooling. Thresholds are `DISK_GC_WARN_BYTES`
-(default 2 GiB) and `DISK_GC_FAIL_BYTES` (1 GiB).
-
-**What it prunes** — superseded VS Code server builds and `code-*` CLI binaries,
-Claude extension versions that are neither live nor named by `extensions.json`
-(#399), Claude plugin-cache versions that are not the installed one, and
-`~/.npm/_npx` trees. The reclaimable copy and the in-use one are siblings in the
-same directory, so a size-or-mtime heuristic would delete a running editor's server;
-liveness is the discriminator, read from `/proc/*/` `cmdline`, `cwd`, `exe`
-**and** `maps` — a process started by a relative path names its tree in none of
-its argv, and a loaded native addon (#399) in none of the other three.
-
-The manifest tiers (`extensions.json`, `installed_plugins.json`) prune only when
-the manifest names a version on disk; otherwise they remove nothing, and warn (#400).
-
-Plugin-cache liveness adds Claude Code's `.in_use/<pid>` markers (#407): a
-session using a version names it in no `/proc` entry. Only a marker proven dead
-(pid gone, or `procStart` mismatch) releases one; an unjudgeable one keeps it,
-with a warning. Claude Code's own sweep deletes a dropped version after 14 days;
-this tier is the faster backstop.
-
-The `_npx` tier never takes the **current pin's** tree (#485): it was warmed under
-the memory cap, and pruned between sessions the next start reinstalls it uncapped
-(#389). npx names a tree `sha512(<spec>)[:16]`, so the script hashes every
-`SOCRATICODE_SPEC` found in `.claude/settings.json` `env` or the VS Code machine
-setting and reports those trees as `kept:` (JSON `kept`, `reason: pinned`). An
-unreadable spec exempts nothing; superseded pins and `@latest` stay prunable.
-
-A `DISK_GC_GRACE_MINUTES` window (default 60) covers the one case liveness
-cannot: a tree still being installed is named by no process yet, because the
-process that will run out of it does not exist. Set it to `0` to disable. It
-reads mtime and ctime (#512), since VS Code restores archive mtimes, and holds a
-tree it cannot walk as `withheld` (JSON `reason: unchecked`, plus a warning)
-rather than as settled.
-
-**What it never prunes** — repo data. `data/datasets/`, `raw/`, the dbt logs and
-the duckdb are measured and reported; their retention contract is
-[#396](https://github.com/CannObserv/usa-wa/issues/396), not this script's call.
-Worktrees are named, never destroyed — that is gated by the `using-git-worktrees`
-Iron Law, a merge check a GC cannot make.
+It never touches repo data (`data/`, `raw/`, the dbt logs, the duckdb: #396) or a
+registered worktree; `du -sh` measures them now. patching-hosts reads the sensor's
+`alert_at_percent` as a floor for a patch step.
 
 ```bash
 # Rebuild ollama/ollama:latest without its accelerator runtimes
@@ -395,4 +367,9 @@ that image is the only rollback. The rebuilt image keeps the
 `ollama/ollama:latest` tag (SocratiCode hardcodes it, and its
 `isOllamaImagePresent()` gates the pull on it being present locally) and carries
 a `dev.usa-wa.slim` label. A plain `docker pull` silently restores the fat
-image; `scripts/disk-gc.sh` reads that label and reports it.
+image, and since #508 nothing reports it by name. Until #556 retires the local
+image, check by hand:
+
+```bash
+docker image inspect ollama/ollama:latest --format '{{index .Config.Labels "dev.usa-wa.slim"}}'   # cpu-only-gpu-libs-stripped
+```
