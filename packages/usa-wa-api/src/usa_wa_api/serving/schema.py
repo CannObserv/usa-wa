@@ -20,6 +20,7 @@ splitting a string — which is what retires #335.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, datetime
 
 from sqlalchemy import Boolean, Date, DateTime, Integer, MetaData, String, Table
@@ -28,7 +29,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 SCHEMA = "serving"
 
 
-def include_name(name: str | None, type_: str, parent_names: object) -> bool:
+def include_name(name: str | None, type_: str, parent_names: Mapping[str, str | None]) -> bool:
     """Alembic ``include_name`` hook: never reflect the `serving` schema (#573).
 
     A separate ``MetaData`` keeps alembic from *owning* these tables, but
