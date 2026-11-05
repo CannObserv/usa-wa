@@ -20,12 +20,26 @@ splitting a string — which is what retires #335.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, datetime
 
 from sqlalchemy import Boolean, Date, DateTime, Integer, MetaData, String, Table
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 SCHEMA = "serving"
+
+
+def include_name(name: str | None, type_: str, parent_names: Mapping[str, str | None]) -> bool:
+    """Alembic ``include_name`` hook: never reflect the `serving` schema (#573).
+
+    A separate ``MetaData`` keeps alembic from *owning* these tables, but
+    ``alembic/env.py`` runs with ``include_schemas=True``, so without this filter it
+    still *reflects* them, matches none in ``Base.metadata``, and proposes dropping
+    the lot. Lives here, beside :data:`SCHEMA`, because ``env.py`` executes on import
+    and so cannot host anything a test calls. Every other schema passes — ``registry``
+    is owned by ``Base.metadata`` and must stay visible.
+    """
+    return not (type_ == "schema" and name == SCHEMA)
 
 
 class ServingBase(DeclarativeBase):

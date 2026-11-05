@@ -30,7 +30,7 @@ and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.m
       products.py     — persons/orgs/roles/assignments off the `serving` schema since #313 — assignments being the span route, ONTOLOGY.md § 2, addressed by their 4-part span key rather than a ULID
                         Contracts + inventory: **[API.md](API.md)**, pinned live by `tests/test_v1_contract.py`
     src/usa_wa_api/serving/           — the #313 serving tier. A SIBLING of `api/`, not a child
-      schema.py       — the disposable `serving` projection, its own MetaData so alembic never sees it
+      schema.py       — the disposable `serving` projection, its own MetaData so alembic never owns it; `include_name` (#573) keeps env.py from reflecting it
       load.py         — catalog-driven loader — digest + row-count + header + contract verified before a single write, one transaction, replacement not merge
     src/usa_wa_api/backup/            — **the #434 nightly backup and its restore**. Runbook: [RECOVERY.md](RECOVERY.md); the restore: [RECOVERY-RESTORE.md](RECOVERY-RESTORE.md)
       gcs.py          — the bucket half both share: create-only `create_object` (412 = `unchanged` only on a matching sha256), the listing preflight, the misplaced-key refusal
@@ -40,7 +40,7 @@ and the publication contract in [PIPELINE-PUBLICATION.md](PIPELINE-PUBLICATION.m
       checkin.py      — the dead-man check-in to co-status (#455): `ok` with the summary, `alert` with the error; key from the unit's `checkin-key` credential, never the environment; never raises, never changes the exit; logs the 202's `dispatches` ids (`null` when its body does not say) and the `attempt` that landed (#458)
       restore.py      — by hand, as root: list / fetch + prove / load into an empty database, then check the schema version, registry counts and the ULIDs of the crosswalks published at or before the dump (a crashed publish passed over); `--raw-into`
     tests/            — API tests; conftest adds the AsyncClient over the root db_session
-alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base
+alembic/              — single alembic root; env.py imports clearinghouse_core.models.Base, skips `serving` via `include_name`
 conftest.py           — DB-free test base: prod-DSN guard (CR #191), `db` auto-marker (#185), `no_dns` lookup refusal (#569)
 conftest_db.py        — the `db` tier's fixtures (test_engine/db_session); fails lazily
 conftest_coverage.py  — the second coverage profile: the #198 unit-tier floor and the #216 integration exemption, both applied here rather than by a flag

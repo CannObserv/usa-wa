@@ -18,13 +18,18 @@ from sqlalchemy.ext.asyncio import create_async_engine
 # Side-effect imports so every workspace member's tables register on Base.metadata
 # before autogen runs. Add new domain packages here as they're created.
 #
-# `clearinghouse_sync_powermap` was the second entry until #314 deleted it. Its
-# `sync` schema is still IN the database and still created by the historical
-# migrations — autogenerate would now propose dropping those six tables, which is
-# #314's own migration step to write deliberately, not a diff to accept blindly.
+# `clearinghouse_sync_powermap` was the second entry until #314 deleted it; #314's own
+# migration dropped its `sync` schema, so the live DB no longer has one.
+#
+# `serving` (#313) is in the database but deliberately NOT on Base.metadata — a
+# disposable projection the loader rebuilds. `include_name` keeps autogenerate from
+# reflecting it, which would otherwise propose dropping every serving table (#573).
+# Imported from the API package, not spelled as a literal, so a rename cannot drift;
+# `alembic/` is no `root_packages` member, so no import-linter contract governs it.
 import clearinghouse_domain_legislative  # noqa: E402, F401
 from alembic import context
 from clearinghouse_core.models import Base
+from usa_wa_api.serving.schema import include_name
 
 config = context.config
 
@@ -56,6 +61,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         include_schemas=True,
+        include_name=include_name,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -67,6 +73,7 @@ def do_run_migrations(connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         include_schemas=True,
+        include_name=include_name,
     )
     with context.begin_transaction():
         context.run_migrations()
