@@ -20,6 +20,12 @@ Pure file parse: the live host's copy is verified at install time
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
 from systemd_units import DEPLOY, unit_values
 
 REPO = DEPLOY.parent
@@ -30,6 +36,10 @@ CANONICAL_GC = "cannobserv-disk-gc.service"
 DROP_IN = DEPLOY / f"{CANONICAL_GC}.d" / "on-failure.conf"
 INSTALLED = f"/etc/systemd/system/{CANONICAL_GC}.d/on-failure.conf"
 NOTIFY = "usa-wa-notify-failure@%n.service"
+
+#: Where the layer installs its units; the verify below needs the real one.
+INSTALLED_UNIT = Path("/usr/local/lib/systemd/system") / CANONICAL_GC
+VERIFY_UNITS = REPO / "scripts" / "verify-units.sh"
 
 SKILL = "maintaining-host-disk"
 VENDORED = f"../skills-vendor/gregoryfoster-skills/skills/{SKILL}"
@@ -88,3 +98,36 @@ def test_the_skill_is_linked_like_the_others() -> None:
     claude = REPO / ".claude" / "skills" / SKILL
     assert claude.is_symlink()
     assert str(claude.readlink()) == f"../../skills/{SKILL}"
+
+
+def _verify_merged(tmp_path: Path, drop_in_text: str) -> subprocess.CompletedProcess:
+    """``verify-units.sh`` on the installed canonical unit with ``drop_in_text`` merged in.
+
+    The pre-commit gate matches ``deploy/*.{service,timer}`` only, so the drop-in
+    is checked here, against the unit it extends: systemd reads drop-ins from the
+    unit search path, which ``SYSTEMD_UNIT_PATH`` points at a scratch copy.
+    """
+    if not INSTALLED_UNIT.is_file():
+        pytest.skip("the canonical disk GC is not installed on this host")
+    if shutil.which("systemd-analyze") is None:
+        pytest.skip("systemd-analyze not installed")
+    unit = tmp_path / CANONICAL_GC
+    shutil.copy(INSTALLED_UNIT, unit)
+    shutil.copy(DEPLOY / "usa-wa-notify-failure@.service", tmp_path)
+    (tmp_path / f"{CANONICAL_GC}.d").mkdir()
+    (tmp_path / f"{CANONICAL_GC}.d" / DROP_IN.name).write_text(drop_in_text)
+    env = {**os.environ, "SYSTEMD_UNIT_PATH": f"{tmp_path}:"}
+    return subprocess.run(  # noqa: S603
+        ["bash", str(VERIFY_UNITS), str(unit)], capture_output=True, text=True, env=env, check=False
+    )
+
+
+def test_the_drop_in_verifies_on_the_unit_it_extends(tmp_path: Path) -> None:
+    result = _verify_merged(tmp_path, DROP_IN.read_text())
+    assert result.returncode == 0, result.stderr
+
+
+def test_the_verify_catches_a_misspelt_drop_in(tmp_path: Path) -> None:
+    """Teeth: a typo that would silently drop the net fails the same check."""
+    broken = DROP_IN.read_text().replace("OnFailure=", "OnFailur=")
+    assert _verify_merged(tmp_path, broken).returncode != 0
