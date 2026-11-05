@@ -72,9 +72,12 @@ def test_it_is_the_only_drop_in_on_the_canonical_gc() -> None:
 
 
 def test_the_documented_install_lands_it_and_reloads() -> None:
-    """The runbook installs this file at the path systemd reads, then reloads."""
+    """The runbook installs this file at the path systemd reads, then reloads:
+    without the reload systemd keeps the unit it loaded, net and all missing."""
     text = HOST_DOC.read_text()
-    assert f"deploy/{CANONICAL_GC}.d/on-failure.conf {INSTALLED}" in text
+    install = f"deploy/{CANONICAL_GC}.d/on-failure.conf {INSTALLED}"
+    assert install in text
+    assert "sudo systemctl daemon-reload" in text[text.index(install) :].split("```", 1)[0]
     assert INSTALLED in DROP_IN.read_text()
 
 
