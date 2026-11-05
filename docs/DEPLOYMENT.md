@@ -5,7 +5,7 @@ environment-variable reference for the single-VM deployment. Operating rules
 that apply on nearly every task stay in [`AGENTS.md`](../AGENTS.md); this is the
 detail behind them.
 The host hazards — the main-only checkout guard (#87), shared-venv
-integrity (#279), memory pressure (#389) and the disk GC (#394) — are in
+integrity (#279), memory pressure (#389) and the canonical disk GC (#394, #508) — are in
 [`DEPLOYMENT-HOST.md`](DEPLOYMENT-HOST.md).
 So are the monthly window's two update runs, OS (#497) and dependencies (#499).
 
@@ -19,7 +19,6 @@ So are the monthly window's two update runs, OS (#497) and dependencies (#499).
 | Roster PDF edition re-check (monthly) | oneshot + timer | — | `systemctl` (`usa-wa-roster-pdf-recheck.timer` → `.service`; 1st 09:00 UTC, #237). The roster raw harvest (#421) run `--dry-run --force`: fetches the *Members of the Legislature* PDF, verifies its `Revision Date` against `DEFAULT_REVISION` in code, and writes nothing. Exit 4 = a new edition is published (or the document cannot be located, or its stamp can no longer be read) → operator email, repeated monthly until the edition is harvested **and** the default bumped on `main` — runbook: [COMMANDS-ROSTER.md](COMMANDS-ROSTER.md) § Roster PDF. `--force` is load-bearing: the harvest's 90-day freshness window would otherwise make every run a fetch-free cache hit. Not a refresh — nothing downstream reads it |
 | WSL availability probe (daily, #135) | oneshot + timer | — | `systemctl` (`usa-wa-wsl-availability-probe.timer` → `.service`; 09:20 UTC, #135). `python -m usa_wa_adapter_legislature.probe_availability --biennium 2027-28 --until 2027-02-28`: write-free (no raw store, no database, no ledger row). Appends how much of 2027-28 WSL serves to `data/research/wsl-availability.jsonl`; **exit 4 = a count changed state** (faulting → empty → has rows; growth alone is logged, not mailed) — the morning WSL starts publishing the new biennium, which is when the rollover's nightly warnings can stop. After `--until` it asks nothing and exits 0; disable the timer then. Runbook: [RUNBOOK-ROLLOVER.md](RUNBOOK-ROLLOVER.md) |
 | Nightly backup (daily) | oneshot + timer | — | `systemctl` (`usa-wa-backup.timer` → `.service`; 10:17 UTC, #434). `python -m usa_wa_api.backup.run`: dumps the database (`pg_dump -Fc`, verified, the registry's row counts as metadata) to `gs://co-gcs-usa-wa-backup/db/<host>/<stamp>.dump` and mirrors the raw store's new objects and manifests under `raw/`, create-only. Exit 1 = either half did not ship → operator email; exit 2 = no bucket configured or a misplaced key. Every run but a dry one checks in to the co-status dead-man monitor (#455), which alarms when a night's check-in never arrives. Runs sandboxed as its own dynamic user `usa_wa_backup` with no capabilities, no database credential (peer auth to a `pg_read_all_data` role) and the GCS key as a systemd credential — the one unit that loads `/etc/usa-wa/backup.env` and **not** `/etc/usa-wa/.env`. Two hours after the pipeline so each night carries that day's registrations. Runbook, restore and provisioning: [RECOVERY.md](RECOVERY.md) |
-| Disk GC + free-space sensor (daily) | oneshot + timer | — | `systemctl` (`usa-wa-disk-gc.timer` → `.service`; 05:45 UTC, #394). `scripts/disk-gc.sh --prune`: reclaims tooling copies no running process references (VS Code server builds, Claude Code extension versions (#399), Claude plugin-cache versions no live session marks in use (#407), `_npx` trees other than the `SOCRATICODE_SPEC` pin's (#485)), measures the repo tiers without touching them (#396 owns their retention), and exits 1 below the free-space floor → operator email. First in the chain, ahead of the 08:00 pipeline — reclaim, then work. The one unit carrying **neither** `ExecStartPre` guard: it runs no repo code, and #87/#279 both fail in the worktree-heavy state that fills the disk |
 | Failure alerts | templated oneshot | — | `OnFailure=` → `usa-wa-notify-failure@.service` |
 | API (dev) | FastAPI | 8001 | manual uvicorn |
 
@@ -64,13 +63,14 @@ Wed 18:11 UTC window.
 
 The unattended oneshots fail silently on a headless box — a `failed` state in the
 journal nobody is watching. Each failable oneshot (`usa-wa-migrate`,
-`usa-wa-integrity-sweep`, `usa-wa-pipeline` (#311), `usa-wa-disk-gc` (#394),
+`usa-wa-integrity-sweep`, `usa-wa-pipeline` (#311),
 `usa-wa-roster-pdf-recheck` (#237 — its exit 4 is the new-edition notice),
 `usa-wa-wsl-availability-probe` (#135 — its exit 4 is "a WSL 2027-28 roster changed state"),
 `usa-wa-backup` (#434 — exit 1 = a half did not ship, exit 2 = no bucket or a misplaced key)) carries
 `OnFailure=usa-wa-notify-failure@%n.service`, so systemd starts the templated
 handler on a non-zero exit **or** a `TimeoutStartSec=` hang. `%n` (the failing
-unit's full name) becomes the handler's instance.
+unit's full name) becomes the handler's instance. The canonical disk GC's
+`cannobserv-disk-gc.service` gets the same line as a drop-in (#508).
 
 [`deploy/usa-wa-notify-failure@.service`](../deploy/usa-wa-notify-failure@.service)
 runs [`scripts/notify-failure.sh`](../scripts/notify-failure.sh), which emails the
@@ -122,9 +122,8 @@ DDL and DML rights are split across roles so a misconfigured DSN can't migrate/d
 entrypoint runs `uv run --frozen --no-sync` (`usa-wa.service`,
 `usa-wa-integrity-sweep.service`, `usa-wa-roster-pdf-recheck.service`,
 `usa-wa-wsl-availability-probe.service`,
-`scripts/migrate.sh`, `scripts/pipeline-nightly.sh`). Two exceptions, neither of
-which syncs either: `usa-wa-disk-gc.service`, which runs plain bash and no Python at
-all (#394), and `usa-wa-backup.service` (#434), which runs the venv's own
+`scripts/migrate.sh`, `scripts/pipeline-nightly.sh`). One exception, which
+doesn't sync either: `usa-wa-backup.service` (#434), which runs the venv's own
 `.venv/bin/python` — its sandbox leaves uv no writable cache, and the venv is checked
 by `assert-venv-integrity.sh` like every other unit's ([RECOVERY.md](RECOVERY.md)).
 `--no-sync` runs against the installed venv as-is; `--frozen` skips re-locking.
@@ -172,7 +171,6 @@ silently deploys nothing. Pinned by `scripts/tests/test_docs_unit_copy_drift.py`
 | After editing `deploy/usa-wa-integrity-sweep.{service,timer}` | `sudo cp deploy/usa-wa-integrity-sweep.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-integrity-sweep.timer` |
 | After editing `deploy/usa-wa-roster-pdf-recheck.{service,timer}` | `sudo cp deploy/usa-wa-roster-pdf-recheck.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-roster-pdf-recheck.timer` |
 | After editing `deploy/usa-wa-wsl-availability-probe.{service,timer}` | `sudo cp deploy/usa-wa-wsl-availability-probe.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-wsl-availability-probe.timer` — the 2029 rollover bumps `--biennium`/`--until` here (#135). Write-free, so a by-hand `systemctl start usa-wa-wsl-availability-probe.service` is safe; after `--until` it asks nothing |
-| After editing `deploy/usa-wa-disk-gc.{service,timer}` | `sudo cp deploy/usa-wa-disk-gc.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-disk-gc.timer` |
 | After editing `deploy/usa-wa-backup.{service,timer}` | `sudo cp deploy/usa-wa-backup.{service,timer} /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl restart usa-wa-backup.timer`. A sandbox line changed? Prove it with one by-hand run before the next 10:17 ([RECOVERY.md](RECOVERY.md) § The sandbox). A new `LoadCredential=` source must exist first, or the run fails `243/CREDENTIALS` — `/etc/usa-wa/backup-checkin.key` since #455, empty until its monitor exists |
 | Once, after #412 PR F lands on `main` | Its nine canonical-tier units (`usa-wa-{wsl,pdc,sos}-refresh.{service,timer}`, `usa-wa-{pdc,sos}-archive-refresh.service`, `usa-wa-{senate,house}-corroboration.{service,timer}`, `usa-wa-succession-invariants.{service,timer}`, `usa-wa-committee-lineage-invariants.{service,timer}`) are gone from `deploy/`, but their installed copies remain, disabled since PR E and naming deleted modules: `sudo rm` each from `/etc/systemd/system/`, then `sudo systemctl daemon-reload` |
 | After editing `deploy/usa-wa-notify-failure@.service` | `sudo cp deploy/usa-wa-notify-failure@.service /etc/systemd/system/ && sudo systemctl daemon-reload` (templated `OnFailure=` handler — nothing to restart; next failure picks it up) |
@@ -182,7 +180,7 @@ silently deploys nothing. Pinned by `scripts/tests/test_docs_unit_copy_drift.py`
 | Run the raw-store integrity sweep now (ad-hoc) | `sudo systemctl start usa-wa-integrity-sweep.service` |
 | Re-check the roster PDF edition now (ad-hoc) | `sudo systemctl start usa-wa-roster-pdf-recheck.service` (one 5.7MB GET; archives nothing) |
 | Run the backup now (ad-hoc) | `sudo systemctl start usa-wa-backup.service`, then `sudo journalctl -u usa-wa-backup.service -n 30`. Safe to repeat: each run is a new dump name, and the raw mirror uploads only what the bucket lacks |
-| Reclaim disk / check free space now (ad-hoc) | `sudo systemctl start usa-wa-disk-gc.service`, or `scripts/disk-gc.sh` for a report that removes nothing. Needs no DB and no venv — it is the one unit that still runs with a feature branch checked out |
+| Reclaim disk / check free space now (ad-hoc) | `sudo systemctl start cannobserv-disk-gc.service` (the canonical GC, #508), or its report-only run — [DEPLOYMENT-HOST.md § Host maintenance](DEPLOYMENT-HOST.md#host-maintenance-394-508) |
 
 ## Validating unit edits (#51)
 

@@ -8,7 +8,7 @@ to are in [DEPLOYMENT.md](DEPLOYMENT.md) § DB role topology.
 Currently defined:
 - `GH_TOKEN` — GitHub personal access token (used by `gh` CLI)
 - `ANTHROPIC_API_KEY` — **optional**, repo-root `.env` only. Consumed by `curating-context`'s `measure-context.sh --exact`, which counts tokens via the Anthropic `count_tokens` endpoint (free to call, no tokens billed). Without it the run degrades to a calibrated offline estimate, records `tokens_exact: false`, and `record-telemetry.sh` then **refuses the ledger append** (exit 4) rather than reset the trend baseline — so a weekly curation with no key silently produces no row. A Claude Code session exports no key of its own; the script parses this one out of `.env`. See [SKILLS.md § Context budget](SKILLS.md#context-budget).
-- `SOCRATICODE_SPEC` — the npm spec the SocratiCode plugin's session server launches (#415), `socraticode@1.16.0`; unset, it floats on `socraticode@latest` and installs at session start. Declared in `.claude/settings.json` `env`, which `preflight.sh` compares against; what actually reaches the launch is the host's VS Code machine setting `claudeCode.environmentVariables`. Must match the driver's pre-install — a re-pin changes all three and first warms the new spec's npx tree under the cap, or the next session start installs it uncapped. `scripts/disk-gc.sh` also reads it from both places and never prunes those specs' npx trees (#485): [SOCRATICODE.md § The server is pinned](SOCRATICODE.md#the-server-is-pinned-not-installed-per-launch-389).
+- `SOCRATICODE_SPEC` — the npm spec the SocratiCode plugin's session server launches (#415), `socraticode@1.16.0`; unset, it floats on `socraticode@latest` and installs at session start. Declared in `.claude/settings.json` `env`, which `preflight.sh` compares against; what actually reaches the launch is the host's VS Code machine setting `claudeCode.environmentVariables`. Must match the driver's pre-install — a re-pin changes all three and first warms the new spec's npx tree under the cap, or the next session start installs it uncapped. The canonical disk GC (#508) reads it from both places (`npx_spec_files` names `.claude/settings.json`) and never prunes those specs' npx trees (#485): [SOCRATICODE.md § The server is pinned](SOCRATICODE.md#the-server-is-pinned-not-installed-per-launch-389).
 - `DATABASE_URL` — PostgreSQL connection string (app role `usa_wa_app` — DML only)
 - `DATABASE_URL_OWNER` — owner-role DSN for migrations (migrate host only; `usa-wa-migrate.service` + `scripts/migrate.sh`). `alembic/env.py` prefers it over `DATABASE_URL`. Absent from the live API unit. A job that declares `role="owner"` to `run_job()` (#179b) resolves it through `get_database_url("owner")` for a per-run engine, never falling back to `DATABASE_URL`; no job declares it since #412 PR F deleted the one-shot span/source migration CLIs that did.
 - `TEST_DATABASE_URL` — PostgreSQL connection string for the test database (test role; database name must end in `_test`)
@@ -35,56 +35,14 @@ Currently defined:
 - `USA_WA_JOB_LEDGER` — `0` turns the #178 run ledger off for every `run_job` job, an explicit `ledger=True` included, and logs `job_ledger_disabled` (#135). Set only by the rollover rehearsal (`scripts/rollover-rehearsal.sh`), which runs the real nightly jobs against scratch roots — without it `/health/jobs` would serve a rehearsal run as its slug's latest. Any other value, unset included, records. **Never set in `/etc/usa-wa/.env`**: outside a rehearsal the nightly counts it as a failed stage (mailed) and keeps publishing.
 - `USA_WA_ALERT_EMAIL` — recipient for oneshot failure alerts (#49). Consumed by `scripts/notify-failure.sh` (the `usa-wa-notify-failure@.service` `OnFailure=` handler). Must be **you / an exe.dev team member** (gateway recipient allow-list). The script **fails closed** if unset, so set it in `/etc/usa-wa/.env` to arm alerting. See [DEPLOYMENT.md](DEPLOYMENT.md) § Failure alerting.
 
-### Host maintenance (#394) — `scripts/disk-gc.sh`, `scripts/slim-ollama-image.sh`
+### Host maintenance (#394) — `scripts/slim-ollama-image.sh`
 
-Both read their configuration from the environment and **neither is wired to an
-`EnvironmentFile=`**: `usa-wa-disk-gc.service` deliberately loads no env file,
-because the whole point of that unit is to still run when the repo and its
-configuration are in a bad state. So these are defaults-in-the-script,
-overridable for an ad-hoc run or by editing the unit — not knobs to set in
-`/etc/usa-wa/.env`, where they would have no effect on the timer.
+Read from the environment, and wired to no `EnvironmentFile=`: defaults in the
+script, overridable for an ad-hoc run — not knobs for `/etc/usa-wa/.env`. The
+disk GC that retired in #508 had its `DISK_GC_*` variables here; the canonical GC
+reads `/etc/cannobserv/disk-gc/disk-gc.conf` instead
+([DEPLOYMENT-HOST.md § Host maintenance](DEPLOYMENT-HOST.md#host-maintenance-394-508)).
 
-Every numeric one is validated at startup and a bad value **exits 2 rather than
-running** (#394 CR 19): unvalidated, a typo made bash skip the check and carry
-on with that guard disabled, which for a tool whose verb is `rm -rf` is the
-wrong direction to fail in.
-
-- `DISK_GC_GRACE_MINUTES` — minutes a candidate must have been untouched before
-  it may be removed; default `60`, `0` disables. This is the guard liveness
-  cannot provide: a tree being installed *right now* is named by no running
-  process, because the process that will run out of it does not exist yet. With
-  ~457 MB `_npx` installs happening at session start (#389) and the timer firing
-  daily at 05:45, a session starting a minute earlier would otherwise have its
-  half-written install deleted under it. "Touched" is mtime **or ctime** (#512):
-  VS Code's extractor restores archive mtimes, so a just-landed CLI reads weeks
-  old by mtime alone. A tree `find` cannot fully walk is withheld as
-  `unchecked`, with a warning, never treated as settled.
-- `DISK_GC_NOW` — the epoch-seconds clock the window is measured against;
-  default now. Test-only: ctime cannot be backdated, so the suite moves the
-  clock forward to prove the window expires. It and `DISK_GC_GRACE_MINUTES` are
-  capped at 12 and 9 digits so the cutoff arithmetic cannot wrap, and read as
-  decimal (`060` is 60, not octal 48).
-- `DISK_GC_WARN_BYTES` / `DISK_GC_FAIL_BYTES` — free-space thresholds; defaults
-  2 GiB / 1 GiB. Below the fail threshold the run exits 1 into the
-  `OnFailure=` alert chain (#49). Sized so the floor sits above one worktree's
-  venv (~225 MB), since #394 measured 1.3 G → 565 M in 28 hours of ordinary
-  session work — a threshold with less headroom fires after the damage.
-- `DISK_GC_MOUNT` — filesystem to measure; default `/`.
-- `DISK_GC_VSCODE_ROOT`, `DISK_GC_EXTENSIONS_ROOT`, `DISK_GC_PLUGIN_ROOT`,
-  `DISK_GC_NPX_ROOT`, `DISK_GC_REPO` — the five trees it scans; defaults
-  `$HOME/.vscode-server`, `$HOME/.vscode-server/extensions` (#399; follows
-  `DISK_GC_VSCODE_ROOT`), `$HOME/.claude/plugins`, `$HOME/.npm/_npx`,
-  `/home/exedev/usa-wa`. The unit sets `Environment=HOME=/home/exedev` so the
-  `$HOME` ones resolve under systemd.
-  Redirected at tmp dirs by the test suite, which is how it never touches a real
-  host.
-- `DISK_GC_PROC_ROOT` — where the plugin-cache in-use check reads a marker's
-  `<pid>/stat` (#407); default `/proc`. Test-only: the process-table snapshot
-  always reads the real `/proc`. A root without `self/stat` is refused, not
-  trusted — under a wrong root every live session would read as dead.
-- `DISK_GC_DOCKER` — the `docker` binary used for the ollama slim-label check;
-  default `docker`, and an **empty value disables the check** (absence of a
-  container stack is not damage).
 - `SLIM_DOCKER`, `SLIM_CURL` — the two binaries the ollama rebuild drives;
   stubbed by its tests so nothing reaches a real daemon.
 - `SLIM_GPU_GLOB` — path glob whose matching means this host has an accelerator
