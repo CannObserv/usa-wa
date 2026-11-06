@@ -13,6 +13,9 @@ under ``/usr/local/lib`` and never edited here; what this repo owns is pinned:
   close (a) restores it as a drop-in under ``/etc``, which leaves the installed
   unit, and so its MANIFEST, untouched.
 - **The skill is linked** the way every other vendored skill is.
+- **One tenant key, two copies** (#579). The headroom sensor checks in with the
+  ``co-usa-wa`` key the backup holds, from its own root file. docs/RECOVERY.md's
+  key step must write both, or a rotation leaves the sensor on a revoked key.
 
 Pure file parse: the live host's copy is verified at install time
 (``docs/DEPLOYMENT-HOST.md`` § Host maintenance carries the commands).
@@ -30,6 +33,7 @@ from systemd_units import DEPLOY, unit_values
 
 REPO = DEPLOY.parent
 HOST_DOC = REPO / "docs" / "DEPLOYMENT-HOST.md"
+RECOVERY_DOC = REPO / "docs" / "RECOVERY.md"
 
 #: The canonical GC's service, as the VERSION 3 layer names it.
 CANONICAL_GC = "cannobserv-disk-gc.service"
@@ -40,6 +44,11 @@ NOTIFY = "usa-wa-notify-failure@%n.service"
 #: Where the layer installs its units; the verify below needs the real one.
 INSTALLED_UNIT = Path("/usr/local/lib/systemd/system") / CANONICAL_GC
 VERIFY_UNITS = REPO / "scripts" / "verify-units.sh"
+
+#: The tenant key's two copies: the backup's (0400) and the sensor's (0600).
+BACKUP_KEY = "/etc/usa-wa/backup-checkin.key"
+GC_KEY = "/etc/cannobserv/disk-gc/checkin.key"
+SENSOR = "cannobserv-disk-headroom.service"
 
 SKILL = "maintaining-host-disk"
 VENDORED = f"../skills-vendor/gregoryfoster-skills/skills/{SKILL}"
@@ -98,6 +107,43 @@ def test_the_skill_is_linked_like_the_others() -> None:
     claude = REPO / ".claude" / "skills" / SKILL
     assert claude.is_symlink()
     assert str(claude.readlink()) == f"../../skills/{SKILL}"
+
+
+def _key_step() -> str:
+    """RECOVERY.md's dead-man step 3, the only place a real key is written."""
+    text = RECOVERY_DOC.read_text()
+    start = text.index("**3. The key across, terminal to terminal**")
+    return text[start : text.index("**4. ", start)]
+
+
+def _write_line(step: str) -> str:
+    return next(line for line in step.splitlines() if "sudo tee" in line and BACKUP_KEY in line)
+
+
+def test_the_key_step_writes_both_copies() -> None:
+    """A rotation that wrote only the backup's copy: the sensor 401s, then pages
+    "stopped reporting"."""
+    assert GC_KEY in _write_line(_key_step())
+
+
+def test_the_gc_copy_is_created_0600_before_the_write() -> None:
+    """On a host the GC is not on yet the path may not exist; ``tee`` would then
+    create it with the umask's mode. ``install -D`` first, at the mode the units read."""
+    step = _key_step()
+    create = f"sudo install -D -m 0600 -o root -g root /dev/null {GC_KEY}"
+    assert create in step
+    assert step.index(create) < step.index(_write_line(step))
+
+
+def test_the_key_step_proves_the_sensor_without_paging() -> None:
+    """A real sensor run, after the backup's; ``--test-alert`` would page for real."""
+    step = _key_step()
+    run = f"sudo systemctl start {SENSOR}"
+    assert step.index("sudo systemctl start usa-wa-backup.service") < step.index(run)
+    assert f"journalctl -u {SENSOR}" in step
+    assert "checked in ok (ok): HTTP 202" in step
+    commands = [line for line in step.splitlines() if line.startswith("sudo")]
+    assert not [line for line in commands if "--test-alert" in line]
 
 
 def _verify_merged(tmp_path: Path, drop_in_text: str) -> subprocess.CompletedProcess:
