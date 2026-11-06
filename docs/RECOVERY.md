@@ -273,7 +273,7 @@ reaches neither shell history nor argv, through `tee` so each file keeps its mod
 the disk GC headroom sensor's (`0600`). Miss the second and the sensor checks in on a
 revoked key, gets 401, and pages "stopped reporting". The GC's path may not exist yet
 on a host the GC isn't on, so `install -D` creates it at `0600` before `tee` can create
-it at the umask's mode:
+it at the umask's mode. A rotation skips the `backup.env` append, already in place:
 
 ```bash
 read -rsp 'check-in key: ' KEY; echo
