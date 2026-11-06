@@ -268,20 +268,31 @@ never happens — by design.
 
 **3. The key across, terminal to terminal** (this host). Read from the co-status browser
 terminal (`sudo cat /etc/status/pending/co-usa-wa.key`), entered at a prompt so it
-reaches neither shell history nor argv, through `tee` so the file keeps `0400 root:root`:
+reaches neither shell history nor argv, through `tee` so each file keeps its mode. Since
+#508 the key has two copies, and a rotation writes both (#579): the backup's (`0400`) and
+the disk GC headroom sensor's (`0600`). Miss the second and the sensor checks in on a
+revoked key, gets 401, and pages "stopped reporting". The GC's path may not exist yet
+on a host the GC isn't on, so `install -D` creates it at `0600` before `tee` can create
+it at the umask's mode:
 
 ```bash
 read -rsp 'check-in key: ' KEY; echo
-printf '%s' "$KEY" | sudo tee /etc/usa-wa/backup-checkin.key >/dev/null; unset KEY
+sudo install -D -m 0600 -o root -g root /dev/null /etc/cannobserv/disk-gc/checkin.key
+printf '%s' "$KEY" | sudo tee /etc/usa-wa/backup-checkin.key /etc/cannobserv/disk-gc/checkin.key >/dev/null; unset KEY
 sudo tee -a /etc/usa-wa/backup.env >/dev/null <<'EOF'
 USA_WA_BACKUP_CHECKIN_BASE_URL=http://status:9000
 USA_WA_BACKUP_MONITOR_ID=<monitor id>
 EOF
 sudo systemctl start usa-wa-backup.service
 sudo journalctl -u usa-wa-backup.service -n 30 | grep backup_checkin   # backup_checkin_sent
+sudo systemctl start cannobserv-disk-headroom.service   # where the GC is installed
+sudo journalctl -u cannobserv-disk-headroom.service -n 3   # checked in ok (ok): HTTP 202
 ```
 
-Then on co-status: the monitor's `state` is `ok`, `last_checkin_at` fresh; then
+A real sensor run, not `--test-alert`: that one pages the channels for real.
+
+Then on co-status: each monitor's (`co-usa-wa-backup`, and `co-usa-wa-disk-headroom` where
+the GC runs) `state` is `ok`, `last_checkin_at` fresh; then
 `sudo shred -u /etc/status/pending/co-usa-wa.key`.
 
 **4. See the alarm fire** before relying on it, in this order — no run between the
