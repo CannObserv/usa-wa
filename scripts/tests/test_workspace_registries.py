@@ -18,6 +18,12 @@ This guard closes that gap the way `test_unit_ordering` closes the
 systemd-ordering gap: the on-disk package set is cross-checked against each
 registry, so adding a package that skips any list fails the suite.
 
+A second guard (#572) holds the same declarations to a version policy: every
+dependency that carries a specifier must also carry a major-version cap (`<N+1`,
+or `<1` for a 0.x release), so a breaking major can't arrive through a plain
+`uv lock --upgrade` or a Dependabot group with nothing in `pyproject.toml`
+marking it. vcrpy 8 → 9 rode in that way under #569.
+
 Pure file parse — no DB, no `uv`; runs everywhere.
 """
 
@@ -43,6 +49,21 @@ _SPECIFIER = re.compile(r"[<>=!~;\[\s@]")
 # make this normalisation silently wrong.
 MODULE_NAME_EXCEPTIONS: dict[str, str] = {}
 
+# PEP 440 operators that bound a version from above (#572). `~=X.Y` admits only
+# X.*, and `==` / `===` admit one version (or one prefix, with `.*`), so each is
+# a cap. `>`, `>=` and `!=` are not. A direct reference counts as uncapped (a git
+# URL can float), and so does any clause this parse can't read: the guard errs
+# red, never green.
+_UPPER_BOUND_OPERATORS = frozenset({"<", "<=", "==", "===", "~="})
+_CLAUSE_OPERATOR = re.compile(r"^\s*(===|~=|==|!=|<=|>=|<|>)")
+_NAME_AND_EXTRAS = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(\[[^\]]*\])?")
+
+# How many specified (non-member) entries the cap guard inspects, summed across
+# the root `[dependency-groups]` and every member's `[project].dependencies`. A
+# parse that silently sees nothing would otherwise pass. Adding or removing a
+# dependency moves it — update it in the same change.
+EXPECTED_SPECIFIED_ENTRIES = 43
+
 
 def _config() -> dict:
     return tomllib.loads(PYPROJECT.read_text())
@@ -65,6 +86,42 @@ def _uv_source_keys() -> set[str]:
 
 def _known_first_party() -> set[str]:
     return set(_config()["tool"]["ruff"]["lint"]["isort"]["known-first-party"])
+
+
+def _specified_entries() -> list[tuple[str, str]]:
+    """Every non-member dependency, labelled with where it is declared.
+
+    Root `[dependency-groups]` (every group) plus each member's
+    `[project].dependencies`; `_SPECIFIER` drops the bare workspace members.
+    """
+    entries = [
+        (f"pyproject.toml [dependency-groups] {group}", entry)
+        for group, group_entries in _config()["dependency-groups"].items()
+        for entry in group_entries
+        if _SPECIFIER.search(entry)
+    ]
+    for package in sorted(_package_dirs()):
+        project = tomllib.loads((PACKAGES / package / "pyproject.toml").read_text())["project"]
+        entries += [
+            (f"packages/{package}/pyproject.toml", entry)
+            for entry in project.get("dependencies", [])
+            if _SPECIFIER.search(entry)
+        ]
+    return entries
+
+
+def _has_upper_bound(entry: str) -> bool:
+    """Whether a PEP 508 requirement caps its version from above."""
+    requirement = entry.split(";", 1)[0]
+    if "@" in requirement:
+        return False
+    specifier = _NAME_AND_EXTRAS.sub("", requirement, count=1).strip().strip("()")
+    operators = {
+        match.group(1)
+        for clause in specifier.split(",")
+        if (match := _CLAUSE_OPERATOR.match(clause))
+    }
+    return bool(operators & _UPPER_BOUND_OPERATORS)
 
 
 def _module_name(package: str) -> str:
@@ -129,3 +186,51 @@ def test_specifier_split_separates_members_from_tools():
         "foo @ https://example.invalid/foo.whl",
     }
     assert {e for e in bare | pinned if _SPECIFIER.search(e) is None} == bare
+
+
+def test_every_specified_dependency_carries_a_major_cap():
+    """A specifier without an upper bound lets a breaking major in unannounced (#572).
+
+    0.x dependencies are capped at `<1` (owner decision, 2026-11-06): the
+    tighter `<0.(N+1)` would rewrite `pyproject.toml` on every minor.
+    """
+    uncapped = [
+        f"{source}: {entry}"
+        for source, entry in _specified_entries()
+        if not _has_upper_bound(entry)
+    ]
+    assert not uncapped, "no major-version cap: " + "; ".join(uncapped)
+
+
+def test_cap_guard_inspects_every_specified_entry():
+    """Pins the inspected count, so a parse that finds nothing can't pass the guard."""
+    assert len(_specified_entries()) == EXPECTED_SPECIFIED_ENTRIES
+
+
+def test_upper_bound_detection_has_teeth():
+    """`<`, `<=`, `==`, `===` and `~=` cap.
+
+    `>`, `>=`, `!=`, a bare name and a direct reference don't.
+    """
+    capped = {
+        "vcrpy>=9.2.0,<10",
+        "ruff<1",
+        "pytest <= 9.9",
+        "zeep==4.3.3",
+        "zeep==4.*",
+        "zeep===4.3.3",
+        "httpx~=0.27",
+        "uvicorn[standard]>=0.34.0,<1",
+        "anyio>=4,<5; python_version >= '3.12'",
+        "bar (>=1,<2)",
+    }
+    uncapped = {
+        "vcrpy>=9.2.0",
+        "zeep>4",
+        "pdfplumber!=0.11.5",
+        "uvicorn[standard]",
+        "anyio; python_version < '4'",
+        "foo @ git+https://example.invalid/foo.git@main",
+        "bar (>=1)",
+    }
+    assert {e for e in capped | uncapped if _has_upper_bound(e)} == capped
