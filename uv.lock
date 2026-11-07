@@ -43,7 +43,7 @@ dev = [
     { name = "usa-wa-common", editable = "packages/usa-wa-common" },
     { name = "usa-wa-facts-seats", editable = "packages/usa-wa-facts-seats" },
     { name = "usa-wa-pipeline", editable = "packages/usa-wa-pipeline" },
-    { name = "vcrpy", specifier = ">=9.2.0" },
+    { name = "vcrpy", specifier = ">=9.2.0,<10" },
 ]
 
 [[package]]
@@ -2706,11 +2706,11 @@ requires-dist = [
     { name = "clearinghouse-core", editable = "packages/clearinghouse-core" },
     { name = "clearinghouse-domain-legislative", editable = "packages/clearinghouse-domain-legislative" },
     { name = "httpx", specifier = ">=0.27,<1" },
-    { name = "pdfplumber", specifier = ">=0.11.4" },
+    { name = "pdfplumber", specifier = ">=0.11.4,<1" },
     { name = "python-ulid", specifier = ">=3.0,<4" },
     { name = "sqlalchemy", specifier = ">=2.1.6,<3" },
     { name = "usa-wa-common", editable = "packages/usa-wa-common" },
-    { name = "zeep", specifier = ">=4.3.1" },
+    { name = "zeep", specifier = ">=4.3.1,<5" },
 ]
 
 [[package]]
