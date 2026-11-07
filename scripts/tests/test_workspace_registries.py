@@ -235,3 +235,23 @@ def test_upper_bound_detection_has_teeth():
         "bar (>=1)",
     }
     assert {e for e in capped | uncapped if _has_upper_bound(e)} == capped
+
+
+def test_member_walk_reads_every_dependency_table():
+    """A member's extras and groups are inspected too, not only `[project].dependencies`.
+
+    None exist today, so the inspected count can't see a table the walk skips;
+    a synthetic member proves the walk reaches all three.
+    """
+    config = {
+        "project": {
+            "dependencies": ["clearinghouse-core", "httpx>=0.27,<1"],
+            "optional-dependencies": {"pdf": ["pdfplumber>=0.11.4"]},
+        },
+        "dependency-groups": {"lint": ["ruff>=0.17,<1"]},
+    }
+    assert sorted(_member_specified_entries("x", config)) == [
+        ("x [dependency-groups] lint", "ruff>=0.17,<1"),
+        ("x [project.optional-dependencies] pdf", "pdfplumber>=0.11.4"),
+        ("x [project] dependencies", "httpx>=0.27,<1"),
+    ]
