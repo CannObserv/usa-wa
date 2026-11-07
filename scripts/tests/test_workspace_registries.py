@@ -59,7 +59,7 @@ _CLAUSE_OPERATOR = re.compile(r"^\s*(===|~=|==|!=|<=|>=|<|>)")
 _NAME_AND_EXTRAS = re.compile(r"^\s*[A-Za-z0-9][A-Za-z0-9._-]*\s*(\[[^\]]*\])?")
 
 # How many specified (non-member) entries the cap guard inspects, summed across
-# the root `[dependency-groups]` and every member's `[project].dependencies`. A
+# the root `[dependency-groups]` and every member's dependency tables. A
 # parse that silently sees nothing would otherwise pass. Adding or removing a
 # dependency moves it — update it in the same change.
 EXPECTED_SPECIFIED_ENTRIES = 43
@@ -88,25 +88,44 @@ def _known_first_party() -> set[str]:
     return set(_config()["tool"]["ruff"]["lint"]["isort"]["known-first-party"])
 
 
+def _group_entries(label: str, groups: dict[str, list[str]]) -> list[tuple[str, str]]:
+    """The specified entries of a `{name: [requirement, ...]}` table, labelled."""
+    return [
+        (f"{label} {name}", entry)
+        for name, entries in groups.items()
+        for entry in entries
+        if _SPECIFIER.search(entry)
+    ]
+
+
+def _member_specified_entries(source: str, config: dict) -> list[tuple[str, str]]:
+    """A member's specified entries from every table that declares dependencies.
+
+    `[project].dependencies`, `[project.optional-dependencies]` and
+    `[dependency-groups]` — none of the last two exist today, so the inspected
+    count alone couldn't show the walk skipping them.
+    """
+    project = config["project"]
+    return (
+        _group_entries(f"{source} [project]", {"dependencies": project.get("dependencies", [])})
+        + _group_entries(
+            f"{source} [project.optional-dependencies]",
+            project.get("optional-dependencies", {}),
+        )
+        + _group_entries(f"{source} [dependency-groups]", config.get("dependency-groups", {}))
+    )
+
+
 def _specified_entries() -> list[tuple[str, str]]:
     """Every non-member dependency, labelled with where it is declared.
 
-    Root `[dependency-groups]` (every group) plus each member's
-    `[project].dependencies`; `_SPECIFIER` drops the bare workspace members.
+    Root `[dependency-groups]` (every group) plus each member's dependency
+    tables; `_SPECIFIER` drops the bare workspace members.
     """
-    entries = [
-        (f"pyproject.toml [dependency-groups] {group}", entry)
-        for group, group_entries in _config()["dependency-groups"].items()
-        for entry in group_entries
-        if _SPECIFIER.search(entry)
-    ]
+    entries = _group_entries("pyproject.toml [dependency-groups]", _config()["dependency-groups"])
     for package in sorted(_package_dirs()):
-        project = tomllib.loads((PACKAGES / package / "pyproject.toml").read_text())["project"]
-        entries += [
-            (f"packages/{package}/pyproject.toml", entry)
-            for entry in project.get("dependencies", [])
-            if _SPECIFIER.search(entry)
-        ]
+        config = tomllib.loads((PACKAGES / package / "pyproject.toml").read_text())
+        entries += _member_specified_entries(f"packages/{package}/pyproject.toml", config)
     return entries
 
 
