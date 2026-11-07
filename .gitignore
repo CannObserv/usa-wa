@@ -12,6 +12,8 @@ wheels/
 # Environment / secrets
 .env
 env
+# Host-local Claude settings: holds the cohort's shared QDRANT_API_KEY (#556)
+.claude/settings.local.json
 
 # Coverage
 htmlcov/
