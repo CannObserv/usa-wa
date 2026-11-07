@@ -19,8 +19,8 @@ systemd-ordering gap: the on-disk package set is cross-checked against each
 registry, so adding a package that skips any list fails the suite.
 
 A second guard (#572) holds the same declarations to a version policy: every
-dependency that carries a specifier must also carry a major-version cap (`<N+1`,
-or `<1` for a 0.x release), so a breaking major can't arrive through a plain
+dependency that carries a specifier must also carry an upper bound (by
+convention `<N+1`, or `<1` for a 0.x release), so a breaking major can't arrive through a plain
 `uv lock --upgrade` or a Dependabot group with nothing in `pyproject.toml`
 marking it. vcrpy 8 → 9 rode in that way under #569.
 
@@ -188,11 +188,12 @@ def test_specifier_split_separates_members_from_tools():
     assert {e for e in bare | pinned if _SPECIFIER.search(e) is None} == bare
 
 
-def test_every_specified_dependency_carries_a_major_cap():
+def test_every_specified_dependency_carries_an_upper_bound():
     """A specifier without an upper bound lets a breaking major in unannounced (#572).
 
-    0.x dependencies are capped at `<1` (owner decision, 2026-11-06): the
-    tighter `<0.(N+1)` would rewrite `pyproject.toml` on every minor.
+    The guard checks that a bound exists, not how wide it is: the convention is
+    `<N+1` for the locked major N, and `<1` for 0.x (owner decision, 2026-11-06;
+    the tighter `<0.(N+1)` would rewrite `pyproject.toml` on every minor).
     """
     uncapped = [
         f"{source}: {entry}"
