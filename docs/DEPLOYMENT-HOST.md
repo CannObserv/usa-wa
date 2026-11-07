@@ -282,7 +282,11 @@ out-of-cycle for an advisory that warrants it, with the same deploy.
 **Its table is not its diff.** #504's PR named 12 packages and moved 22 in `uv.lock`,
 unnamed direct ones among them (uvicorn 0.48 → 0.54, which no named bump required).
 Every named package's floor rises too, cap or no cap; `dependabot.yml` says why that
-is accepted.
+is accepted. A moved **cap** is a new major, so read that package's changelog before
+landing. Since #572 every specifier carries an upper bound
+(`scripts/tests/test_workspace_registries.py`), so a major can't land as lock-only:
+`increase-if-necessary` must widen the cap to admit it, as #504 did with
+`pytest-cov<7` → `<8`.
 
 **Landing the month's PR.** No CI runs on it, and the uv updater has open bugs on
 this layout (a virtual root over `packages/*`), so it is gated by hand, in a worktree —
