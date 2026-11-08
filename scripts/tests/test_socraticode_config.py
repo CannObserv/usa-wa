@@ -1,4 +1,16 @@
-"""The SocratiCode client key file stays out of git (#556).
+"""This repo is a client of the cohort's shared SocratiCode store (#556).
+
+The store is ``co-index`` (CannObserv/notifier#57; procedures in CannObserv/index).
+Three tracked pieces make this checkout a client, and one host-local piece
+authenticates it:
+
+* ``.socraticode.json`` names the project ``usa-wa``, so its collections read as
+  ``codebase_usa-wa`` in the shared store rather than a hash of the checkout path;
+* ``.claude/settings.json`` ``env`` points the server at the external Qdrant and
+  Ollama — anything else falls back to ``managed`` mode and local containers;
+* two namespace guards: neither ``QDRANT_COLLECTION_PREFIX`` nor
+  ``SOCRATICODE_BRANCH_AWARE`` may reach the server from anywhere on this host;
+* the key file, below.
 
 ``.claude/settings.local.json`` holds this host's ``QDRANT_API_KEY`` for the
 cohort's shared ``co-index`` store. Qdrant has one global key, so a leak from
@@ -11,10 +23,59 @@ Both probes ask git rather than reading ``.gitignore``: a rule can be shadowed
 by a later negation, and a tracked file is committed whatever the rules say.
 """
 
+import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[2]
+SETTINGS = REPO / ".claude" / "settings.json"
+CONFIG = REPO / ".socraticode.json"
+SOCRATICODE_DOC = REPO / "docs" / "SOCRATICODE.md"
+
+#: The client block, verbatim. CannObserv/archiver#226 § Traps 3-6: QDRANT_URL, never
+#: QDRANT_HOST; the full MagicDNS name, because the key needs TLS; Ollama over plain
+#: HTTP on the tailnet short name.
+CLIENT_ENV = {
+    "QDRANT_MODE": "external",
+    "QDRANT_URL": "https://index.taild0fb76.ts.net:6333",
+    "OLLAMA_MODE": "external",
+    "OLLAMA_URL": "http://index:11434",
+    "EMBEDDING_MODEL": "nomic-embed-text",
+    "EMBEDDING_DIMENSIONS": "768",
+}
+
+#: Upstream's own validator (config.js assertValidProjectId) rejects anything else.
+PROJECT_ID_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+
+#: Set anywhere, and the shared namespace splits while every health check stays green:
+#: the prefix renames the cohort-global metadata collection too, and branch-awareness
+#: mints a fresh, empty collection set per branch.
+NAMESPACE_GUARDS = ("QDRANT_COLLECTION_PREFIX", "SOCRATICODE_BRANCH_AWARE")
+
+#: The primary checkout: the one the key is installed into, which a worktree is not.
+PRIMARY = Path(
+    subprocess.run(
+        ["git", "-C", str(REPO), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+).parent
+
+#: Everywhere a variable could reach the MCP server's environment on this host.
+#: Host-local files skip when absent; only the variable NAMES are ever reported.
+NAMESPACE_GUARD_FILES = [
+    SETTINGS,
+    PRIMARY / ".claude" / "settings.local.json",
+    PRIMARY / ".env",
+    Path("/etc/usa-wa/.env"),
+    *sorted((REPO / "deploy").glob("*.service")),
+]
+
+#: The retired local store's tooling (#394), gone with the image it slimmed.
+RETIRED = ("slim-ollama" + "-image", "dev.usa-wa" + ".slim")
 
 #: The file holding this host's QDRANT_API_KEY. Never tracked, always ignored.
 SETTINGS_LOCAL = ".claude/settings.local.json"
@@ -58,3 +119,72 @@ def test_the_probes_answer() -> None:
     """A tracked, unignored control flips both probes, so neither passes vacuously."""
     assert _tracked(TRACKED_CONTROL), f"{TRACKED_CONTROL} reads untracked: tracked probe is dead"
     assert not _ignored(TRACKED_CONTROL), f"{TRACKED_CONTROL} reads ignored: ignore probe is dead"
+
+
+def _env() -> dict:
+    return json.loads(SETTINGS.read_text()).get("env", {})
+
+
+def test_project_id_is_the_repo_name() -> None:
+    """``usa-wa``, the cohort convention: collections read as ``codebase_usa-wa``.
+
+    A malformed file is silently ignored upstream and degrades to the path hash, so
+    parse it here.
+    """
+    assert json.loads(CONFIG.read_text())["projectId"] == "usa-wa"
+
+
+def test_project_id_is_qdrant_safe() -> None:
+    """Upstream throws on anything outside ``[a-zA-Z0-9_-]`` rather than sanitising."""
+    assert set(json.loads(CONFIG.read_text())["projectId"]) <= PROJECT_ID_CHARS
+
+
+@pytest.mark.parametrize(("name", "value"), sorted(CLIENT_ENV.items()))
+def test_settings_point_at_co_index(name: str, value: str) -> None:
+    """A missing or wrong variable falls back to ``managed`` mode and local containers."""
+    assert _env().get(name) == value, f"settings.json env {name} is not {value!r}"
+
+
+def test_settings_use_qdrant_url_not_host() -> None:
+    """``QDRANT_HOST`` builds a plain-HTTP URL, and the key is refused without TLS."""
+    assert "QDRANT_HOST" not in _env()
+
+
+def test_the_key_is_not_in_tracked_settings() -> None:
+    """The key belongs in the ignored settings.local.json; settings.json is public."""
+    assert "QDRANT_API_KEY" not in _env()
+
+
+@pytest.mark.parametrize("path", NAMESPACE_GUARD_FILES, ids=str)
+def test_no_namespace_splitting_variable(path: Path) -> None:
+    """VM-local where the file is VM-local; skips loudly rather than passing vacuously."""
+    if not path.is_file():
+        pytest.skip(f"{path} absent on this host")
+    text = path.read_text()
+    found = [name for name in NAMESPACE_GUARDS if name in text]
+    assert not found, f"{path} sets {found}: the shared store's namespace splits"
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "127.0.0.1:16333:6333",
+        "127.0.0.1:16334:6334",
+        "127.0.0.1:11435:11434",
+        "QDRANT__TELEMETRY_DISABLED=true",
+    ],
+)
+def test_the_way_back_stays_on_loopback(phrase: str) -> None:
+    """Re-enabling a local store must publish on loopback, telemetry off (skills#494).
+
+    SocratiCode's own ``docker run -p <port>:…`` binds every interface, and Qdrant
+    there asks for no key, so the documented way back pre-creates the containers.
+    """
+    assert phrase in SOCRATICODE_DOC.read_text(), f"docs/SOCRATICODE.md lacks {phrase!r}"
+
+
+@pytest.mark.parametrize("needle", RETIRED)
+def test_the_local_store_tooling_is_retired(needle: str) -> None:
+    """No tracked file still runs or documents the slim-ollama rebuild."""
+    hits = _git("grep", "-l", "-F", needle).stdout.split()
+    assert not hits, f"{needle!r} still named in {hits}"
