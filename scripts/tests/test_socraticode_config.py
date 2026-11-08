@@ -121,6 +121,14 @@ def test_the_probes_answer() -> None:
     assert not _ignored(TRACKED_CONTROL), f"{TRACKED_CONTROL} reads ignored: ignore probe is dead"
 
 
+def _guard_id(path: Path) -> str:
+    """A node id that reads the same from the prod checkout and from a worktree."""
+    for root, label in ((REPO, ""), (PRIMARY, "primary:")):
+        if path.is_relative_to(root):
+            return label + str(path.relative_to(root))
+    return str(path)
+
+
 def _env() -> dict:
     return json.loads(SETTINGS.read_text()).get("env", {})
 
@@ -155,7 +163,7 @@ def test_the_key_is_not_in_tracked_settings() -> None:
     assert "QDRANT_API_KEY" not in _env()
 
 
-@pytest.mark.parametrize("path", NAMESPACE_GUARD_FILES, ids=str)
+@pytest.mark.parametrize("path", NAMESPACE_GUARD_FILES, ids=_guard_id)
 def test_no_namespace_splitting_variable(path: Path) -> None:
     """VM-local where the file is VM-local; skips loudly rather than passing vacuously."""
     if not path.is_file():

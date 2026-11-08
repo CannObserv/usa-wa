@@ -8,7 +8,7 @@ Grouped references split out so each stays loadable on its own:
 - [COMMANDS-SUCCESSION.md](COMMANDS-SUCCESSION.md) — operator succession events, committee-succession links
 - [COMMANDS-BACKFILL.md](COMMANDS-BACKFILL.md) — the write-free discovery probes
 - [COMMANDS-ROSTER.md](COMMANDS-ROSTER.md) — the roster PDF: raw harvest + monthly edition re-check (#421/#237)
-- [DEPLOYMENT-HOST.md](DEPLOYMENT-HOST.md) § Host maintenance — the disk GC and the slim ollama image (#394); plain bash, not job-harness CLIs
+- [DEPLOYMENT-HOST.md](DEPLOYMENT-HOST.md) § Host maintenance — the canonical disk GC (#394, #508); plain bash, not job-harness CLIs
 
 ## Command index
 
