@@ -284,6 +284,22 @@ def test_fwupd_is_declared_purged() -> None:
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", purged[1])
 
 
+def test_docker_is_declared_purged() -> None:
+    """Docker ran only SocratiCode's local store, which moved to ``co-index``; it was
+    purged with its group and data on 2026-11-08 (#556). The line stays until the
+    base image stops shipping Docker (pruning.md), so a re-provisioned VM's Docker
+    reads as a decision already made rather than as a new prune candidate."""
+    (purged,) = [e for e in _named("exception") if e[0] == "purged:docker"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", purged[1])
+
+
+def test_the_retired_local_store_has_no_exception() -> None:
+    """No exception is kept for a datastore the host no longer runs: one would excuse a
+    resurrected local Qdrant from the backup check without anyone deciding it again."""
+    names = [e[0] for e in _named("exception")]
+    assert not [n for n in names if n.startswith("datastore:socraticode")], names
+
+
 def test_migrate_is_the_only_oneshot_that_stays_active() -> None:
     """The inflight count excludes ``usa-wa-migrate`` alone. A second unit with
     ``RemainAfterExit=yes`` would read ``active (exited)`` for good, so the
