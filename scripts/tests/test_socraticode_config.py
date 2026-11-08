@@ -196,10 +196,14 @@ def test_no_namespace_splitting_variable(channel: str) -> None:
         "127.0.0.1:16334:6334",
         "127.0.0.1:11435:11434",
         "QDRANT__TELEMETRY_DISABLED=true",
+        # The knob records Docker as purged; a reinstall that leaves the line hides
+        # dockerd and the docker group from every patching run until it expires.
+        "exception purged:docker",
     ],
 )
-def test_the_way_back_stays_on_loopback(phrase: str) -> None:
-    """Re-enabling a local store must publish on loopback, telemetry off (skills#494).
+def test_the_way_back_is_safe(phrase: str) -> None:
+    """Re-enabling a local store must publish on loopback, telemetry off (skills#494),
+    and undo the knob's Docker purge so the patching probe sees dockerd again.
 
     SocratiCode's own ``docker run -p <port>:…`` binds every interface, and Qdrant
     there asks for no key, so the documented way back pre-creates the containers.

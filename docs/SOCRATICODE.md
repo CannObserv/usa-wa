@@ -281,7 +281,9 @@ reaches the server: either splits the shared namespace with every check still gr
 - **`co-index` down = no semantic search.** Nothing in production depends on it; use `grep`.
   It has 2 shared vCPUs, so a first `codebase_index` can queue behind another repo's.
 
-**The way back, if `co-index` is gone for good.** Reinstall `docker.io`, drop the six store
+**The way back, if `co-index` is gone for good.** Reinstall `docker.io`; in
+`.skills/patching-hosts`, drop the `exception purged:docker` line and declare the Qdrant
+datastore again (else the patching probe hides dockerd and the `docker` group); drop the six store
 variables from `settings.json` (keep `.socraticode.json`), and pre-create both containers
 **before** the first session. SocratiCode's own `docker run -p <port>:…` publishes on every
 interface, where Qdrant asks for no key (gregoryfoster/skills#494):

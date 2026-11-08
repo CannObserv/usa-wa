@@ -35,6 +35,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]  # scripts/tests/ → repo root
 KNOB = REPO / ".skills" / "patching-hosts"
 READ_KNOB = REPO / "skills" / "patching-hosts" / "scripts" / "read-knob.sh"
+PRUNE_LIB = REPO / "skills" / "patching-hosts" / "scripts" / "_prune-lib.sh"
 DEPLOY = REPO / "deploy"
 HOST = "usa-wa"
 
@@ -282,6 +283,38 @@ def test_fwupd_is_declared_purged() -> None:
     on 2026-10-14 (#497, wslcb-licensing-tracker#193's route)."""
     (purged,) = [e for e in _named("exception") if e[0] == "purged:fwupd"]
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", purged[1])
+
+
+def test_docker_is_declared_purged() -> None:
+    """Docker ran only SocratiCode's local store, which moved to ``co-index``; it was
+    purged with its group and data on 2026-11-08 (#556). The line stays until the
+    base image stops shipping Docker (pruning.md), so a re-provisioned VM's Docker
+    reads as a decision already made rather than as a new prune candidate."""
+    (purged,) = [e for e in _named("exception") if e[0] == "purged:docker"]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", purged[1])
+    assert purged[2:], "an exception needs its reason"
+
+
+def test_docker_is_a_component_the_skill_knows() -> None:
+    """``purged:<name>`` covers a component only under the skill's own name for it."""
+    if not PRUNE_LIB.is_file():
+        pytest.skip("skills-vendor/ unpopulated: git submodule update --init --recursive")
+    (line,) = [
+        ln for ln in PRUNE_LIB.read_text().splitlines() if ln.startswith("PRUNE_COMPONENTS=")
+    ]
+    assert "docker" in line.split("=", 1)[1].strip("\"'").split()
+
+
+#: The retired local store's names, whatever an exception would call it.
+RETIRED_STORE = ("socraticode", "qdrant", "ollama")
+
+
+def test_the_retired_local_store_has_no_exception() -> None:
+    """No exception is kept for a datastore the host no longer runs: one would excuse a
+    resurrected local Qdrant from the backup check without anyone deciding it again.
+    The way back in docs/SOCRATICODE.md is that decision, and changes this test."""
+    names = [e[0] for e in _named("exception") if e[0].startswith("datastore:")]
+    assert not [n for n in names if any(word in n.lower() for word in RETIRED_STORE)], names
 
 
 def test_migrate_is_the_only_oneshot_that_stays_active() -> None:
