@@ -123,7 +123,7 @@
     {
       "name": "deployment-host",
       "path": "./docs/DEPLOYMENT-HOST.md",
-      "description": "Host hazards that break correct units \u2014 the assert-main-checkout gate that keeps the prod checkout on main (#87), the shared-venv integrity guard (#279), memory-pressure protection (MemoryLow, OOMScoreAdjust, earlyoom, #389), and the disk GC + slim ollama image host-maintenance commands (#394)."
+      "description": "Host hazards that break correct units \u2014 the assert-main-checkout gate that keeps the prod checkout on main (#87), the shared-venv integrity guard (#279), memory-pressure protection (MemoryLow, OOMScoreAdjust, earlyoom, #389), and the canonical disk GC host-maintenance commands (#394, #508)."
     },
     {
       "name": "runbook-rollover",

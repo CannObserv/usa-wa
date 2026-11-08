@@ -352,28 +352,3 @@ sudo systemctl daemon-reload
 It never touches repo data (`data/`, `raw/`, the dbt logs, the duckdb: #396) or a
 registered worktree; `du -sh` measures them now. patching-hosts reads the sensor's
 `alert_at_percent` as a floor for a patch step.
-
-```bash
-# Rebuild ollama/ollama:latest without its accelerator runtimes
-scripts/slim-ollama-image.sh
-scripts/slim-ollama-image.sh --force       # rebuild even if already slim
-```
-
-The stock image costs **8.06 GB on disk / 3.27 GB of content** to serve one
-274 MB embedding model: `cuda_v12` 1.2 G, `cuda_v13` 831 M, `mlx_cuda_v13`
-2.0 G, `vulkan` 47 M — 4.0 GB of accelerator runtime on a VM with no
-accelerator. Stripping them took the volume from 98% to 57% with a
-byte-identical embedding response.
-
-It refuses on a host that has a GPU, refuses without headroom for the rebuild,
-and keeps the fat image until the replacement is verified serving the model —
-that image is the only rollback. The rebuilt image keeps the
-`ollama/ollama:latest` tag (SocratiCode hardcodes it, and its
-`isOllamaImagePresent()` gates the pull on it being present locally) and carries
-a `dev.usa-wa.slim` label. A plain `docker pull` silently restores the fat
-image, and since #508 nothing reports it by name. Until #556 retires the local
-image, check by hand:
-
-```bash
-docker image inspect ollama/ollama:latest --format '{{index .Config.Labels "dev.usa-wa.slim"}}'   # cpu-only-gpu-libs-stripped
-```

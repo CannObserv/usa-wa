@@ -17,8 +17,8 @@ Python ≥3.12, uv, pytest, ruff; dbt-duckdb for the #302 pipeline — commands 
 <!-- BEGIN socraticode-policy -->
 ## Code Exploration Policy
 
-SocratiCode is the preferred semantic-search tool here once indexed (local
-Qdrant store + on-disk graph; manifest `.socraticodecontextartifacts.json`).
+SocratiCode is the preferred semantic-search tool here once indexed (shared
+`co-index` store + on-disk graph; manifest `.socraticodecontextartifacts.json`).
 Its MCP tools are **deferred** — schemas load only after the `ToolSearch`
 prefetch that `.claude/hooks/socraticode-reminder.sh` prints each session.
 

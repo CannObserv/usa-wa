@@ -256,6 +256,47 @@ Everything below the `END` marker above is repo-authored and survives a
 `init-socraticode` re-run. It was carried over unchanged from
 `docs/CODE-EXPLORATION.md`, which this file replaced in #406.
 
+### The store is `co-index`'s (#556)
+
+This repo is a client of the cohort's shared Qdrant and Ollama on `co-index`
+(CannObserv/notifier#57; procedures in CannObserv/index). Nothing runs locally:
+the containers, their volumes and images, and Docker itself left this host in #556.
+
+| What | Where |
+|---|---|
+| `projectId: usa-wa` — collections `codebase_usa-wa`, … | `.socraticode.json` |
+| external Qdrant (`https://index.taild0fb76.ts.net:6333`) and Ollama (`http://index:11434`), `nomic-embed-text`, 768 | [`.claude/settings.json`](../.claude/settings.json) `env` |
+| `QDRANT_API_KEY`, the cohort's one key | `~/usa-wa/.claude/settings.local.json`, git-ignored, 0600; install or rotate: CannObserv/index `docs/installing-the-key.md` |
+
+[`test_socraticode_config.py`](../scripts/tests/test_socraticode_config.py) pins all three, and
+fails if `QDRANT_COLLECTION_PREFIX` or `SOCRATICODE_BRANCH_AWARE` appears anywhere that
+reaches the server: either splits the shared namespace with every check still green.
+
+- **The key is the primary checkout's.** A session started in a worktree has none, and its
+  `codebase_*` calls get 401; the health hook names this. Index and verify from `~/usa-wa`;
+  never copy the key into a worktree. Expect a fresh key to install as `installed 64 chars`;
+  any other length is a truncated transfer.
+- **An untrusted folder ignores the `env` block** and falls back to `managed` mode. With Docker
+  gone that fails loudly; trust the folder rather than reinstalling Docker.
+- **`co-index` down = no semantic search.** Nothing in production depends on it; use `grep`.
+  It has 2 shared vCPUs, so a first `codebase_index` can queue behind another repo's.
+
+**The way back, if `co-index` is gone for good.** Reinstall `docker.io`, drop the six store
+variables from `settings.json` (keep `.socraticode.json`), and pre-create both containers
+**before** the first session. SocratiCode's own `docker run -p <port>:…` publishes on every
+interface, where Qdrant asks for no key (gregoryfoster/skills#494):
+
+```bash
+docker run -d --name socraticode-qdrant --restart unless-stopped \
+  -p 127.0.0.1:16333:6333 -p 127.0.0.1:16334:6334 -e QDRANT__TELEMETRY_DISABLED=true \
+  -v socraticode_qdrant_data:/qdrant/storage qdrant/qdrant:v1.17.0
+docker run -d --name socraticode-ollama --restart unless-stopped \
+  -p 127.0.0.1:11435:11434 -v socraticode_ollama_data:/root/.ollama ollama/ollama:latest
+ss -ltn | grep -E ':(16333|16334|11435) '   # every line 127.0.0.1
+```
+
+Then `codebase_index` from `~/usa-wa`. The health hook reports any listener off loopback.
+
 ### Dated prose is out of the code index (#406)
 
 `docs/plans/`, `docs/specs/` and `docs/research/` are in `.socraticodeignore`, so

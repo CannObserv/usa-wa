@@ -9,6 +9,7 @@ Currently defined:
 - `GH_TOKEN` — GitHub personal access token (used by `gh` CLI)
 - `ANTHROPIC_API_KEY` — **optional**, repo-root `.env` only. Consumed by `curating-context`'s `measure-context.sh --exact`, which counts tokens via the Anthropic `count_tokens` endpoint (free to call, no tokens billed). Without it the run degrades to a calibrated offline estimate, records `tokens_exact: false`, and `record-telemetry.sh` then **refuses the ledger append** (exit 4) rather than reset the trend baseline — so a weekly curation with no key silently produces no row. A Claude Code session exports no key of its own; the script parses this one out of `.env`. See [SKILLS.md § Context budget](SKILLS.md#context-budget).
 - `SOCRATICODE_SPEC` — the npm spec the SocratiCode plugin's session server launches (#415), `socraticode@1.16.0`; unset, it floats on `socraticode@latest` and installs at session start. Declared in `.claude/settings.json` `env`, which `preflight.sh` compares against; what actually reaches the launch is the host's VS Code machine setting `claudeCode.environmentVariables`. Must match the driver's pre-install — a re-pin changes all three and first warms the new spec's npx tree under the cap, or the next session start installs it uncapped. The canonical disk GC (#508) reads it from both places (`npx_spec_files` names `.claude/settings.json`) and never prunes those specs' npx trees (#485): [SOCRATICODE.md § The server is pinned](SOCRATICODE.md#the-server-is-pinned-not-installed-per-launch-389).
+- `QDRANT_MODE`, `QDRANT_URL`, `OLLAMA_MODE`, `OLLAMA_URL`, `EMBEDDING_MODEL`, `EMBEDDING_DIMENSIONS` — SocratiCode's client of the shared `co-index` store (#556): `external`, the full MagicDNS `https://` Qdrant URL (the key needs TLS), `external`, `http://index:11434`, `nomic-embed-text`, `768`. Declared in `.claude/settings.json` `env`; `QDRANT_API_KEY` is host-local, in the git-ignored `.claude/settings.local.json`. Never set `QDRANT_COLLECTION_PREFIX` or `SOCRATICODE_BRANCH_AWARE`: [SOCRATICODE.md § The store](SOCRATICODE.md#the-store-is-co-indexs-556).
 - `DATABASE_URL` — PostgreSQL connection string (app role `usa_wa_app` — DML only)
 - `DATABASE_URL_OWNER` — owner-role DSN for migrations (migrate host only; `usa-wa-migrate.service` + `scripts/migrate.sh`). `alembic/env.py` prefers it over `DATABASE_URL`. Absent from the live API unit. A job that declares `role="owner"` to `run_job()` (#179b) resolves it through `get_database_url("owner")` for a per-run engine, never falling back to `DATABASE_URL`; no job declares it since #412 PR F deleted the one-shot span/source migration CLIs that did.
 - `TEST_DATABASE_URL` — PostgreSQL connection string for the test database (test role; database name must end in `_test`)
@@ -34,28 +35,6 @@ Currently defined:
 - `GOOGLE_APPLICATION_CREDENTIALS` — the GCS key's path, read by the SDK. The backup unit sets it to its credential copy (`%d/gcs`) and refuses to start (exit 2) when `backup.env` overrides it; a restore run by hand passes `/etc/usa-wa/co-usa-wa-backup.json` (#434).
 - `USA_WA_JOB_LEDGER` — `0` turns the #178 run ledger off for every `run_job` job, an explicit `ledger=True` included, and logs `job_ledger_disabled` (#135). Set only by the rollover rehearsal (`scripts/rollover-rehearsal.sh`), which runs the real nightly jobs against scratch roots — without it `/health/jobs` would serve a rehearsal run as its slug's latest. Any other value, unset included, records. **Never set in `/etc/usa-wa/.env`**: outside a rehearsal the nightly counts it as a failed stage (mailed) and keeps publishing.
 - `USA_WA_ALERT_EMAIL` — recipient for oneshot failure alerts (#49). Consumed by `scripts/notify-failure.sh` (the `usa-wa-notify-failure@.service` `OnFailure=` handler). Must be **you / an exe.dev team member** (gateway recipient allow-list). The script **fails closed** if unset, so set it in `/etc/usa-wa/.env` to arm alerting. See [DEPLOYMENT.md](DEPLOYMENT.md) § Failure alerting.
-
-### Host maintenance (#394) — `scripts/slim-ollama-image.sh`
-
-Read from the environment, and wired to no `EnvironmentFile=`: defaults in the
-script, overridable for an ad-hoc run — not knobs for `/etc/usa-wa/.env`. The
-disk GC that retired in #508 had its `DISK_GC_*` variables here; the canonical GC
-reads `/etc/cannobserv/disk-gc/disk-gc.conf` instead
-([DEPLOYMENT-HOST.md § Host maintenance](DEPLOYMENT-HOST.md#host-maintenance-394-508)).
-
-- `SLIM_DOCKER`, `SLIM_CURL` — the two binaries the ollama rebuild drives;
-  stubbed by its tests so nothing reaches a real daemon.
-- `SLIM_GPU_GLOB` — path glob whose matching means this host has an accelerator
-  and must not be stripped; default `/dev/nvidia*`, empty disables. The refusal
-  exists because the CUDA/ROCm/MLX runtimes are dead weight *here* and the fast
-  path on a GPU host.
-- `SLIM_MIN_FREE_BYTES` — headroom required before rebuilding; default 2 GiB.
-  `docker export | docker import` materialises the replacement while the
-  original 8 GB image still exists.
-- `SLIM_MOUNT`, `SLIM_OLLAMA_PORT`, `SLIM_OLLAMA_MODEL`, `SLIM_EXPECTED_DIMS` —
-  default `/`, `11435`, `nomic-embed-text`, `768`. The last two are the
-  post-rebuild verification: the model must be present and embedding at the
-  expected dimensionality before the original image is discarded.
 
 ### Nightly pipeline — `scripts/pipeline-nightly.sh`
 

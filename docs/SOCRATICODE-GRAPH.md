@@ -79,4 +79,5 @@ the resume working, not a failure.
 **`codebase_remove` is total, not index-only.** It drops every collection for the project — the
 graph and symbol graphs with it. A from-scratch code index rebuilds them unprompted, but budget for
 it: the full rebuild measured here was ~110 minutes for 5,562 chunks plus ~43 for 1,013 context
-chunks, embedding locally against `nomic-embed-text`.
+chunks, embedding against the then-local `nomic-embed-text`. Since #556 the embedder is
+`co-index`'s, 2 vCPUs shared with the cohort: re-measure rather than reuse that figure.
