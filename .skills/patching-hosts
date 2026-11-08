@@ -85,6 +85,9 @@ exception database:usa_wa_1_test 2027-04-14 pytest xdist worker database, rebuil
 exception database:usa_wa_2_test 2027-04-14 pytest xdist worker database, rebuilt by the suite
 exception database:usa_wa_3_test 2027-04-14 pytest xdist worker database, rebuilt by the suite
 exception database:usa_wa_4_test 2027-04-14 pytest xdist worker database, rebuilt by the suite
+# SocratiCode's agent search index (docs/SOCRATICODE.md): dev tooling, not
+# production, and rebuilt by re-indexing rather than restored.
+exception datastore:socraticode-qdrant 2027-04-14 agent code-search index, dev tooling; rebuilt by re-indexing, never restored
 # The restarter scan can't follow a uv run or python -m module. None starts or
 # restarts a unit (read 2026-10-14): no systemctl in any, and the backup runs
 # with an empty capability set, shelling out only to pg_dump, psql and git.

@@ -54,25 +54,40 @@ PROJECT_ID_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123
 #: mints a fresh, empty collection set per branch.
 NAMESPACE_GUARDS = ("QDRANT_COLLECTION_PREFIX", "SOCRATICODE_BRANCH_AWARE")
 
-#: The primary checkout: the one the key is installed into, which a worktree is not.
-PRIMARY = Path(
-    subprocess.run(
+
+def _primary_checkout() -> Path:
+    """The checkout the key is installed into; a worktree is not it.
+
+    Falls back to this tree when git cannot answer, so collection never breaks.
+    """
+    out = subprocess.run(
         ["git", "-C", str(REPO), "rev-parse", "--path-format=absolute", "--git-common-dir"],
         capture_output=True,
         text=True,
-        check=True,
-    ).stdout.strip()
-).parent
+        check=False,
+    )
+    return Path(out.stdout.strip()).parent if out.returncode == 0 else REPO
 
-#: Everywhere a variable could reach the MCP server's environment on this host.
-#: Host-local files skip when absent; only the variable NAMES are ever reported.
-NAMESPACE_GUARD_FILES = [
-    SETTINGS,
-    PRIMARY / ".claude" / "settings.local.json",
-    PRIMARY / ".env",
-    Path("/etc/usa-wa/.env"),
-    *sorted((REPO / "deploy").glob("*.service")),
-]
+
+PRIMARY = _primary_checkout()
+HOME = Path.home()
+
+#: Every channel that reaches the MCP server's environment here, by a stable label: the
+#: project settings (this tree's and the primary checkout's local file — in the primary
+#: checkout the two are one), the user's, and the VS Code machine setting that launches
+#: ``claude`` (where ``SOCRATICODE_SPEC`` really takes effect). Host-local ones skip when
+#: absent. ``env`` keys are read where the file has them, so a comment naming a variable
+#: is not a finding; the VS Code file is matched as text.
+NAMESPACE_CHANNELS = {
+    "project settings.json": (SETTINGS, "env"),
+    "this tree's settings.local.json": (REPO / ".claude" / "settings.local.json", "env"),
+    "primary settings.local.json": (PRIMARY / ".claude" / "settings.local.json", "env"),
+    "user ~/.claude/settings.json": (HOME / ".claude" / "settings.json", "env"),
+    "VS Code machine settings": (
+        HOME / ".vscode-server" / "data" / "Machine" / "settings.json",
+        None,
+    ),
+}
 
 #: The retired local store's tooling (#394), gone with the image it slimmed.
 RETIRED = ("slim-ollama" + "-image", "dev.usa-wa" + ".slim")
@@ -121,14 +136,6 @@ def test_the_probes_answer() -> None:
     assert not _ignored(TRACKED_CONTROL), f"{TRACKED_CONTROL} reads ignored: ignore probe is dead"
 
 
-def _guard_id(path: Path) -> str:
-    """A node id that reads the same from the prod checkout and from a worktree."""
-    for root, label in ((REPO, ""), (PRIMARY, "primary:")):
-        if path.is_relative_to(root):
-            return label + str(path.relative_to(root))
-    return str(path)
-
-
 def _env() -> dict:
     return json.loads(SETTINGS.read_text()).get("env", {})
 
@@ -163,14 +170,23 @@ def test_the_key_is_not_in_tracked_settings() -> None:
     assert "QDRANT_API_KEY" not in _env()
 
 
-@pytest.mark.parametrize("path", NAMESPACE_GUARD_FILES, ids=_guard_id)
-def test_no_namespace_splitting_variable(path: Path) -> None:
-    """VM-local where the file is VM-local; skips loudly rather than passing vacuously."""
-    if not path.is_file():
-        pytest.skip(f"{path} absent on this host")
+def _names_set(path: Path, key: str | None) -> list[str]:
+    """The guarded names a channel sets. Never returns, logs or asserts on a value."""
     text = path.read_text()
-    found = [name for name in NAMESPACE_GUARDS if name in text]
-    assert not found, f"{path} sets {found}: the shared store's namespace splits"
+    if key is None:
+        return [name for name in NAMESPACE_GUARDS if name in text]
+    env = json.loads(text).get(key) or {}
+    return [name for name in NAMESPACE_GUARDS if name in env]
+
+
+@pytest.mark.parametrize("channel", sorted(NAMESPACE_CHANNELS))
+def test_no_namespace_splitting_variable(channel: str) -> None:
+    """VM-local where the channel is VM-local; skips loudly rather than passing vacuously."""
+    path, key = NAMESPACE_CHANNELS[channel]
+    if not path.is_file():
+        pytest.skip(f"{channel}: {path} absent on this host")
+    found = _names_set(path, key)
+    assert not found, f"{channel} ({path}) sets {found}: the shared store's namespace splits"
 
 
 @pytest.mark.parametrize(
@@ -194,5 +210,7 @@ def test_the_way_back_stays_on_loopback(phrase: str) -> None:
 @pytest.mark.parametrize("needle", RETIRED)
 def test_the_local_store_tooling_is_retired(needle: str) -> None:
     """No tracked file still runs or documents the slim-ollama rebuild."""
-    hits = _git("grep", "-l", "-F", needle).stdout.split()
+    grep = _git("grep", "-l", "-F", needle)
+    assert grep.returncode in (0, 1), f"git grep failed, searched nothing: {grep.stderr}"
+    hits = grep.stdout.split()
     assert not hits, f"{needle!r} still named in {hits}"
