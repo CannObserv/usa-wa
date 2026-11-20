@@ -123,9 +123,9 @@ Reading it:
 - **Races, counted directly:** the 21 even-year generals of 1966–2006 should hold 2,061 House
   races (99 in each of 1966–1970, 98 after). The file holds 2,058. The missing three are 1990
   LD 39 Position 1 and both 1996 LD 43 Positions, all filed under the Senate office.
-- **1914–1964 is complete for who was on the ballot,** less spelling. The 193 House
-  term-openers with no general are 1910 and 1912; the 21 Senate ones are 1912. The 24 absent Senate districts are
-  1910 (18), 1918 (4, mislabelled as House races) and 1926 (2, LD 3).
+- **1914–1964 is complete for who was on the ballot,** less spelling. The 193 House term-openers
+  with no general are 1910 and 1912; the 21 Senate ones are 1912. The 24 absent Senate districts
+  are 1910 (18), 1918 (4, mislabelled as House races) and 1926 (2, LD 3).
 - **Every near-miss is a one- or two-letter variant** (`Herrman`/`Herrmann`,
   `Mafaffey`/`Mahaffey`, `Thibadeau`/`Thibaudeau`), 47 in all. At least one is the roster's own
   typo (`Martiamnis` for Martinis, 1983).
@@ -202,11 +202,12 @@ Only `General` rows elect. The rule, per shape:
 | At-large pool | House through 1964 | Top *N*, where *N* is the district's seat count. ***N* is not in the file** | Taking *N* from the roster, the seated members are the top *N* in 1,301 of 1,325 pools |
 | Odd-year special | 11 odd years | Top `Votes`, for the unexpired term. **Do not read the Position** ([§ Defects](#defects-in-the-file)) | As labelled, 32 House races and 19 Senate. In fact 16 and 16: 19 labelled races repeat 1982, and two House-labelled ones are Senate specials |
 
-- **Primaries nominate and never elect**, under every system the file spans: party primaries
-  to 1934, the blanket primary 1936–2002, pick-a-party in 2004 and 2006. Top-two began in 2008,
-  outside the file. (The system dates are background, not something this audit measured.) Measured for 1966–2006: in 4,597 of 4,712 cases a party's top primary
-  vote-getter is its general candidate. A primary row is candidacy evidence only: it shows
-  which Position someone filed for (the McGrath case, #495).
+- **Primaries nominate and never elect**, under every system the file spans: party primaries to
+  1934, the blanket primary 1936–2002, pick-a-party in 2004 and 2006. Top-two began in 2008,
+  outside the file. (The system dates are background, not something this audit measured.)
+  Measured for 1966–2006: in 4,597 of 4,712 cases a party's top primary vote-getter is its
+  general candidate. A primary row is candidacy evidence only: it shows which Position someone
+  filed for (the McGrath case, #495).
 - **Ties:** none in any one-seat general.
 - **Write-ins:** four `Scattering` aggregate rows (three in generals, at most 162 votes), plus
   one-vote surname-only rows in 1918 and 1932. None can win. Do not drop rows for lacking a
@@ -270,8 +271,9 @@ Distinct House seats with a positioned holder, per biennium:
 | With A and B | 97 | 98 | 98 | 98 | 98 | 96 | 98 | 98 | 98 |
 
 **Below the WSL floor** (roster era, sessions 1967–1989): of 1,230 roster House rows, 1,170 are
-A and 47 are B (1,168 and 49 under the second pass's surname rule; 1,217 either way). None is published today, and publishing them is a larger build than this one
-(roster-sourced House spans, the LD 42 third seat, `role_periods` per plan).
+A and 47 are B (1,168 and 49 under the second pass's surname rule; 1,217 either way). None is
+published today, and publishing them is a larger build than this one (roster-sourced House
+spans, the LD 42 third seat, `role_periods` per plan).
 
 **Agreement with what is already published.** Every published House member-biennium through
 2007-08 was compared with the archive:
@@ -312,7 +314,8 @@ owes us nothing.
   by the spreadsheet. Read `BallotName`.
 - `ElectionDate` is a 255-character string of `#` on 4 rows, all 1898 measures (a pre-1900
   date the spreadsheet cannot hold). None is legislative.
-- `OfficePosition` is an integer on 728 measure rows and the string `NA` on federal and statewide rows.
+- `OfficePosition` is an integer on 728 measure rows and the string `NA` on federal and
+  statewide rows.
 - `Votes` is empty on 2 rows (a 1936 judicial primary).
 - `results/workbook.py` reads xlsx with the stdlib; this sheet's typed date and boolean cells
   need their own handling there.
