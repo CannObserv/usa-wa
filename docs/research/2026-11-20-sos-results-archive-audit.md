@@ -386,8 +386,8 @@ Position 2 on all four of 2001–2005. Use a special for who won, and never for 
 
 - Primary and general agree on a candidate's Position in **3,814 of 3,814** cases where both
   exist (1966–2006), pairing a candidate within a year and district on folded `LastName` plus
-  first initial. Five other name keys give 3,603 to 3,866 pairs, with no disagreement under
-  any.
+  first initial. The second pass tried five name keys of its own and got 3,603 to 3,866
+  pairs, with no disagreement under any.
 - A winner re-elected in the same LD at the next general kept the Position in 1,091 of 1,106
   cases within a plan, and 193 of 204 across a redistricting, on the same key. The second pass
   counted 26 switches as well, on denominators of 1,120 and 211.
