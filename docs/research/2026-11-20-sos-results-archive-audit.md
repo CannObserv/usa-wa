@@ -19,8 +19,9 @@ claims.
   seating general alone** and 40 more from a later candidacy. Era A (1991-92 … 2001-02) has no
   published seat today except two in 2001-02; with the archive it has 96 to 98 per biennium.
 - **Five things in the file are wrong, and a build must not trust them:** the Position label
-  on odd-year special elections, 19 races of the 1982 general repeated as 1983, nine races filed under the wrong office (three House races as
-  Senate; six Senate races as House, in 1918 and 1977), the `ElectionDate` of 31 of 59 generals, and candidate spellings.
+  on odd-year special elections; 19 races of the 1982 general repeated as 1983; nine races
+  filed under the wrong office (three House races as Senate, and six Senate races as House in
+  1918 and 1977); the `ElectionDate` of 31 of 59 generals; and candidate spellings.
 - **Before 1966 the file has no Positions at all.** `Position #1` is a placeholder for an
   at-large pool. The first Positions were elected in 1966, so the House seated for 1965-66 was
   still at-large.
@@ -435,7 +436,8 @@ all four as real.
    re-checked monthly by a dry run, with the href resolved from the landing page. It has an
    `ETag` and `Last-Modified`, so the re-check can be conditional.
 4. **Guards the build needs,** each from a measured defect:
-   - never read a Position from an odd-year row;
+   - never read a Position from an odd-year row, and check an odd-year row's office against
+     the roster before using it for anything (the 1977 pair);
    - drop a race that repeats another election's vote counts (the 1983 block), found by
      comparing counts and not by listing districts;
    - omit, never guess, a district-year whose House race count or Senate race is the wrong
