@@ -82,13 +82,17 @@ Scratch analysis, re-runnable from this description.
 - **Both directions.** *Winners → roster* asks whether each derived winner was seated (the
   `audit_roster` path). *Roster → winners* asks whether each member who opened a term appears
   as a winner. The second is the completeness measure. A roster row counts as opening a term
-  when its annotation states no appointment, swearing-in or election
-  (`succession.parse_annotation`); mid-term successors are left out.
+  when its annotation states no appointment, swearing-in or election ahead of any resignation
+  or death (`succession.parse_annotation`). A clause after a departure says where the member
+  went, not how they arrived. Mid-term successors are left out.
 - **Names** fold through `usa_wa_common.names` (`surname_match_set`, `fold_token`,
   `strip_non_name_parts`), with no exact strings. A miss was then re-tested with an edit
   distance of two, only to classify it. That second pass never counts as a match.
 - **Published state:** `assignments` `v20261109T080301Z-511694` (schema 1.8.0, 8,397 rows) and
   `stg_wsl_sponsors`, read from a scratch copy of `data/pipeline.duckdb`.
+- **Checked twice.** A second pass re-derived the file facts, §§ 1–3, § 6 and the hazard counts
+  from the raw workbook with separate code. Where a figure depends on how a name is keyed, the
+  text says so and gives both results.
 
 The match rates below are a floor on disagreement, not a score, for the reason
 [MODULES-LEGISLATURE-ROSTER.md](../MODULES-LEGISLATURE-ROSTER.md) gives: a roster row covers
@@ -160,6 +164,9 @@ that one "Position" holds the district's whole at-large pool:
 - In **1,301 of the 1,325** pools where a seated member was matched, the seated members are
   exactly the top vote-getters. That is block voting, not a Position contest. The other 24 are
   spelling near-misses and same-surname collisions, plus a handful where a winner did not sit.
+
+Both pool figures depend on the name key. The second pass got 927, 137 and 2 pools (the same
+1,066) and 1,306 of 1,325. The conclusion does not move.
 
 The 13 `Position #2` rows are a defect, not Positions. All are the 1918 general, in LDs 2, 16, 19
 and 24. In each, the two-candidate "Position #1" race is the district's **Senate** race
@@ -260,7 +267,7 @@ Distinct House seats with a positioned holder, per biennium:
 | With A and B | 97 | 98 | 98 | 98 | 98 | 96 | 98 | 98 | 98 |
 
 **Below the WSL floor** (roster era, sessions 1967–1989): of 1,230 roster House rows, 1,170 are
-A and 47 are B. None is published today, and publishing them is a larger build than this one
+A and 47 are B (1,168 and 49 under the second pass's surname rule; 1,217 either way). None is published today, and publishing them is a larger build than this one
 (roster-sourced House spans, the LD 42 third seat, `role_periods` per plan).
 
 **Agreement with what is already published.** Every published House member-biennium through
@@ -378,9 +385,12 @@ Position 2 on all four of 2001–2005. Use a special for who won, and never for 
 **4. Even-year Positions: sound.** Three independent checks:
 
 - Primary and general agree on a candidate's Position in **3,814 of 3,814** cases where both
-  exist (1966–2006).
+  exist (1966–2006), pairing a candidate within a year and district on folded `LastName` plus
+  first initial. Five other name keys give 3,603 to 3,866 pairs, with no disagreement under
+  any.
 - A winner re-elected in the same LD at the next general kept the Position in 1,091 of 1,106
-  cases within a plan, and 193 of 204 across a redistricting.
+  cases within a plan, and 193 of 204 across a redistricting, on the same key. The second pass
+  counted 26 switches as well, on denominators of 1,120 and 211.
 - All 262 published comparisons agree (§ 6).
 
 Among the switches are four **mutual swaps**, where a district's two incumbents trade
@@ -449,10 +459,12 @@ mislabelled seats, and McGrath and Lawrence until #586 is settled.
 
 ## Appendix A: per-year completeness
 
-Roster → winners, per general. *Districts* is districts with rows in the file over districts
-with a term-opening roster row. *Missing* is term-openers not found, for any reason. House
-districts before 1932 are in the roster parse's folded numbering (53 districts), and House
-"winner" before 1966 means "among the pool's top vote-getters".
+Roster → winners, per general. *Districts* is roster districts that have rows in the file, over
+roster districts with a term-opening row; a district the file has and the roster lacks is not
+counted. *Missing* is term-openers not found, for any reason. House districts before 1932 are in
+the roster parse's folded numbering (53 districts). House "winner" before 1966 is the pool test
+of § 2: the seated members matched in a pool are that pool's top vote-getters. It depends on the
+name key and moves by up to four a year under another.
 
 | General | House districts | Term-openers | On ballot | Winner | Near-miss | Missing | Senate districts | Term-openers | On ballot | Winner | Near-miss | Missing |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
