@@ -177,13 +177,14 @@ House pool was pushed to `Position #2`. Four of the 1,329 pools above are these.
 **The boundary by seating is 1967, not 1965.** The 1964 general is a pool in all 49 districts;
 1966 is the first with `Position #2` rows statewide. So the members seated for 1965-66 were
 elected at large, and 1967-68 is the first biennium with Positions. The repo's "pre-1965"
-shorthand names the year of the act. Nothing published depends on the difference today, since
+shorthand follows the year the law changed, as the #230 notes record it; this audit measured
+only the elections. Nothing published depends on the difference today, since
 no House span exists before 2001-02; a pre-1991 House build would.
 
 ## 3. The 13 `Position #3` rows
 
 Genuine. All are LD 42 in 1966, 1968 and 1970 (primary and general; Veroske, then Van Dyk).
-LD 42 elected three representatives under the 1965 plan, and the roster agrees: three LD 42
+LD 42 elected three representatives at each of those elections, and the roster agrees: three LD 42
 House members in each of 1967, 1969 and 1971, two from 1973. Those three generals hold 99 House
 races each for that reason.
 
@@ -202,7 +203,7 @@ Only `General` rows elect. The rule, per shape:
 
 - **Primaries nominate and never elect**, under every system the file spans: party primaries
   to 1934, the blanket primary 1936–2002, pick-a-party in 2004 and 2006. Top-two began in 2008,
-  outside the file. Measured for 1966–2006: in 4,597 of 4,712 cases a party's top primary
+  outside the file. (The system dates are background, not something this audit measured.) Measured for 1966–2006: in 4,597 of 4,712 cases a party's top primary
   vote-getter is its general candidate. A primary row is candidacy evidence only: it shows
   which Position someone filed for (the McGrath case, #495).
 - **Ties:** none in any one-seat general.
