@@ -158,8 +158,8 @@ The per-year table is [Appendix A](#appendix-a-per-year-completeness).
 Yes. Through the 1964 general every House row but 13 says `Position #1` (8,719 of 8,732), and
 that one "Position" holds the district's whole at-large pool:
 
-- In **1,066 of 1,329** pre-1965 pools, two or more seated members sit under the same
-  `Position #1`: 920 pools with two, 142 with three, 4 with four (for example 1948 LD 38:
+- In **1,066 of 1,329** pre-1965 pools, two or more seated members sit under one Position
+  label: 920 pools with two, 142 with three, 4 with four (for example 1948 LD 38:
   Bargreen, Carmichael and both Mardesiches).
 - In **1,301 of the 1,325** pools where a seated member was matched, the seated members are
   exactly the top vote-getters. That is block voting, not a Position contest. The other 24 are
@@ -169,10 +169,10 @@ Both pool figures depend on the name key. The second pass got 927, 137 and 2 poo
 1,066) and 1,306 of 1,325. The conclusion does not move.
 
 The 13 `Position #2` rows are a defect, not Positions. All are the 1918 general, in LDs 2, 16, 19
-and 24. In each, the two-candidate "Position #1" race is the district's **Senate** race
-(W. Lon Johnson, John C. Crawford, P. L. Sinclair, Wm. Bishop: all senators in the 1919 roster,
-and all four districts lack a 1918 Senate row), and the House pool was pushed to
-`Position #2`.
+and 24. In each, the "Position #1" race (two candidates, plus a `Scattering` row in LD 19) is the
+district's **Senate** race (W. Lon Johnson, John C. Crawford, P. L. Sinclair, Wm. Bishop: all
+senators in the 1919 roster, and all four districts lack a 1918 Senate general row), and the
+House pool was pushed to `Position #2`. Four of the 1,329 pools above are these.
 
 **The boundary by seating is 1967, not 1965.** The 1964 general is a pool in all 49 districts;
 1966 is the first with `Position #2` rows statewide. So the members seated for 1965-66 were
@@ -212,7 +212,8 @@ Only `General` rows elect. The rule, per shape:
 - **Fusion lines:** eight candidates in the 1910–1918 Senate primaries appear twice, once per
   party. Sum them. One 1910 general candidate is duplicated outright (`H. D. Jory` and
   `H.D. Jory`, 669 votes each); do not sum those.
-- **Zero-vote rows** (7) are placeholders: `- Withdrew`, `- filled by Democratic Central Com.`
+- **Zero-vote rows** (7) are placeholders. Four say so in the name (`- Withdrew`,
+  `- filled by Democratic Central Com.`); three are bare names in a 1946 primary.
 
 ## 5. Name matching
 
@@ -309,7 +310,7 @@ owes us nothing.
   by the spreadsheet. Read `BallotName`.
 - `ElectionDate` is a 255-character string of `#` on 4 rows, all 1898 measures (a pre-1900
   date the spreadsheet cannot hold). None is legislative.
-- `OfficePosition` is an integer on 728 measure rows and the string `NA` on federal rows.
+- `OfficePosition` is an integer on 728 measure rows and the string `NA` on federal and statewide rows.
 - `Votes` is empty on 2 rows (a 1936 judicial primary).
 - `results/workbook.py` reads xlsx with the stdlib; this sheet's typed date and boolean cells
   need their own handling there.
@@ -322,12 +323,13 @@ date.
 
 **Names.**
 
-- 273 `BallotName`s carry a comma suffix (`Jr.`, `Sr.`, `M.D.`, `III`); 1,539 carry a
-  parenthetical or quoted nickname; 5 are reversed (`Winsley, Shirley`, `Lee Eleanor`).
+- 269 `BallotName`s carry a comma suffix (`Jr.`, `Sr.`, `M.D.`, `III`); 1,539 carry a
+  parenthetical or quoted nickname; 5 are reversed, four with a comma (`Winsley, Shirley`) and
+  one without (`Lee Eleanor`).
 - Some carry annotations or party codes inside the name: `- Withdrew`, `Young-P`, `Siegel-BR`.
 - `LastName` disagrees with `BallotName` on 48 legislative rows (typos, a truncated `albot`, a
   suffix inside `LastName`).
-- 98 `FirstName` values have trailing whitespace; 31 `BallotName`s have doubled spaces.
+- 98 `FirstName` values have leading or trailing whitespace; 31 `BallotName`s have doubled spaces.
 
 **Party.** 46 distinct labels. `sos_party_slug` classifies `Democratic` and `Republican` (21,606
 rows) and nothing else: 1,331 rows across 44 labels are unclassified, among them abbreviations
