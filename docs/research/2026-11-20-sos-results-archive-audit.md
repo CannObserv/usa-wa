@@ -19,8 +19,8 @@ claims.
   seating general alone** and 40 more from a later candidacy. Era A (1991-92 … 2001-02) goes
   from 2 published seats to 96–98 per biennium.
 - **Four things in the file are wrong, and a build must not trust them:** the Position label
-  on odd-year special elections, three House races filed as Senate races (and four the other
-  way round in 1918), the `ElectionDate` of 31 of 59 generals, and candidate spellings.
+  on odd-year special elections, nine races filed under the wrong office (three House races as
+  Senate; six Senate races as House, in 1918 and 1977), the `ElectionDate` of 31 of 59 generals, and candidate spellings.
 - **Before 1966 the file has no Positions at all.** `Position #1` is a placeholder for an
   at-large pool. The first Positions were elected in 1966, so the House seated for 1965-66 was
   still at-large.
@@ -142,6 +142,10 @@ No derived winner contradicts the roster about who won. The five who never sat a
 each resigned between the election and the term, and a successor was appointed. An election
 winner is not a seating.
 
+Two of the 3,227 attestations are spurious. The 1977 LD 24 and LD 33 races are Senate specials
+filed as House races ([§ Defects](#defects-in-the-file)); each winner passes as a House claim
+only because they sat in the House until that election.
+
 The per-year table is [Appendix A](#appendix-a-per-year-completeness).
 
 ## 2. Pre-1965 `Position #1` is a placeholder
@@ -186,7 +190,7 @@ Only `General` rows elect. The rule, per shape:
 |---|---|---|---|
 | One seat | Senate, all years; House from 1966 | Top `Votes`, by the `_top_vote_winner` discipline: a sole candidacy wins without a count; a tie or a missing count omits the race | 3,268 races: 442 uncontested, **0 ties, 0 missing counts, 0 omitted** |
 | At-large pool | House through 1964 | Top *N*, where *N* is the district's seat count. ***N* is not in the file** | Taking *N* from the roster, the seated members are the top *N* in 1,301 of 1,325 pools |
-| Odd-year special | 11 odd years | Top `Votes`, for the unexpired term. **Do not read the Position** ([§ Defects](#defects-in-the-file)) | 32 House races, 19 Senate |
+| Odd-year special | 11 odd years | Top `Votes`, for the unexpired term. **Do not read the Position** ([§ Defects](#defects-in-the-file)) | As labelled, 32 House races and 19 Senate; two of the House ones are Senate specials |
 
 - **Primaries nominate and never elect**, under every system the file spans: party primaries
   to 1934, the blanket primary 1936–2002, pick-a-party in 2004 and 2006. Top-two began in 2008,
@@ -332,15 +336,18 @@ Three classes, each found by cross-checking rather than by reading labels.
 | Election | LD | In the file | In fact |
 |---|---|---|---|
 | 1918 general | 2, 16, 19, 24 | House `Position #1` (2 candidates), House pool at `Position #2` | The Senate race, and the House pool |
+| 1977 general | 24, 33 | House `Position #1` (Conner beat Nisbet; Lee beat Pedersen) | Senate specials for unexpired terms. The roster seats both winners in the Senate from November 1977 and fills their House seats by appointment that December; the file has no 1977 Senate row for either district |
 | 1990 primary and general | 39 | `State Senator` (Wynne beat Wilson) | House Position 1. The same chamber conflation as #144, here in SOS's own data |
 | 1996 general | 43 | `State Senator`, with Murray and Chopp as rivals | House Positions 1 and 2, each unopposed. The 1996 primary files them correctly |
 
 The 1996 case yields a **false Senate winner** under any top-vote rule. It is caught by shape:
 a Senate race in a district whose senator is mid-term, and a district missing House races.
+The 1977 cases yield two false House winners, and nothing in the file's shape gives them away:
+only the roster does.
 
-**2. Odd-year special elections carry an unreliable Position.** Of 32 odd-year House races,
-14 are the 1983 elections in LDs 43–49 (both Positions, consistent with 1982 and 1984). Of the
-other 18, **five labels contradict both the seat that was vacated and the winner's own next
+**2. Odd-year special elections carry an unreliable Position.** Of 32 odd-year races labelled
+House, two are the 1977 Senate specials above and 14 are the 1983 elections in LDs 43–49 (both
+Positions, consistent with 1982 and 1984). Of the other 16, **five labels contradict both the seat that was vacated and the winner's own next
 candidacy**:
 
 | Special | Winner | Label | Vacated seat | Winner's next race |
