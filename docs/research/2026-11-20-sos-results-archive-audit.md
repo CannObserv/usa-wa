@@ -18,8 +18,8 @@ claims.
   through 2007-08 that have no published seat today, the archive positions **610 from the
   seating general alone** and 40 more from a later candidacy. Era A (1991-92 … 2001-02) goes
   from 2 published seats to 96–98 per biennium.
-- **Four things in the file are wrong, and a build must not trust them:** the Position label
-  on odd-year special elections, nine races filed under the wrong office (three House races as
+- **Five things in the file are wrong, and a build must not trust them:** the Position label
+  on odd-year special elections, 19 races of the 1982 general repeated as 1983, nine races filed under the wrong office (three House races as
   Senate; six Senate races as House, in 1918 and 1977), the `ElectionDate` of 31 of 59 generals, and candidate spellings.
 - **Before 1966 the file has no Positions at all.** `Position #1` is a placeholder for an
   at-large pool. The first Positions were elected in 1966, so the House seated for 1965-66 was
@@ -63,7 +63,7 @@ archives the whole file rather than a slice of it.
 | Senate general | every even year 1914–2006 | 1912: none. 1910: 10 rows, 4 of 22 districts |
 | House primary | even years 1946–2006 | 1948: none. 1932–1944: 12 districts each. Before 1932: none |
 | Senate primary | even years 1946–2006 | 1948: none. 1910–1944: 4 to 11 districts each |
-| Odd-year specials | generals 1977, 1981, 1983, 1985, 1987, 1995, 1997, 1999, 2001, 2003, 2005 | primaries only for 1977, 1995, 1997, 1999, 2001 |
+| Odd-year specials | generals 1977, 1981, 1983, 1985, 1987, 1995, 1997, 1999, 2001, 2003, 2005 | primaries only for 1977, 1995, 1997, 1999, 2001. Most of 1983 is a repeat of 1982 ([§ Defects](#defects-in-the-file)) |
 
 Legislative coverage is 1910–2006. Nothing overlaps the `sos-legresults` feed, whose House
 floor is the 2008-11-04 general and whose 2007 index holds Senate specials only (#140).
@@ -126,8 +126,9 @@ Reading it:
   typo (`Martiamnis` for Martinis, 1983).
 
 Winners → roster, through `audit_roster`, for every race with one seat (the Senate in all years,
-the House from 1966): **3,268 claims, 3,227 attested (98.75%)**. The 41 unattested, classified by
-hand:
+the House from 1966): **3,268 claims, 3,227 attested (98.75%)**. The count is of races as
+labelled: 19 of them are the 1983 repeats of 1982 ([§ Defects](#defects-in-the-file)), attested
+because 1982's winners were seated. The 41 unattested, classified by hand:
 
 | Class | Count | Example |
 |---|---|---|
@@ -190,7 +191,7 @@ Only `General` rows elect. The rule, per shape:
 |---|---|---|---|
 | One seat | Senate, all years; House from 1966 | Top `Votes`, by the `_top_vote_winner` discipline: a sole candidacy wins without a count; a tie or a missing count omits the race | 3,268 races: 442 uncontested, **0 ties, 0 missing counts, 0 omitted** |
 | At-large pool | House through 1964 | Top *N*, where *N* is the district's seat count. ***N* is not in the file** | Taking *N* from the roster, the seated members are the top *N* in 1,301 of 1,325 pools |
-| Odd-year special | 11 odd years | Top `Votes`, for the unexpired term. **Do not read the Position** ([§ Defects](#defects-in-the-file)) | As labelled, 32 House races and 19 Senate; two of the House ones are Senate specials |
+| Odd-year special | 11 odd years | Top `Votes`, for the unexpired term. **Do not read the Position** ([§ Defects](#defects-in-the-file)) | As labelled, 32 House races and 19 Senate. In fact 16 and 16: 19 labelled races repeat 1982, and two House-labelled ones are Senate specials |
 
 - **Primaries nominate and never elect**, under every system the file spans: party primaries
   to 1934, the blanket primary 1936–2002, pick-a-party in 2004 and 2006. Top-two began in 2008,
@@ -329,7 +330,7 @@ produce. Treat party as a weak tiebreak, never as a key.
 
 ## Defects in the file
 
-Three classes, each found by cross-checking rather than by reading labels.
+Four classes, each found by cross-checking rather than by reading labels.
 
 **1. Races filed under the wrong office.**
 
@@ -345,9 +346,19 @@ a Senate race in a district whose senator is mid-term, and a district missing Ho
 The 1977 cases yield two false House winners, and nothing in the file's shape gives them away:
 only the roster does.
 
-**2. Odd-year special elections carry an unreliable Position.** Of 32 odd-year races labelled
-House, two are the 1977 Senate specials above and 14 are the 1983 elections in LDs 43–49 (both
-Positions, consistent with 1982 and 1984). Of the other 16, **five labels contradict both the seat that was vacated and the winner's own next
+**2. A block of the 1982 general is repeated as 1983.** `1983 General` holds 41 legislative
+rows. Four are real: the LD 18 specials (House, Linda Smith; Senate, Alan Thompson). The other
+37 are both House Positions in LDs 43–49 and the Senate in LDs 44–48, 19 races, and every one
+matches the 1982 general vote for vote (LD 43 Position 1: Niemi 18,543 and Grytting 3,326 in
+both). The names are keyed again (`William L. Burns`, `Bill Burns`), so it is a second entry
+of one canvass and not a copied row. Two of its "winners" had left the seat before November
+1983: McDonald (House LD 48) was appointed to the Senate that September, and Jones (Senate
+LD 48) resigned on 1 September. Every race's vote counts were compared with every other
+election's; nothing else in the file repeats.
+
+**3. Odd-year special elections carry an unreliable Position.** Of 32 odd-year races labelled
+House, 14 are the 1983 repeats and two are the 1977 Senate specials. Of the 16 real House
+specials, **five labels contradict both the seat that was vacated and the winner's own next
 candidacy**:
 
 | Special | Winner | Label | Vacated seat | Winner's next race |
@@ -362,7 +373,7 @@ A sixth (Cooper, 1987 LD 18) cannot be checked. The labels look defaulted: Posit
 every single-seat special through 1999, Position 2 on all of 2001–2005. Use a special for who
 won, and never for which Position.
 
-**3. Even-year Positions: sound, with three suspects.** Three independent checks:
+**4. Even-year Positions: sound, with three suspects.** Three independent checks:
 
 - Primary and general agree on a candidate's Position in **3,814 of 3,814** cases where both
   exist (1966–2006).
@@ -407,6 +418,8 @@ transposed. The file cannot say which year. All three are before the WSL floor.
    `ETag` and `Last-Modified`, so the re-check can be conditional.
 4. **Guards the build needs,** each from a measured defect:
    - never read a Position from an odd-year row;
+   - drop a race that repeats another election's vote counts (the 1983 block), found by
+     comparing counts and not by listing districts;
    - omit, never guess, a district-year whose House race count or Senate race is the wrong
      shape (1990 LD 39, 1996 LD 43), leaving those three seats to an operator event;
    - key elections on year and type, never on `ElectionDate`;
