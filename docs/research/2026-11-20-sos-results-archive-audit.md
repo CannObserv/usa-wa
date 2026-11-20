@@ -358,7 +358,7 @@ election's; nothing else in the file repeats.
 
 **3. Odd-year special elections carry an unreliable Position.** Of 32 odd-year races labelled
 House, 14 are the 1983 repeats and two are the 1977 Senate specials. Of the 16 real House
-specials, **five labels contradict both the seat that was vacated and the winner's own next
+specials, **six labels contradict both the seat that was vacated and the winner's own next
 candidacy**:
 
 | Special | Winner | Label | Vacated seat | Winner's next race |
@@ -366,12 +366,14 @@ candidacy**:
 | 1977 LD 19 | Erak | 1 | 2 (Monohon) | 2 |
 | 1977 LD 48 | Sanders | 1 | 2 (Freeman) | 2 |
 | 1981 LD 2 | Kaiser | 1 | 2 (Erickson) | 2 |
+| 1987 LD 18 | Cooper | 1 | 2 (Tanner) | 2 |
 | 1995 LD 4 | Sterk | 1 | 2 (Padden) | 2 |
 | 2005 LD 19 | Takko | 2 | 1 (Hatfield) | 1 |
 
-A sixth (Cooper, 1987 LD 18) cannot be checked. The labels look defaulted: Position 1 on nearly
-every single-seat special through 1999, Position 2 on all of 2001–2005. Use a special for who
-won, and never for which Position.
+(Cooper's case: Tanner, the 1986 Position 2 winner, resigned in December 1986 and Cooper was
+appointed the same day; the district's Position 1 member did not resign until after the 1987
+election.) The labels look defaulted: Position 1 on 11 of the 12 real specials through 1999,
+Position 2 on all four of 2001–2005. Use a special for who won, and never for which Position.
 
 **4. Even-year Positions: sound, with three suspects.** Three independent checks:
 
