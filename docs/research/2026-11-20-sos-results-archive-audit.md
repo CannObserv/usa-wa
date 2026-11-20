@@ -16,8 +16,8 @@ claims.
   unambiguous winner, and they agree with all 262 comparable Positions already published.
 - **It closes most of #140's gap.** Of the 659 House member-bienniums the WSL roster attests
   through 2007-08 that have no published seat today, the archive positions **610 from the
-  seating general alone** and 40 more from a later candidacy. Era A (1991-92 … 2001-02) goes
-  from 2 published seats to 96–98 per biennium.
+  seating general alone** and 40 more from a later candidacy. Era A (1991-92 … 2001-02) has no
+  published seat today except two in 2001-02; with the archive it has 96 to 98 per biennium.
 - **Five things in the file are wrong, and a build must not trust them:** the Position label
   on odd-year special elections, 19 races of the 1982 general repeated as 1983, nine races filed under the wrong office (three House races as
   Senate; six Senate races as House, in 1918 and 1977), the `ElectionDate` of 31 of 59 generals, and candidate spellings.
@@ -118,8 +118,8 @@ Reading it:
 - **Races, counted directly:** the 21 even-year generals of 1966–2006 should hold 2,061 House
   races (99 in each of 1966–1970, 98 after). The file holds 2,058. The missing three are 1990
   LD 39 Position 1 and both 1996 LD 43 Positions, all filed under the Senate office.
-- **1914–1964 is complete for who was on the ballot,** less spelling. The 193 House and 21
-  Senate term-openers with no general are 1910 and 1912. The 24 absent Senate districts are
+- **1914–1964 is complete for who was on the ballot,** less spelling. The 193 House
+  term-openers with no general are 1910 and 1912; the 21 Senate ones are 1912. The 24 absent Senate districts are
   1910 (18), 1918 (4, mislabelled as House races) and 1926 (2, LD 3).
 - **Every near-miss is a one- or two-letter variant** (`Herrman`/`Herrmann`,
   `Mafaffey`/`Mahaffey`, `Thibadeau`/`Thibaudeau`), 47 in all. At least one is the roster's own
@@ -189,7 +189,7 @@ Only `General` rows elect. The rule, per shape:
 
 | Race shape | Where | Rule | Measured |
 |---|---|---|---|
-| One seat | Senate, all years; House from 1966 | Top `Votes`, by the `_top_vote_winner` discipline: a sole candidacy wins without a count; a tie or a missing count omits the race | 3,268 races: 442 uncontested, **0 ties, 0 missing counts, 0 omitted** |
+| One seat | Senate, all years; House from 1966 | Top `Votes`, by the `_top_vote_winner` discipline: a sole candidacy wins without a count; a tie or a missing count omits the race | 3,268 races as labelled, the odd years of the last row included: 442 uncontested, **0 ties, 0 missing counts, 0 omitted** |
 | At-large pool | House through 1964 | Top *N*, where *N* is the district's seat count. ***N* is not in the file** | Taking *N* from the roster, the seated members are the top *N* in 1,301 of 1,325 pools |
 | Odd-year special | 11 odd years | Top `Votes`, for the unexpired term. **Do not read the Position** ([§ Defects](#defects-in-the-file)) | As labelled, 32 House races and 19 Senate. In fact 16 and 16: 19 labelled races repeat 1982, and two House-labelled ones are Senate specials |
 
@@ -441,7 +441,7 @@ all four as real.
 
 **#140 narrows; it does not close.** Its premise that Era A has no reachable source is now
 false: this archive passes #140's own acceptance test (year, LD, Position, winner, party for
-the 1992–2000 generals) for 97 or 98 seats in every Era A biennium. But nothing published
+the 1992–2000 generals) for 96 to 98 seats in every Era A biennium. But nothing published
 changes until the ingest ships. Keep #140 open as the tracking issue for that build, re-scoped
 from "find a source" to "ingest this one", and close it when Era A is published. What stays
 out of reach afterwards is small and named: the eight member-bienniums of § 6, the three
