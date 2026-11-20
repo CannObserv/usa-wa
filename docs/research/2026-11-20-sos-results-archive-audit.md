@@ -375,7 +375,7 @@ appointed the same day; the district's Position 1 member did not resign until af
 election.) The labels look defaulted: Position 1 on 11 of the 12 real specials through 1999,
 Position 2 on all four of 2001–2005. Use a special for who won, and never for which Position.
 
-**4. Even-year Positions: sound, with three suspects.** Three independent checks:
+**4. Even-year Positions: sound.** Three independent checks:
 
 - Primary and general agree on a candidate's Position in **3,814 of 3,814** cases where both
   exist (1966–2006).
@@ -383,10 +383,13 @@ Position 2 on all four of 2001–2005. Use a special for who won, and never for 
   cases within a plan, and 193 of 204 across a redistricting.
 - All 262 published comparisons agree (§ 6).
 
-Among the switches are three **mutual swaps**, where a district's two incumbents trade
-Positions: LD 20 1966→1968 (Kalich, Jastad), LD 18 1970→1972 (Paris, Thompson) and LD 23
-1972→1974 (Smith, Randall). A real swap is unlikely; one year's labels are probably
-transposed. The file cannot say which year. All three are before the WSL floor.
+Among the switches are four **mutual swaps**, where a district's two incumbents trade
+Positions: LD 20 1966→1968 (Kalich, Jastad), LD 18 1970→1972 (Paris, Thompson), LD 23
+1972→1974 (Smith, Randall) and LD 5 2000→2002 (Anderson, Pflug). None looks like one year's
+labels transposed: in each, the new arrangement still holds at the following general, and in
+three of them an incumbent had held the old Position for two generals or more. The LD 5 swap
+is inside the WSL era, and the Positions published for 2003-04 agree with its 2002 side. Read
+all four as real.
 
 ## Side findings
 
