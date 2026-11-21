@@ -306,7 +306,7 @@ The builder does more than classes A, B and D count: its back-chain reaches Murr
 Chopp's 1997-98 seats from 1998.
 
 **One of the 629 is wrong, and a spelling causes it.** Thibaudeau won LD 43 Position 1 in
-1994, where the file spells her , and moved to the Senate in 1995. Unmatched on the
+1994, where the file spells her `Thibadeau`, and moved to the Senate in 1995. Unmatched on the
 ballot, she is carried as a mover at her 1993-94 seat, Position 2, beside Chopp, who won that
 seat in 1994. With the one alias the builder seats her at Position 1 and nothing else changes.
 The alias table is a correctness guard, not only a coverage one.
@@ -550,7 +550,7 @@ all four as real.
    - key elections on year and type, never on `ElectionDate`;
    - read `BallotName`, never `LastName`;
    - keep a curated alias table for spelling variants, with no fuzzy matching, and have it
-     before the first publish: without  the builder publishes a wrong seat (§ 6).
+     before the first publish: without `Thibadeau` the builder publishes a wrong seat (§ 6).
 5. **Coverage claims for that Phase A** (`coverage.py`, #180), from the tables above:
    `house_general` verified 1966–2006 for Positions and 1914–1964 as at-large pools, absent
    1910–1912; `senate_general` verified 1914–2006, absent 1912, partial 1910; primaries as
