@@ -21,9 +21,10 @@ claims.
   seating general alone**. Run through the real House builder, it positions 629 and leaves
   30. Era A (1991-92 … 2001-02) has no published seat today except two in 2001-02; the build
   gives it 96 to 98 per biennium.
-- **Two conditions on the build.** The archive's map must hold winners only, or five members
-  publish at a Position they lost. And mid-biennium successions need a route first: run as it
-  stands, the House builder drops five seats that are published today (Recommendation, item 2).
+- **Three conditions on the build.** The archive's map must hold winners only, or five
+  members publish at a Position they lost. The spelling aliases must exist first, or one more
+  does. And mid-biennium successions need a route: run as it stands, the House builder drops
+  five seats that are published today (Recommendation, items 2 and 4).
 - **Five things in the file are wrong, and a build must not trust them:** the Position label
   on odd-year special elections; 19 races of the 1982 general repeated as 1983; nine races
   filed under the wrong office (three House races as Senate, and six Senate races as House in
@@ -296,12 +297,19 @@ House builder (`build_house_spans`), run in scratch with the winners of the nine
 generals added to the live ballot rows. With them:
 
 - **629 of the 659 are positioned.** 627 can be compared with the archive's own evidence, and
-  all agree: 608 by A and 19 by B. The other two are seated by elimination alone.
+  all agree: 608 by A and 19 by B. Of the other two, Wynne is seated by elimination,
+  correctly, and Thibaudeau wrongly (below).
 - **30 are left**, described below.
 - **Five seats published today are lost** (Recommendation, item 2).
 
 The builder does more than classes A, B and D count: its back-chain reaches Murray's and
-Chopp's 1997-98 seats from 1998, and its mover handling carries Thibaudeau's.
+Chopp's 1997-98 seats from 1998.
+
+**One of the 629 is wrong, and a spelling causes it.** Thibaudeau won LD 43 Position 1 in
+1994, where the file spells her , and moved to the Senate in 1995. Unmatched on the
+ballot, she is carried as a mover at her 1993-94 seat, Position 2, beside Chopp, who won that
+seat in 1994. With the one alias the builder seats her at Position 1 and nothing else changes.
+The alias table is a correctness guard, not only a coverage one.
 
 **The 30 left are successions, not missing evidence.**
 
@@ -337,8 +345,7 @@ spans, the LD 42 third seat, `role_periods` per plan).
   mover's own ballot Position, so the successor inference is corroborated, not needed.
 - **Known gap, not a disagreement (#586):** McGrath (9951) and Lawrence (9960) have recorded
   seatings and no published House span. Both are class B at Position 2, which matches their
-  recorded seatings. The real builder, given the archive, seats both there by elimination,
-  Delvin and Carrell being excluded as movers.
+  recorded seatings. The real builder, given the archive, seats both there.
 - The back-chained Positions of 2003-04 … 2007-08 (#118) are inside the 262: none disagrees.
 
 One conflict appears only if a special election's label is trusted: Takko, 2005-06, published
@@ -542,7 +549,8 @@ all four as real.
      back-chain from 1998;
    - key elections on year and type, never on `ElectionDate`;
    - read `BallotName`, never `LastName`;
-   - keep a curated alias table for spelling variants, with no fuzzy matching.
+   - keep a curated alias table for spelling variants, with no fuzzy matching, and have it
+     before the first publish: without  the builder publishes a wrong seat (§ 6).
 5. **Coverage claims for that Phase A** (`coverage.py`, #180), from the tables above:
    `house_general` verified 1966–2006 for Positions and 1914–1964 as at-large pools, absent
    1910–1912; `senate_general` verified 1914–2006, absent 1912, partial 1910; primaries as
