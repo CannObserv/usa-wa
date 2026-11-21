@@ -496,12 +496,12 @@ all four as real.
    | 2001-02 | 45 | Toby Nixon | 2 | 1 | Appointed January 2002 to Lambert's seat |
 
    A winners-only map (`build_house_winners`' rule, which is what class A measured) has none of
-   them, and neither map disagrees with a published Position. With that one condition,
-   `position_for` and the projector need no change. `merge_positions` documents the #103
-   elimination as depending on the losers, so the build must test the elimination against a
-   winners-only map before relying on it. The live path shares the rule and has no such case
-   yet: since 2008 one general loser was seated in the same biennium (Nealey, 2009-10), in the
-   seat he had lost.
+   them. The real builder confirms both halves: fed the full candidacy set it publishes all
+   five at the Position they lost, and fed winners only it positions 629 member-bienniums
+   without a conflict (§ 6). `merge_positions` documents the #103 elimination as depending on
+   the losers; that run shows it working without them. The live path shares the rule and has
+   no such case yet (#590): since 2008 one general loser was seated in the same biennium
+   (Nealey, 2009-10), in the seat he had lost.
 
    **Mid-biennium successions do not compose, and five published seats are lost.** The
    projector seats one holder per seat per biennium. Five successors hold a published seat
