@@ -430,15 +430,36 @@ all four as real.
 2. **How it composes with `sos-legresults`:** as a third producer of the same
    `{LD: [HousePosition]}` map (`usa_wa_common.ballot`), selected by election year. The archive
    serves election years through 2006 and `sos-legresults` serves 2008 onward; the two never
-   overlap and are never merged for one election. The projector, `positions.position_for` and
-   the #103 elimination need no change. With a ballot in every biennium from 1991-92, the #118
-   back-chain has nothing left to reach below 2009; ballot already wins over a seed, and the
-   262-for-262 agreement says no published Position should move.
+   overlap and are never merged for one election. With a ballot in every biennium from
+   1991-92, the #118 back-chain has nothing left to reach below 2009; ballot already wins over
+   a seed, and the 262-for-262 agreement says no published Position should move.
+
+   **The archive's map must hold winners only.** The live even-year map carries every
+   candidacy, losers included (`build_house_positions`), and `position_for` matches any of
+   them. Fed the archive's full candidacy sets for 1990–2006, that lookup gives five
+   member-bienniums the Position of a race the member *lost*, and all five are wrong:
+
+   | Biennium | LD | Member | Lost at | Seated at | How |
+   |---|---|---|---|---|---|
+   | 1993-94 | 31 | Les Thomas | 1 | 2 | Appointed January 1994 to Vance's seat |
+   | 1993-94 | 45 | Bill Backlund | 1 | 2 | Appointed January 1994 to Miller's seat |
+   | 1995-96 | 42 | Kelli Linville | 1 | 2 | Appointed December 1995 to Kremen's seat |
+   | 1997-98 | 33 | Jim McCune | 2 | 1 | Won the 1997 special for Patterson's seat |
+   | 2001-02 | 45 | Toby Nixon | 2 | 1 | Appointed January 2002 to Lambert's seat |
+
+   A winners-only map (`build_house_winners`' rule, which is what class A measured) has none of
+   them, and neither map disagrees with a published Position. With that one condition,
+   `position_for` and the projector need no change. `merge_positions` documents the #103
+   elimination as depending on the losers, so the build must test the elimination against a
+   winners-only map before relying on it. The live path shares the rule and has no such case
+   yet: since 2008 one general loser was seated in the same biennium (Nealey, 2009-10), in the
+   seat he had lost.
 3. **Phase A** archives the whole workbook as one resource under a new source slug beside the
    two SOS feeds. Treat it like the roster PDF: a frozen document, harvested on demand,
    re-checked monthly by a dry run, with the href resolved from the landing page. It has an
    `ETag` and `Last-Modified`, so the re-check can be conditional.
 4. **Guards the build needs,** each from a measured defect:
+   - emit winners only, never the full candidacy set (item 2);
    - never read a Position from an odd-year row, and check an odd-year row's office against
      the roster before using it for anything (the 1977 pair);
    - drop a race that repeats another election's vote counts (the 1983 block), found by
