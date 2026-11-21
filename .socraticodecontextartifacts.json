@@ -28,7 +28,7 @@
     {
       "name": "integration-contracts",
       "path": "./docs/research",
-      "description": "Discovery outputs and integration contracts \u2014 Archiver/Watcher/Power Map contracts, multi-state legislative IA delta, jurisdictional information architecture, and Power Map reseed guidance, and the #135 biennium-rollover rehearsal record (what the nightly does when 2027-28 becomes current; when WSL, PDC and SOS start answering for the new cycle)."
+      "description": "Discovery outputs and integration contracts \u2014 Archiver/Watcher/Power Map contracts, multi-state legislative IA delta, jurisdictional information architecture, and Power Map reseed guidance, and the #135 biennium-rollover rehearsal record (what the nightly does when 2027-28 becomes current; when WSL, PDC and SOS start answering for the new cycle), and the #585 coverage audit of the SOS election results archive xlsx (legislative results 1910-2006 by Position: completeness against the members PDF, winner rules, parser hazards, what it unlocks for the #140 House Position gap)."
     },
     {
       "name": "modules-framework",

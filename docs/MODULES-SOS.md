@@ -9,6 +9,11 @@ the pipeline's conformed House. The Postgres half — adapters, cohort providers
 harvests, archive refresh, the `house/` builder and the two corroboration units —
 was deleted in #412 PR F.
 
+**Audited, not built (#585):** SOS's *Elections Results Archive* xlsx, legislative results
+1910–2006 by Position — the pre-2008 ballot evidence #140 lacked. Coverage, defects and the
+go recommendation:
+[research/2026-11-20-sos-results-archive-audit.md](research/2026-11-20-sos-results-archive-audit.md).
+
 ```
   usa-wa-adapter-sos/                 — Layer 3: **everything WA Secretary of State**
     src/usa_wa_adapter_sos/
