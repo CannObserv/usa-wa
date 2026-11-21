@@ -442,9 +442,10 @@ all four as real.
 2. **How it composes with `sos-legresults`:** as a third producer of the same
    `{LD: [HousePosition]}` map (`usa_wa_common.ballot`), selected by election year. The archive
    serves election years through 2006 and `sos-legresults` serves 2008 onward; the two never
-   overlap and are never merged for one election. With a ballot in every biennium from
-   1991-92, the #118 back-chain has nothing left to reach below 2009; ballot already wins over
-   a seed, and the 262-for-262 agreement says no published Position should move.
+   overlap and are never merged for one election. Ballot already wins over a seed, and the
+   262-for-262 agreement says no published Position should move. The #118 back-chain keeps
+   its job below 2009, though a smaller one: the archive is silent on the five 2007-08
+   appointees of § 6, who were seated after its last election and are published today.
 
    **The archive's map must hold winners only.** The live even-year map carries every
    candidacy, losers included (`build_house_positions`), and `position_for` matches any of
