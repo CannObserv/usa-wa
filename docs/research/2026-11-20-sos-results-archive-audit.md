@@ -238,8 +238,9 @@ Read these as a floor on disagreement. The names module does what it promises: e
 real difference in the source text, not a folding failure. Two things follow for a build:
 
 - **Spelling variants need an alias table,** as the roster identity fold already keeps one
-  (`identity.py`). Fuzzy matching inside an LD would be a guess. In the WSL era the known ones
-  are few: `Thibadeau` (1994), `Penninton` and `Shindler` (1998).
+  (`identity.py`). Fuzzy matching inside an LD would be a guess. Against the WSL feed, the
+  even-year generals of 1990–2006 hold six: in the House `Thibadeau` (1994), `Penninton` and
+  `Shindler` (1998); in the Senate `Jeserning` (1990), `Wojan` (1996) and `Hochstater` (1998).
 - **`audit.py`'s surname test is asymmetric for particles.** `J. Vander Stoep` (file) against
   `J. VanderStoep` (roster) fails as a claim and passes the other way round. Not a defect in
   the audited source; noted because the oracle under-counts by it.
