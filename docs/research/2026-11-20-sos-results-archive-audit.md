@@ -97,10 +97,12 @@ Scratch analysis, re-runnable from this description.
   distance of two, only to classify it. That second pass never counts as a match.
 - **Published state:** `assignments` `v20261109T080301Z-511694` (schema 1.8.0, 8,397 rows) and
   `stg_wsl_sponsors`, read from a scratch copy of `data/pipeline.duckdb`.
-- **The live rules, simulated.** § 6's recommended-build row and the Recommendation's
-  composition test feed the archive's even-year candidacies to the real `position_for`, with
-  the #103 elimination and #105 mover exclusion re-implemented at biennium grain. The
-  projector itself was not run.
+- **The real House builder, in scratch.** § 6's recommended-build row and the
+  Recommendation's composition tests run `build_house_spans` itself (projector, #103
+  elimination, #118 back-chain, roster hygiene, mover carry, operator overlay) over the
+  scratch copy's staging rows and the current operator events, read-only. Without the archive
+  it reproduces the 334 published House spans. The archive's even-year generals of 1990–2006
+  were then added as ballot rows, once as winners only and once as every candidacy.
 - **Checked twice.** A second pass re-derived the file facts, §§ 1–3, § 6 and the hazard counts
   from the raw workbook with separate code. Where a figure depends on how a name is keyed, the
   text says so and gives both results.
