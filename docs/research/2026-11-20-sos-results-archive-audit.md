@@ -308,8 +308,8 @@ Chopp's 1997-98 seats from 1998.
 **One of the 629 is wrong, and a spelling causes it.** Thibaudeau won LD 43 Position 1 in
 1994, where the file spells her `Thibadeau`, and moved to the Senate in 1995. Unmatched on the
 ballot, she is carried as a mover at her 1993-94 seat, Position 2, beside Chopp, who won that
-seat in 1994. With the one alias the builder seats her at Position 1 and nothing else changes.
-The alias table is a correctness guard, not only a coverage one.
+seat in 1994. With the House aliases applied the builder seats her at Position 1, and nothing
+else changes. The alias table is a correctness guard, not only a coverage one.
 
 **The 30 left are successions, not missing evidence.**
 
@@ -319,9 +319,10 @@ The alias table is a correctness guard, not only a coverage one.
 | No evidence in the file | 7 | The seven appointees above, who never won inside the file's range |
 | Class A | 2 | Lambert and Edmonds, 2001-02: winners who resigned mid-biennium. Roster hygiene drops them as departed, and their successors take the seats by elimination |
 
-Fifteen of the 21 won the next general, so the back-chain already knows their Position; it is
-refused for the same reason as the five lost seats, and five of the fifteen sit behind a
-redistricting break as well. Every one of the 30 is one half of a mid-biennium succession.
+At least fifteen of the 21 won the next general, so the back-chain already knows their
+Position; it is refused for the same reason as the five lost seats, and five of the fifteen
+sit behind a redistricting break as well. Every one of the 30 is one half of a mid-biennium
+succession.
 
 **Below the WSL floor** (roster era, sessions 1967–1989): of 1,230 roster House rows, 1,170 are
 A and 47 are B (1,168 and 49 under the second pass's surname rule; 1,217 either way). None is
