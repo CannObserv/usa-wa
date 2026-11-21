@@ -503,6 +503,12 @@ all four as real.
    next cycle" is a new inference and deserves its own decision), anything before the WSL
    floor (1,217 more House rows, but it needs roster-sourced House spans, the LD 42 third seat
    and per-plan `role_periods`), and the at-large era, which needs the #230 seat model first.
+7. **The Senate half stays out of v1, on purpose.** The same rows yield `SenateWinner`
+   attestation (#106), and the live parser emits both chambers from one wire. The archive's
+   Senate generals are verified (497 of 501 term-openers on the ballot for 1966–2006, no
+   ties), but a Senate producer needs two guards of its own first: the 1996 LD 43 false
+   winner, caught by shape, and the 1983 repeats. It publishes no structural fact, so it can
+   follow v1 without blocking it.
 
 **#140 narrows; it does not close.** Its premise that Era A has no reachable source is now
 false: this archive passes #140's own acceptance test (year, LD, Position, winner, party for
