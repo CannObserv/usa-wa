@@ -243,7 +243,7 @@ real difference in the source text, not a folding failure. Two things follow for
   `Shindler` (1998); in the Senate `Jeserning` (1990), `Wojan` (1996) and `Hochstater` (1998).
 - **`audit.py`'s surname test is asymmetric for particles.** `J. Vander Stoep` (file) against
   `J. VanderStoep` (roster) fails as a claim and passes the other way round. Not a defect in
-  the audited source; noted because the oracle under-counts by it.
+  the audited source; noted because the oracle under-counts by it. Filed as #589.
 
 ## 6. What it would unlock
 
@@ -437,7 +437,7 @@ all four as real.
   and `stg_roster_members` files them all under 51, 53, 55 and 59: it has 53 distinct districts
   where the PDF and this archive have 59 or 60. It affects House rows before 1933 only. This
   audit mapped the archive onto the folded numbering so the comparison stayed fair; unmapped,
-  it reads as 63 missing members. Worth its own issue.
+  it reads as 63 missing members. Filed as #588.
 - **1965-66 was an at-large House** (§ 2).
 - **#144's Wynne conflation has an upstream twin.** SOS's own 1990 rows put his House race
   under the Senate office.
