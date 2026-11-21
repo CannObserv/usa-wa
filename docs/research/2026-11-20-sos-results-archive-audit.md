@@ -301,6 +301,18 @@ generals added to the live ballot rows. With them:
 The builder does more than classes A, B and D count: its back-chain reaches Murray's and
 Chopp's 1997-98 seats from 1998, and its mover handling carries Thibaudeau's.
 
+**The 30 left are successions, not missing evidence.**
+
+| Left | Count | Why |
+|---|---|---|
+| Class B | 21 | In 20, the seat is still held for the biennium by the predecessor they replaced, whom the archive ballot-matches. The last is McCune, 1997-98 |
+| No evidence in the file | 7 | The seven appointees above, who never won inside the file's range |
+| Class A | 2 | Lambert and Edmonds, 2001-02: winners who resigned mid-biennium. Roster hygiene drops them as departed, and their successors take the seats by elimination |
+
+Fifteen of the 21 won the next general, so the back-chain already knows their Position; it is
+refused for the same reason as the five lost seats, and five of the fifteen sit behind a
+redistricting break as well. Every one of the 30 is one half of a mid-biennium succession.
+
 **Below the WSL floor** (roster era, sessions 1967–1989): of 1,230 roster House rows, 1,170 are
 A and 47 are B (1,168 and 49 under the second pass's surname rule; 1,217 either way). None is
 published today, and publishing them is a larger build than this one (roster-sourced House
@@ -533,8 +545,8 @@ all four as real.
    `house_general` verified 1966–2006 for Positions and 1914–1964 as at-large pools, absent
    1910–1912; `senate_general` verified 1914–2006, absent 1912, partial 1910; primaries as
    candidacy evidence from 1946, absent 1948.
-6. **Defer:** class B (27 member-bienniums once the elimination has run, 40 before it; "ran
-   next cycle" is a new inference and deserves its own decision), anything before the WSL
+6. **Defer:** class B as an inference rule ("ran next cycle" is new, and the succession
+   route of item 2 covers the 21 member-bienniums it would serve), anything before the WSL
    floor (1,217 more House rows, but it needs roster-sourced House spans, the LD 42 third seat
    and per-plan `role_periods`), and the at-large era, which needs the #230 seat model first.
 7. **The Senate half stays out of v1, on purpose.** The same rows yield `SenateWinner`
