@@ -21,6 +21,9 @@ claims.
   seating general alone**. The existing elimination adds 14, and a later candidacy (a new rule,
   deferred) would settle 27 of the 35 left. Era A (1991-92 … 2001-02) has no published seat
   today except two in 2001-02; the recommended build gives it 94 to 98 per biennium.
+- **Two conditions on the build.** The archive's map must hold winners only, or five members
+  publish at a Position they lost. And mid-biennium successions need a route first: run as it
+  stands, the House builder drops five seats that are published today (Recommendation, item 2).
 - **Five things in the file are wrong, and a build must not trust them:** the Position label
   on odd-year special elections; 19 races of the 1982 general repeated as 1983; nine races
   filed under the wrong office (three House races as Senate, and six Senate races as House in
@@ -461,9 +464,9 @@ all four as real.
    `{LD: [HousePosition]}` map (`usa_wa_common.ballot`), selected by election year. The archive
    serves election years through 2006 and `sos-legresults` serves 2008 onward; the two never
    overlap and are never merged for one election. Ballot already wins over a seed, and the
-   262-for-262 agreement says no published Position should move. The #118 back-chain keeps
-   its job below 2009, though a smaller one: the archive is silent on the five 2007-08
-   appointees of § 6, who were seated after its last election and are published today.
+   262-for-262 agreement means no published Position changes to another. The #118 back-chain
+   keeps its job below 2009: it is how appointees seated after the archive's last election are
+   positioned today. The map composes. Two things around it do not.
 
    **The archive's map must hold winners only.** The live even-year map carries every
    candidacy, losers included (`build_house_positions`), and `position_for` matches any of
@@ -485,12 +488,33 @@ all four as real.
    winners-only map before relying on it. The live path shares the rule and has no such case
    yet: since 2008 one general loser was seated in the same biennium (Nealey, 2009-10), in the
    seat he had lost.
+
+   **Mid-biennium successions do not compose, and five published seats are lost.** The
+   projector seats one holder per seat per biennium. Five successors hold a published seat
+   today through a back-chain seed, because their predecessor has no ballot:
+
+   | Biennium | LD | Successor, published today | Seat | Predecessor the archive ballot-matches |
+   |---|---|---|---|---|
+   | 2003-04 | 3 | Timm Ormsby | 2 | Jeff Gombosky |
+   | 2007-08 | 9 | Joe Schmick | 2 | David Buri |
+   | 2007-08 | 10 | Norma Smith | 1 | Chris Strow |
+   | 2007-08 | 18 | Jaime Herrera | 1 | Richard Curtis |
+   | 2007-08 | 21 | Marko Liias | 2 | Brian Sullivan |
+
+   Given the archive, the builder seats each predecessor for the biennium and refuses the
+   successor's seed, since a seed never lands on a ballot-claimed seat. All five successors
+   lose their published span, under either map. The live era dates such successions with
+   operator `seated` events (#119, #492). The build needs that route, or a projector change,
+   in place for the 1991–2008 successions before it ships; the roster PDF dates the
+   appointments. Whether a `seated` event can seat a successor the projector left unpositioned
+   is for the build to establish.
 3. **Phase A** archives the whole workbook as one resource under a new source slug beside the
    two SOS feeds. Treat it like the roster PDF: a frozen document, harvested on demand,
    re-checked monthly by a dry run, with the href resolved from the landing page. It has an
    `ETag` and `Last-Modified`, so the re-check can be conditional.
 4. **Guards the build needs,** each from a measured defect:
    - emit winners only, never the full candidacy set (item 2);
+   - test that no published House span is lost: the five successors of item 2 are the cases;
    - never read a Position from an odd-year row, and check an odd-year row's office against
      the roster before using it for anything (the 1977 pair);
    - drop a race that repeats another election's vote counts (the 1983 block), found by
