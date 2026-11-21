@@ -18,9 +18,9 @@ claims.
   them are verified and wait on a pre-WSL build.
 - **It closes most of #140's gap.** Of the 659 House member-bienniums the WSL feed attests
   through 2007-08 that have no published seat today, the archive positions **610 from the
-  seating general alone**. The existing elimination adds 14, and a later candidacy (a new rule,
-  deferred) would settle 27 of the 35 left. Era A (1991-92 … 2001-02) has no published seat
-  today except two in 2001-02; the recommended build gives it 94 to 98 per biennium.
+  seating general alone**. Run through the real House builder, it positions 629 and leaves
+  30. Era A (1991-92 … 2001-02) has no published seat today except two in 2001-02; the build
+  gives it 96 to 98 per biennium.
 - **Two conditions on the build.** The archive's map must hold winners only, or five members
   publish at a Position they lost. And mid-biennium successions need a route first: run as it
   stands, the House builder drops five seats that are published today (Recommendation, item 2).
@@ -286,17 +286,20 @@ Distinct House seats with a positioned holder, per biennium:
 | Biennium | 1991-92 | 1993-94 | 1995-96 | 1997-98 | 1999-00 | 2001-02 | 2003-04 | 2005-06 | 2007-08 |
 |---|---|---|---|---|---|---|---|---|---|
 | Published today | 0 | 0 | 0 | 0 | 0 | 2 | 78 | 90 | 94 |
-| Recommended build (A, then elimination) | 98 | 98 | 98 | 94 | 98 | 95 | 98 | 98 | 98 |
+| Recommended build (real builder, winners only) | 98 | 98 | 98 | 97 | 98 | 96 | 98 | 98 | 98 |
 | With A and B | 97 | 98 | 98 | 98 | 98 | 96 | 98 | 98 | 98 |
 
-**What the recommended build yields.** The Recommendation defers class B, so the first row is
-the one to plan on. It runs a winners-only map through the existing lookup, then the #103
-elimination at biennium grain with the #105 mover exclusion. That positions **624 of the 659**:
-the 610 of class A and 14 by elimination. It leaves 35: 27 of class B and the eight above. The
-low bienniums are 1997-98 (LD 43's two mis-filed seats and two more) and 2001-02. The 14 differ
-from the D column because D was counted after B and without the mover exclusion. Thirteen of
-the 14 can be checked against the member's own next candidacy, and all thirteen agree with it.
-This is a scratch simulation of those rules, not a run of the projector.
+**What the recommended build yields.** The first row is the one to plan on. It is the real
+House builder (`build_house_spans`), run in scratch with the winners of the nine archive
+generals added to the live ballot rows. With them:
+
+- **629 of the 659 are positioned.** 627 can be compared with the archive's own evidence, and
+  all agree: 608 by A and 19 by B. The other two are seated by elimination alone.
+- **30 are left**, described below.
+- **Five seats published today are lost** (Recommendation, item 2).
+
+The builder does more than classes A, B and D count: its back-chain reaches Murray's and
+Chopp's 1997-98 seats from 1998, and its mover handling carries Thibaudeau's.
 
 **Below the WSL floor** (roster era, sessions 1967–1989): of 1,230 roster House rows, 1,170 are
 A and 47 are B (1,168 and 49 under the second pass's surname rule; 1,217 either way). None is
@@ -320,8 +323,8 @@ spans, the LD 42 third seat, `role_periods` per plan).
   mover's own ballot Position, so the successor inference is corroborated, not needed.
 - **Known gap, not a disagreement (#586):** McGrath (9951) and Lawrence (9960) have recorded
   seatings and no published House span. Both are class B at Position 2, which matches their
-  recorded seatings. The elimination reaches the same Position without B, once Delvin and
-  Carrell are excluded as movers.
+  recorded seatings. The real builder, given the archive, seats both there by elimination,
+  Delvin and Carrell being excluded as movers.
 - The back-chained Positions of 2003-04 … 2007-08 (#118) are inside the 262: none disagrees.
 
 One conflict appears only if a special election's label is trusted: Takko, 2005-06, published
@@ -457,9 +460,8 @@ all four as real.
 
 1. **Scope v1 to House Position evidence for the WSL era: the nine even-year generals of
    1990–2006** (bienniums 1991-92 … 2007-08). The audit verified all 21 generals of 1966–2006;
-   the twelve before 1990 feed nothing until the pre-WSL build of item 6. Class A positions
-   610 of the 659 unpositioned member-bienniums and the existing elimination 14 more (§ 6),
-   with no new inference rule.
+   the twelve before 1990 feed nothing until the pre-WSL build of item 6. The real builder
+   positions 629 of the 659 unpositioned member-bienniums (§ 6), with no new inference rule.
 2. **How it composes with `sos-legresults`:** as a third producer of the same
    `{LD: [HousePosition]}` map (`usa_wa_common.ballot`), selected by election year. The archive
    serves election years through 2006 and `sos-legresults` serves 2008 onward; the two never
@@ -521,9 +523,9 @@ all four as real.
      comparing counts and not by listing districts;
    - where a district-year has the wrong shape (a House race missing, or a Senate race in a
      district whose senator is mid-term), drop the mis-filed race and never re-file it by
-     guess, but keep the district's correctly labelled races (1990 LD 39 Position 2). Of the
-     three seats affected, Wynne's falls to the elimination; Murray's and Chopp's for 1997-98
-     wait on class B or an operator event;
+     guess, but keep the district's correctly labelled races (1990 LD 39 Position 2). The
+     builder still seats all three members: Wynne by elimination, Murray and Chopp by the
+     back-chain from 1998;
    - key elections on year and type, never on `ElectionDate`;
    - read `BallotName`, never `LastName`;
    - keep a curated alias table for spelling variants, with no fuzzy matching.
@@ -544,13 +546,12 @@ all four as real.
 
 **#140 narrows; it does not close.** Its premise that Era A has no reachable source is now
 false: this archive passes #140's own acceptance test (year, LD, Position, winner, party for
-the 1992–2000 generals) for 94 to 98 seats in every Era A biennium under the recommended
-build, and 96 to 98 once class B is decided. But nothing published changes until the ingest
-ships. Keep #140 open as the tracking issue for that build, re-scoped from "find a source" to
-"ingest this one", and close it when Era A is published. What stays out of reach afterwards is
-named: the 35 member-bienniums of § 6. 27 wait on the class B decision, Murray and Chopp for
-1997-98 among them, and eight have no evidence in the file. McGrath and Lawrence are not among
-the 35: the elimination positions both, and what they lack is a published span (#586).
+the 1992–2000 generals) for 96 to 98 seats in every Era A biennium. But nothing published
+changes until the ingest ships. Keep #140 open as the tracking issue for that build, re-scoped
+from "find a source" to "ingest this one", and close it when Era A is published. What stays
+out of reach afterwards is named: the 30 member-bienniums of § 6, nearly all of them
+mid-biennium successions. McGrath and Lawrence are not among the 30: the builder seats both,
+and what they lack today is a published span (#586).
 
 ## Appendix A: per-year completeness
 
