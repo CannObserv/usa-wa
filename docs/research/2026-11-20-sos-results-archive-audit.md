@@ -14,6 +14,8 @@ claims.
 - **Go**, for a narrow build: the even-year generals of 1966–2006 as House Position evidence.
   They carry 2,058 of the 2,061 House races those 21 generals should hold, every one with an
   unambiguous winner, and they agree with all 262 comparable Positions already published.
+  The first build consumes the nine of 1990–2006, which reach the WSL era; the twelve before
+  them are verified and wait on a pre-WSL build.
 - **It closes most of #140's gap.** Of the 659 House member-bienniums the WSL roster attests
   through 2007-08 that have no published seat today, the archive positions **610 from the
   seating general alone**. The existing elimination adds 14, and a later candidacy (a new rule,
@@ -435,10 +437,11 @@ all four as real.
 
 **Go: build an ingest, scoped to what the audit verified.**
 
-1. **Scope v1 to the even-year generals of 1966–2006 as House Position evidence for the WSL
-   era** (bienniums 1991-92 … 2007-08, the generals of 1990–2006). Class A positions 610 of
-   the 659 unpositioned member-bienniums and the existing elimination 14 more (§ 6), with no
-   new inference rule.
+1. **Scope v1 to House Position evidence for the WSL era: the nine even-year generals of
+   1990–2006** (bienniums 1991-92 … 2007-08). The audit verified all 21 generals of 1966–2006;
+   the twelve before 1990 feed nothing until the pre-WSL build of item 6. Class A positions
+   610 of the 659 unpositioned member-bienniums and the existing elimination 14 more (§ 6),
+   with no new inference rule.
 2. **How it composes with `sos-legresults`:** as a third producer of the same
    `{LD: [HousePosition]}` map (`usa_wa_common.ballot`), selected by election year. The archive
    serves election years through 2006 and `sos-legresults` serves 2008 onward; the two never
