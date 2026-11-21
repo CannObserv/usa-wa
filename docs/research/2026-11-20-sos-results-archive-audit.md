@@ -531,7 +531,7 @@ all four as real.
    operator `seated` events (#119, #492). The build needs that route, or a projector change,
    in place for the 1991–2008 successions before it ships; the roster PDF dates the
    appointments. Whether a `seated` event can seat a successor the projector left unpositioned
-   is for the build to establish.
+   is for the build to establish. Tracked as #591.
 3. **Phase A** archives the whole workbook as one resource under a new source slug beside the
    two SOS feeds. Treat it like the roster PDF: a frozen document, harvested on demand,
    re-checked monthly by a dry run, with the href resolved from the landing page. It has an
