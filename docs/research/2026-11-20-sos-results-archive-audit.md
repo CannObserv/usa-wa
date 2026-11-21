@@ -364,7 +364,9 @@ produce. Treat party as a weak tiebreak, never as a key.
 
 ## Defects in the file
 
-Four classes, each found by cross-checking rather than by reading labels.
+Three classes of defect, each found by cross-checking rather than by reading labels, and one
+check that came back clean. The Verdict's other two wrong things are the `ElectionDate` (§ 7)
+and the spellings (§ 5).
 
 **1. Races filed under the wrong office.**
 
@@ -409,7 +411,7 @@ appointed the same day; the district's Position 1 member did not resign until af
 election.) The labels look defaulted: Position 1 on 11 of the 12 real specials through 1999,
 Position 2 on all four of 2001–2005. Use a special for who won, and never for which Position.
 
-**4. Even-year Positions: sound.** Three independent checks:
+**The clean check: even-year Positions are sound.** Three independent checks:
 
 - Primary and general agree on a candidate's Position in **3,814 of 3,814** cases where both
   exist (1966–2006), pairing a candidate within a year and district on folded `LastName` plus
