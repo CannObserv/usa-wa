@@ -251,8 +251,8 @@ that `stg_wsl_sponsors` attests through 2007-08 with no published `seat:house:*`
 The archive's evidence for each, in falling order of strength:
 
 - **A** — the member won the general that seated the biennium, in that LD, at one Position.
-- **B** — no A, but the member ran for exactly one Position in the next regular cycle (an
-  appointee defending the seat).
+- **B** — no A, but the member ran for exactly one Position in the next regular cycle
+  (typically an appointee defending the seat).
 - **D** — neither, but the LD's other member is positioned and the #103 elimination applies.
 
 | Biennia (plan) | Unpositioned today | A | B | D | Still unpositioned |
@@ -265,6 +265,12 @@ The archive's evidence for each, in falling order of strength:
 The eight left over are seven appointees who never won a seat inside the file's range
 (Carlson, Scheuerman, Gordon, Blalock, Marine, Lysen, Loomis) and one spelling miss
 (Thibaudeau, 1995-96).
+
+The 40 of class B are four kinds. 31 arrived mid-biennium and were never on the seating
+ballot. Five lost the seating general and were seated later, in the LD's other seat
+(Recommendation, item 2). Two are Murray and Chopp for 1997-98, whose 1996 race is mis-filed.
+Two are Pennington and Schindler for 1999-00, misspelt in the 1998 general; an alias table
+makes them class A.
 
 Distinct House seats with a positioned holder, per biennium:
 
