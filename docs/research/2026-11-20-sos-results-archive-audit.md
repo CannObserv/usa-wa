@@ -16,8 +16,9 @@ claims.
   unambiguous winner, and they agree with all 262 comparable Positions already published.
 - **It closes most of #140's gap.** Of the 659 House member-bienniums the WSL roster attests
   through 2007-08 that have no published seat today, the archive positions **610 from the
-  seating general alone** and 40 more from a later candidacy. Era A (1991-92 … 2001-02) has no
-  published seat today except two in 2001-02; with the archive it has 96 to 98 per biennium.
+  seating general alone**. The existing elimination adds 14, and a later candidacy (a new rule,
+  deferred) would settle 27 of the 35 left. Era A (1991-92 … 2001-02) has no published seat
+  today except two in 2001-02; the recommended build gives it 94 to 98 per biennium.
 - **Five things in the file are wrong, and a build must not trust them:** the Position label
   on odd-year special elections; 19 races of the 1982 general repeated as 1983; nine races
   filed under the wrong office (three House races as Senate, and six Senate races as House in
@@ -268,7 +269,16 @@ Distinct House seats with a positioned holder, per biennium:
 | Biennium | 1991-92 | 1993-94 | 1995-96 | 1997-98 | 1999-00 | 2001-02 | 2003-04 | 2005-06 | 2007-08 |
 |---|---|---|---|---|---|---|---|---|---|
 | Published today | 0 | 0 | 0 | 0 | 0 | 2 | 78 | 90 | 94 |
+| Recommended build (A, then elimination) | 98 | 98 | 98 | 94 | 98 | 95 | 98 | 98 | 98 |
 | With A and B | 97 | 98 | 98 | 98 | 98 | 96 | 98 | 98 | 98 |
+
+**What the recommended build yields.** The Recommendation defers class B, so the first row is
+the one to plan on. It runs a winners-only map through the existing lookup, then the #103
+elimination at biennium grain with the #105 mover exclusion. That positions **624 of the 659**:
+the 610 of class A and 14 by elimination. It leaves 35: 27 of class B and the eight above. The
+low bienniums are 1997-98 (LD 43's two mis-filed seats and two more) and 2001-02. The 14 differ
+from the D column because D was counted after B and without the mover exclusion. This is a
+scratch simulation of those rules, not a run of the projector.
 
 **Below the WSL floor** (roster era, sessions 1967–1989): of 1,230 roster House rows, 1,170 are
 A and 47 are B (1,168 and 49 under the second pass's surname rule; 1,217 either way). None is
@@ -425,8 +435,9 @@ all four as real.
 **Go: build an ingest, scoped to what the audit verified.**
 
 1. **Scope v1 to the even-year generals of 1966–2006 as House Position evidence for the WSL
-   era** (bienniums 1991-92 … 2007-08, the generals of 1990–2006). Class A alone positions 610
-   of the 659 unpositioned member-bienniums, with no new inference rule.
+   era** (bienniums 1991-92 … 2007-08, the generals of 1990–2006). Class A positions 610 of
+   the 659 unpositioned member-bienniums and the existing elimination 14 more (§ 6), with no
+   new inference rule.
 2. **How it composes with `sos-legresults`:** as a third producer of the same
    `{LD: [HousePosition]}` map (`usa_wa_common.ballot`), selected by election year. The archive
    serves election years through 2006 and `sos-legresults` serves 2008 onward; the two never
@@ -473,18 +484,19 @@ all four as real.
    `house_general` verified 1966–2006 for Positions and 1914–1964 as at-large pools, absent
    1910–1912; `senate_general` verified 1914–2006, absent 1912, partial 1910; primaries as
    candidacy evidence from 1946, absent 1948.
-6. **Defer:** class B (40 member-bienniums; "ran next cycle" is a new inference and deserves
-   its own decision), anything before the WSL floor (1,217 more House rows, but it needs
-   roster-sourced House spans, the LD 42 third seat and per-plan `role_periods`), and the
-   at-large era, which needs the #230 seat model first.
+6. **Defer:** class B (27 member-bienniums once the elimination has run, 40 before it; "ran
+   next cycle" is a new inference and deserves its own decision), anything before the WSL
+   floor (1,217 more House rows, but it needs roster-sourced House spans, the LD 42 third seat
+   and per-plan `role_periods`), and the at-large era, which needs the #230 seat model first.
 
 **#140 narrows; it does not close.** Its premise that Era A has no reachable source is now
 false: this archive passes #140's own acceptance test (year, LD, Position, winner, party for
-the 1992–2000 generals) for 96 to 98 seats in every Era A biennium. But nothing published
-changes until the ingest ships. Keep #140 open as the tracking issue for that build, re-scoped
-from "find a source" to "ingest this one", and close it when Era A is published. What stays
-out of reach afterwards is small and named: the eight member-bienniums of § 6, the three
-mislabelled seats, and McGrath and Lawrence until #586 is settled.
+the 1992–2000 generals) for 94 to 98 seats in every Era A biennium under the recommended
+build, and 96 to 98 once class B is decided. But nothing published changes until the ingest
+ships. Keep #140 open as the tracking issue for that build, re-scoped from "find a source" to
+"ingest this one", and close it when Era A is published. What stays out of reach afterwards is
+small and named: the eight member-bienniums of § 6, the three mislabelled seats, and McGrath
+and Lawrence until #586 is settled.
 
 ## Appendix A: per-year completeness
 
