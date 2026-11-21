@@ -94,6 +94,10 @@ Scratch analysis, re-runnable from this description.
   distance of two, only to classify it. That second pass never counts as a match.
 - **Published state:** `assignments` `v20261109T080301Z-511694` (schema 1.8.0, 8,397 rows) and
   `stg_wsl_sponsors`, read from a scratch copy of `data/pipeline.duckdb`.
+- **The live rules, simulated.** § 6's recommended-build row and the Recommendation's
+  composition test feed the archive's even-year candidacies to the real `position_for`, with
+  the #103 elimination and #105 mover exclusion re-implemented at biennium grain. The
+  projector itself was not run.
 - **Checked twice.** A second pass re-derived the file facts, §§ 1–3, § 6 and the hazard counts
   from the raw workbook with separate code. Where a figure depends on how a name is keyed, the
   text says so and gives both results.
@@ -287,8 +291,9 @@ the one to plan on. It runs a winners-only map through the existing lookup, then
 elimination at biennium grain with the #105 mover exclusion. That positions **624 of the 659**:
 the 610 of class A and 14 by elimination. It leaves 35: 27 of class B and the eight above. The
 low bienniums are 1997-98 (LD 43's two mis-filed seats and two more) and 2001-02. The 14 differ
-from the D column because D was counted after B and without the mover exclusion. This is a
-scratch simulation of those rules, not a run of the projector.
+from the D column because D was counted after B and without the mover exclusion. Thirteen of
+the 14 can be checked against the member's own next candidacy, and all thirteen agree with it.
+This is a scratch simulation of those rules, not a run of the projector.
 
 **Below the WSL floor** (roster era, sessions 1967–1989): of 1,230 roster House rows, 1,170 are
 A and 47 are B (1,168 and 49 under the second pass's surname rule; 1,217 either way). None is
