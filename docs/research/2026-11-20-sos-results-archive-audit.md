@@ -302,7 +302,8 @@ spans, the LD 42 third seat, `role_periods` per plan).
   mover's own ballot Position, so the successor inference is corroborated, not needed.
 - **Known gap, not a disagreement (#586):** McGrath (9951) and Lawrence (9960) have recorded
   seatings and no published House span. Both are class B at Position 2, which matches their
-  recorded seatings.
+  recorded seatings. The elimination reaches the same Position without B, once Delvin and
+  Carrell are excluded as movers.
 - The back-chained Positions of 2003-04 … 2007-08 (#118) are inside the 262: none disagrees.
 
 One conflict appears only if a special election's label is trusted: Takko, 2005-06, published
@@ -475,8 +476,11 @@ all four as real.
      the roster before using it for anything (the 1977 pair);
    - drop a race that repeats another election's vote counts (the 1983 block), found by
      comparing counts and not by listing districts;
-   - omit, never guess, a district-year whose House race count or Senate race is the wrong
-     shape (1990 LD 39, 1996 LD 43), leaving those three seats to an operator event;
+   - where a district-year has the wrong shape (a House race missing, or a Senate race in a
+     district whose senator is mid-term), drop the mis-filed race and never re-file it by
+     guess, but keep the district's correctly labelled races (1990 LD 39 Position 2). Of the
+     three seats affected, Wynne's falls to the elimination; Murray's and Chopp's for 1997-98
+     wait on class B or an operator event;
    - key elections on year and type, never on `ElectionDate`;
    - read `BallotName`, never `LastName`;
    - keep a curated alias table for spelling variants, with no fuzzy matching.
@@ -495,8 +499,9 @@ the 1992–2000 generals) for 94 to 98 seats in every Era A biennium under the r
 build, and 96 to 98 once class B is decided. But nothing published changes until the ingest
 ships. Keep #140 open as the tracking issue for that build, re-scoped from "find a source" to
 "ingest this one", and close it when Era A is published. What stays out of reach afterwards is
-small and named: the eight member-bienniums of § 6, the three mislabelled seats, and McGrath
-and Lawrence until #586 is settled.
+named: the 35 member-bienniums of § 6. 27 wait on the class B decision, Murray and Chopp for
+1997-98 among them, and eight have no evidence in the file. McGrath and Lawrence are not among
+the 35: the elimination positions both, and what they lack is a published span (#586).
 
 ## Appendix A: per-year completeness
 
