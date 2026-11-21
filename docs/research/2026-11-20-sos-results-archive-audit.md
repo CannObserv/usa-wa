@@ -16,7 +16,7 @@ claims.
   unambiguous winner, and they agree with all 262 comparable Positions already published.
   The first build consumes the nine of 1990–2006, which reach the WSL era; the twelve before
   them are verified and wait on a pre-WSL build.
-- **It closes most of #140's gap.** Of the 659 House member-bienniums the WSL roster attests
+- **It closes most of #140's gap.** Of the 659 House member-bienniums the WSL feed attests
   through 2007-08 that have no published seat today, the archive positions **610 from the
   seating general alone**. The existing elimination adds 14, and a later candidacy (a new rule,
   deferred) would settle 27 of the 35 left. Era A (1991-92 … 2001-02) has no published seat
@@ -176,14 +176,15 @@ The 13 `Position #2` rows are a defect, not Positions. All are the 1918 general,
 and 24. In each, the "Position #1" race (two candidates, plus a `Scattering` row in LD 19) is the
 district's **Senate** race (W. Lon Johnson, John C. Crawford, P. L. Sinclair, Wm. Bishop: all
 senators in the 1919 roster, and all four districts lack a 1918 Senate general row), and the
-House pool was pushed to `Position #2`. Four of the 1,329 pools above are these.
+House pool was pushed to `Position #2`. The 1,329 above count those four Senate races as
+pools; 1,325 are House pools.
 
 **The boundary by seating is 1967, not 1965.** The 1964 general is a pool in all 49 districts;
 1966 is the first with `Position #2` rows statewide. So the members seated for 1965-66 were
 elected at large, and 1967-68 is the first biennium with Positions. The repo's "pre-1965"
 shorthand follows the year the law changed, as the #230 notes record it; this audit measured
-only the elections. Nothing published depends on the difference today, since
-no House span exists before 2001-02; a pre-1991 House build would.
+only the elections. Nothing published depends on the difference today, since no House span
+exists before 2001-02; a pre-1991 House build would.
 
 ## 3. The 13 `Position #3` rows
 
