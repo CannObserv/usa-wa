@@ -17,6 +17,7 @@ from usa_wa_common.legislative_calendar import (
     filing_biennium,
     filing_biennium_on,
     filing_window,
+    harvest_biennium,
     term_biennium_on,
 )
 
@@ -86,3 +87,14 @@ def test_a_label_that_is_not_a_biennium_is_refused(label):
 )
 def test_the_term_clock_lags_the_filing_clock(day, expected):
     assert term_biennium_on(day) == expected
+
+
+def test_the_harvest_target_is_the_filing_biennium(monkeypatch):
+    """The three raw harvests target the filing biennium (#597): from 2026-12-07, 2027-28.
+    ``USA_WA_BIENNIUM`` still pins it, and with no ``today`` it reads the clock."""
+    monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+    assert harvest_biennium(date(2026, 12, 6)) == "2025-26"
+    assert harvest_biennium(date(2026, 12, 7)) == "2027-28"
+    assert harvest_biennium(None) == filing_biennium(datetime.now(UTC))
+    monkeypatch.setenv("USA_WA_BIENNIUM", "2019-20")
+    assert harvest_biennium(date(2026, 12, 7)) == "2019-20"

@@ -22,7 +22,6 @@ biennium it seats, which has none until the rollover.
 from __future__ import annotations
 
 import argparse
-import os
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -31,7 +30,6 @@ from urllib.parse import urlencode
 from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
-from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_pdc.coverage import PDC_SOURCE_SLUG
 from usa_wa_adapter_pdc.resources import (
     HOUSE_WINNERS_RESOURCE_PREFIX,
@@ -43,6 +41,7 @@ from usa_wa_common.elections import (
     lookahead_election_year,
     senate_election_years_for_biennium,
 )
+from usa_wa_common.legislative_calendar import harvest_biennium
 
 logger = get_logger(__name__)
 
@@ -64,9 +63,10 @@ async def harvest_raw(
 
     Plus the next biennium's seating cohorts once that election is held (#135): ``today``
     decides both, and defaults to the UTC date."""
-    today = today or datetime.now(UTC).date()
     if biennium is None:
-        biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(today)
+        # The filing biennium (#597): 2027-28 from 2026-12-07, Pacific.
+        biennium = harvest_biennium(today)
+    today = today or datetime.now(UTC).date()
     client = pdc_client or PDCClient()
     store = RawStore(root, SOURCE_SLUG)
     run = store.open_run()

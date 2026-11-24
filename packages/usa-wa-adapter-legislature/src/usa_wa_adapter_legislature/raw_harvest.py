@@ -34,10 +34,9 @@ re-parses through the live WSDL, ``WSLClient.offline``), and ``OnFailure=`` mail
 from __future__ import annotations
 
 import argparse
-import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -53,9 +52,9 @@ from clearinghouse_core.rawstore import (
     record_fetch,
 )
 from clearinghouse_domain_legislative.terms import (
-    biennium_for_date,
     biennium_start_year,
     next_biennium,
+    previous_biennium,
 )
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
@@ -66,6 +65,12 @@ from usa_wa_adapter_legislature.resources import (
     committee_members_hist_resource_id,
 )
 from usa_wa_adapter_legislature.transport import WSL_BASE_URL, WSLClient, binding_drift
+from usa_wa_common.legislative_calendar import (
+    SITE_TZ,
+    filing_biennium_on,
+    harvest_biennium,
+    term_biennium_on,
+)
 
 logger = get_logger(__name__)
 
@@ -112,9 +117,10 @@ async def harvest_raw(
 ) -> dict[str, int]:
     """Fetch the daily WSL set + member fan-out into the raw store, plus the next biennium's
     rosters while that biennium is still ahead of the clock (``today``, UTC by default)."""
-    today = today or datetime.now(UTC).date()
     if biennium is None:
-        biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(today)
+        # The filing biennium (#597): 2027-28 from 2026-12-07, Pacific.
+        biennium = harvest_biennium(today)
+    today = today or datetime.now(SITE_TZ).date()
     committees = committee_client or WSLClient("CommitteeService")
     meetings = meeting_client or WSLClient("CommitteeMeetingService")
     sponsors = sponsor_client or WSLClient("SponsorService")
@@ -190,14 +196,33 @@ async def harvest_raw(
             counters["sponsor_rows"] = _record_count(sponsor.payload)
 
             await _fan_out(run, store, biennium, roster, committees, counters, ttl_days)
+            counters["outgoing_biennium"] = None
+            outgoing = _outgoing(biennium, today)
+            if outgoing is not None:
+                counters["outgoing_biennium"] = _pass_counters(outgoing)
+                await _harvest_rosters(
+                    run,
+                    store,
+                    counters["outgoing_biennium"],
+                    committees,
+                    sponsors,
+                    ttl_days,
+                    label="outgoing",
+                )
             counters["next_biennium"] = None
             ahead = _ahead_of_clock(biennium, today)
             if ahead is not None:
                 # Attached before the pass runs, filled in place: an uncontained failure
                 # inside it still reports how far it got (CR 2, #331).
-                counters["next_biennium"] = _next_counters(ahead)
-                await _harvest_next(
-                    run, store, counters["next_biennium"], committees, sponsors, ttl_days
+                counters["next_biennium"] = _pass_counters(ahead)
+                await _harvest_rosters(
+                    run,
+                    store,
+                    counters["next_biennium"],
+                    committees,
+                    sponsors,
+                    ttl_days,
+                    label="next",
                 )
         finally:
             # An uncontained failure (corrupt latest.json, cancellation) must not
@@ -268,17 +293,32 @@ async def _fan_out(
 
 
 def _ahead_of_clock(biennium: str, today: date) -> str | None:
-    """The biennium after ``biennium`` when it is still ahead of ``today``'s, else ``None``
-    (CR 1). "Next" means ahead of now: a run pinned to a past biennium (a backfill) must not
-    also land the one after it, which it was never asked for."""
+    """The biennium after ``biennium`` when it is still ahead of ``today``'s filing biennium,
+    else ``None`` (#599 CR 1, #597). "Next" means ahead of now: a run pinned to a past
+    biennium (a backfill) must not also land the one after it, which it was never asked for."""
     candidate = next_biennium(biennium)
-    if biennium_start_year(candidate) > biennium_start_year(biennium_for_date(today)):
+    if biennium_start_year(candidate) > biennium_start_year(filing_biennium_on(today)):
         return candidate
     return None
 
 
-def _next_counters(biennium: str) -> dict[str, Any]:
-    """The next-biennium pass's own counters, nested under ``next_biennium``."""
+def _outgoing(biennium: str, today: date) -> str | None:
+    """The biennium before ``biennium`` while its legislators still serve, else ``None``
+    (#597, owner 2026-11-24).
+
+    Between the filing flip (first Monday in December) and the term flip, the harvest
+    targets the new biennium while the old one's terms run on: its sponsors, roster and
+    members are still refreshed, so a December resignation or appointment is captured.
+    Only for the run that targets the current filing biennium: a pinned run (a backfill, a
+    rehearsal) refreshes nothing else."""
+    candidate = previous_biennium(biennium)
+    if filing_biennium_on(today) == biennium and term_biennium_on(today) == candidate:
+        return candidate
+    return None
+
+
+def _pass_counters(biennium: str) -> dict[str, Any]:
+    """A roster pass's own counters, nested under ``next_biennium`` / ``outgoing_biennium``."""
     return {
         "biennium": biennium,
         "sponsor_rows": None,
@@ -293,13 +333,15 @@ def _next_counters(biennium: str) -> dict[str, Any]:
     }
 
 
-async def _harvest_next(
+async def _harvest_rosters(
     run: RawRun,
     store: RawStore,
     counters: dict[str, Any],
     committees: Any,
     sponsors: Any,
     ttl_days: float,
+    *,
+    label: str,
 ) -> None:
     """Land the NEXT biennium's rosters from the night WSL publishes them (#599).
 
@@ -313,9 +355,12 @@ async def _harvest_next(
     which says only that the biennium is unpublished), and a ``GetCommittees`` server
     fault while sponsors have rows — the order a biennium can publish in — counts
     ``roster_unpublished``. A transport error, or a fan-out that lands nothing, is an
-    outage: counted, and degrading at job level (:func:`_next_degraded`). ``counters`` is
-    its own (:func:`_next_counters`), filled in place, so the current biennium's stay what
-    they always were."""
+    outage: counted, and degrading at job level (:func:`_pass_degraded`). ``counters`` is
+    its own (:func:`_pass_counters`), filled in place, so the current biennium's stay what
+    they always were.
+
+    The same pass refreshes the OUTGOING biennium between the filing flip and the term flip
+    (#597, :func:`_outgoing`). ``label`` (``next`` / ``outgoing``) names its log events."""
     biennium = counters["biennium"]
     sponsors_resource = f"{SPONSORS_RESOURCE_PREFIX}{biennium}"
     sponsors_url = f"{WSL_BASE_URL}/SponsorService.asmx?biennium={biennium}#GetSponsors"
@@ -333,7 +378,9 @@ async def _harvest_next(
             counters["sponsor_rows"] = _record_count(fetched)
             if counters["sponsor_rows"] is None:
                 # Unknown, not empty (CR 4): land nothing, but never stop silently.
-                logger.warning("wsl_raw_harvest_next_rows_unknown", extra={"biennium": biennium})
+                logger.warning(
+                    f"wsl_raw_harvest_{label}_rows_unknown", extra={"biennium": biennium}
+                )
             if not counters["sponsor_rows"]:
                 return
     await record_fetch(
@@ -344,7 +391,7 @@ async def _harvest_next(
         _replay(fetched, failure),
         counters,
         ttl_days,
-        log_event="wsl_raw_harvest_next_fetch_failed",
+        log_event=f"wsl_raw_harvest_{label}_fetch_failed",
     )
     if failure is not None:
         return
@@ -364,7 +411,7 @@ async def _harvest_next(
         _replay(roster_payload, failure),
         counters,
         ttl_days,
-        log_event="wsl_raw_harvest_next_fetch_failed",
+        log_event=f"wsl_raw_harvest_{label}_fetch_failed",
     )
     await _fan_out(run, store, biennium, roster, committees, counters, ttl_days)
 
@@ -391,7 +438,7 @@ def _replay(payload: Any, failure: Exception | None) -> Callable[[], Awaitable[A
     return fetcher
 
 
-def _next_degraded(counters: dict[str, Any] | None) -> bool:
+def _pass_degraded(counters: dict[str, Any] | None) -> bool:
     """The next-biennium pass had an outage (#599): an error, a roster that did not parse,
     or a fan-out that landed nothing. "Not yet" (empty sponsors, a faulting roster) is not."""
     if not counters:
@@ -518,17 +565,18 @@ def job_outcome(
                 "follow_up": "docs/MODULES-LEGISLATURE.md § Vendored WSDLs",
             },
         )
-    next_degraded = _next_degraded(counters.get("next_biennium"))
-    if next_degraded:
-        logger.warning(
-            "wsl_raw_harvest_next_biennium_degraded",
-            extra={"next_biennium": counters["next_biennium"], "issue": "#599"},
-        )
+    passes_degraded = False
+    for key, issue in (("next_biennium", "#599"), ("outgoing_biennium", "#597")):
+        if _pass_degraded(counters.get(key)):
+            passes_degraded = True
+            logger.warning(
+                f"wsl_raw_harvest_{key}_degraded", extra={key: counters[key], "issue": issue}
+            )
     if (
         drift
         or counters.get("wsdl_check_failed")
         or stale
-        or next_degraded
+        or passes_degraded
         or (degraded and not accepting)
     ):
         return JobResult.degraded(reported)

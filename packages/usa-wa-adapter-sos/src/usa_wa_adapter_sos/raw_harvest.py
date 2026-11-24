@@ -22,7 +22,6 @@ biennium it seats, which has none until the rollover.
 from __future__ import annotations
 
 import argparse
-import os
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -32,7 +31,6 @@ from urllib.parse import urlencode
 from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
 from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
-from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_sos.coverage import SOS_FILINGS_SOURCE_SLUG, SOS_RESULTS_SOURCE_SLUG
 from usa_wa_adapter_sos.filings.resources import whofiled_resource_id
 from usa_wa_adapter_sos.filings.transport import (
@@ -49,6 +47,7 @@ from usa_wa_adapter_sos.results.transport import (
     general_election_date as results_election_date,
 )
 from usa_wa_common.elections import election_years_for_biennium, lookahead_election_year
+from usa_wa_common.legislative_calendar import harvest_biennium
 
 logger = get_logger(__name__)
 
@@ -126,9 +125,10 @@ async def harvest_raw(
 
     Plus the next biennium's seating year once that election is held (#135): ``today``
     decides both, and defaults to the UTC date."""
-    today = today or datetime.now(UTC).date()
     if biennium is None:
-        biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(today)
+        # The filing biennium (#597): 2027-28 from 2026-12-07, Pacific.
+        biennium = harvest_biennium(today)
+    today = today or datetime.now(UTC).date()
     filings = filings_client or SOSFilingsClient()
     results = results_client or SOSResultsClient()
     lookahead = lookahead_election_year(biennium, today=today)

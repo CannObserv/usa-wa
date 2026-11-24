@@ -25,7 +25,8 @@ Regular and Special Sessions are children *within* a filing window, with dates f
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+import os
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
@@ -84,3 +85,15 @@ def term_biennium_on(day: date) -> str:
     second Monday in January (RCW 44.04.021). Between the filing flip and the term flip,
     this lags :func:`filing_biennium_on` by one biennium."""
     return biennium_for_date(day)
+
+
+def harvest_biennium(today: date | None = None) -> str:
+    """The biennium a raw harvest targets: ``USA_WA_BIENNIUM`` when pinned, else the filing
+    biennium of ``today`` (a Pacific day), or of the clock when ``today`` is ``None`` (#597).
+
+    One rule for the WSL, PDC and SOS harvests, so they cannot disagree about which biennium
+    is current on the night the filing window turns."""
+    pinned = os.environ.get("USA_WA_BIENNIUM")
+    if pinned:
+        return pinned
+    return filing_biennium_on(today) if today else filing_biennium(datetime.now(UTC))
