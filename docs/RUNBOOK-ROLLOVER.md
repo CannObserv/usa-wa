@@ -20,7 +20,7 @@ run with `scripts/rollover-rehearsal.sh`.
 
 | Unit | When | What it does in this window |
 |---|---|---|
-| `usa-wa-pipeline.timer` | daily 08:00 UTC | From **2026-11-04** the PDC and SOS harvests also fetch the 2026 general (`lookahead_election_year`). From **2026-11-25** the WSL harvest also lands `2027-28`'s sponsors, committee roster and members (#599: the next biennium, from the night WSL publishes it; its own `next_biennium` counters). From **2027-01-01** every harvest targets `2027-28` (#597 moves that to 2026-12-07). |
+| `usa-wa-pipeline.timer` | daily 08:00 UTC | From **2026-11-04** the PDC and SOS harvests also fetch the 2026 general (`lookahead_election_year`). From #601's deploy (the first nightly after it) the WSL harvest also lands `2027-28`'s sponsors, committee roster and members (#599: the next biennium, from the night WSL publishes it; its own `next_biennium` counters). From **2027-01-01** every harvest targets `2027-28` (#597 moves that to 2026-12-07). |
 | `usa-wa-wsl-availability-probe.timer` | daily 09:20 UTC, through 2027-02-28 | Measures how much of `2027-28` WSL serves (`data/research/wsl-availability.jsonl`). **Exit 4 = a roster changed state** (faulting, empty, has rows): the morning WSL starts publishing. Growth alone is logged, not mailed. |
 | claude.ai routine `trig_01RrbHtAt554TKzoHDsBxAbc` | 2026-11-04 16:07 UTC, once | Checks the upstream sources from outside, then @mentions the owner on #135 with the 11-04 checklist below. |
 
