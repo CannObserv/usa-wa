@@ -78,8 +78,10 @@ degraded build from shipping as mass retraction. What remains is state, not dele
 | `active` | `organizations` | attested in the current biennium (roster wire, meeting window, or the declared structural flag), and false for the subject of a `succeeded_by` / `merged_with` link (#428, #447) |
 | `is_active` | `assignments` | the span reaches the current biennium — an open tenure |
 
-`active` and `is_active` both read `spans.current_biennium()`, so the 2027-01-01 rollover closes
-spans and retires committees in the same build. The Postgres tier's `archived_at` / `deleted_at`
+`active` and `is_active` both read `spans.current_biennium()`, the **term** clock (#597), so the
+term flip closes spans and retires committees in the same build (INV1). An organization is one
+WSL committee id across biennia, so only new and retired committees flip. The harvests follow the
+**filing window** instead (first Monday in December, `usa_wa_common.legislative_calendar`). The Postgres tier's `archived_at` / `deleted_at`
 axes mirrored PM's lifecycle and retired with it (#412).
 
 ### Provenance
