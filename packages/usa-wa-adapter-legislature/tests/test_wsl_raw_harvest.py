@@ -511,15 +511,11 @@ class TestAcceptedRosterFaults:
         assert result.counters["stale_acceptances"] == []
         assert result.counters["accepted_faults"] == []
 
-    def test_the_shipped_acceptance_is_the_2027_rollover(self) -> None:
-        """Pins what is shipped, so widening it is a deliberate diff."""
-        assert [(a.biennium, a.issue) for a in ACCEPTED_ROSTER_FAULTS] == [("2027-28", "#452")]
-
-    def test_the_shipped_follow_up_names_both_entries(self) -> None:
-        """The stale signal is the only reminder: it must name the build_warnings twin too."""
-        [shipped] = ACCEPTED_ROSTER_FAULTS
-        assert any("ACCEPTED_ROSTER_FAULTS" in step for step in shipped.follow_up)
-        assert any("ACCEPTED_WARNINGS" in step for step in shipped.follow_up)
+    def test_nothing_is_shipped_between_rollover_windows(self) -> None:
+        """Pins what is shipped, so adding an entry is a deliberate diff. The 2027-28 entry
+        was removed when WSL published 2027-28 sponsors on 2026-11-24 (#135), before it
+        ever applied."""
+        assert ACCEPTED_ROSTER_FAULTS == ()
 
 
 class TestWsdlDrift:
