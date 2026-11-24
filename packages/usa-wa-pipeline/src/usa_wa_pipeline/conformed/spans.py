@@ -565,9 +565,9 @@ def without_future_bienniums(inputs: SpanInputs, *, current_biennium: str) -> Sp
     build with the 2027-28 wires staged measured each of them, all accepted as recording what WSL
     states:
 
-    - the registrar's ``load_sponsor_keys`` mints a person per staged sponsor: the newcomer
-      (one, 35476) gets a ``persons`` row with no assignment until the rollover makes the
-      biennium current;
+    - the registrar's ``load_sponsor_keys`` mints a person per staged sponsor: each newcomer
+      (2027-28: one, 35476, measured 2026-11-24) gets a ``persons`` row with no assignment
+      until the rollover makes the biennium current;
     - ``persons`` name survivorship: no incumbent's row changed;
     - ``organizations`` (the committee rosters): ``last_biennium`` reads the next biennium for
       every committee it lists, while ``active`` (equality with the current biennium) is
