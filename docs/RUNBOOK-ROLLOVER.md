@@ -50,9 +50,13 @@ From the same night, the published `stg_sos_results` carries the 2026 election's
   scripts/rollover-rehearsal.sh empty      # what upstream serves that day
   scripts/rollover-rehearsal.sh partial    # a synthesized half-published 2027-28 roster
   ```
-  Expected since #452: `empty` exits 0 with both acceptance lines in `nightly.log`;
-  `partial` (synthesized sponsors stage) has `build_warnings` exit 1, still warning on the
-  vacancy with `stale_acceptances` naming it — the "WSL published" path.
+  **Since 2026-11-24 (#596) only `empty` models anything.** WSL has published 2027-28, and
+  the nightly lands it (#599), so `empty` now rehearses the published case on the real
+  roster. Expect `build_warnings` to exit 1 on the partial roster's vacancy until it turns
+  informational (#599 D3). `partial` overwrites the real `sponsors:2027-28` wire in its
+  scratch copy with a synthesized one, so it no longer rehearses anything real: skip it.
+  (The #452 expectation, `empty` exiting 0 with both acceptance lines, applied only before
+  WSL published.)
   Not while the 08:00 nightly runs (the wrapper refuses: it would copy a half-written run).
   Each prints its scratch dir under `~/rehearsal/`; record the outcome lines in the
   research doc beside the October run. Delete the scratch dirs afterwards (~135 MB each).
