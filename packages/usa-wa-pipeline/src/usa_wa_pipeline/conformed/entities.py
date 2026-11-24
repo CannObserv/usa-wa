@@ -26,7 +26,6 @@ from collections.abc import Set as AbstractSet
 from datetime import date
 from typing import Any
 
-from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
 from usa_wa_adapter_legislature.roster_pdf.identity import (
@@ -36,6 +35,7 @@ from usa_wa_adapter_legislature.roster_pdf.identity import (
     strip_position_suffix,
 )
 from usa_wa_adapter_pdc.coverage import PDC_KEY_NAMESPACE
+from usa_wa_common.legislative_calendar import filing_biennium_on
 from usa_wa_common.names import strip_tenure_notes
 from usa_wa_common.orgs import STRUCTURAL_ORGS
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
@@ -288,7 +288,10 @@ def person_rows(
 
 
 def _window_biennium(window: Any) -> str | None:
-    """A ``<begin>:<end>`` meeting window → the biennium its begin date falls in.
+    """A ``<begin>:<end>`` meeting window → the biennium its begin day falls in, on the
+    filing calendar (#597). A filing window opens on the first Monday in December of the
+    year before its biennium; the calendar-year windows archived before #597 open on Jan 1
+    of it, which the same rule also names correctly.
 
     The window is this repo's own resource id, not an upstream string, but a
     malformed one attests nothing rather than aborting the nightly build.
@@ -296,7 +299,7 @@ def _window_biennium(window: Any) -> str | None:
     if not isinstance(window, str):
         return None
     try:
-        return biennium_for_date(date.fromisoformat(window.split(":", 1)[0]))
+        return filing_biennium_on(date.fromisoformat(window.split(":", 1)[0]))
     except ValueError:
         return None
 

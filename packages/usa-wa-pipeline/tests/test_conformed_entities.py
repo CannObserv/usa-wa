@@ -560,6 +560,27 @@ def test_a_meeting_derived_body_is_active_iff_it_met_this_biennium() -> None:
     assert {r["entity_id"]: r["active"] for r in rows} == {"02B": True, "02C": False}
 
 
+def test_a_filing_window_names_its_biennium_by_the_filing_calendar() -> None:
+    """#597: meetings windows are filing windows, which open on the first Monday in December
+    of the year BEFORE the biennium. 2024-12-02:2026-12-06 is 2025-26, not 2023-24, and
+    2026-12-07:2028-12-03 is 2027-28. The calendar-year windows archived before #597 still
+    name the same biennium as they always did."""
+    crosswalk = [_org("02B", "-5"), _org("02C", "-4"), _org("02D", "-3")]
+    meetings = [
+        _meeting("-5", "2024-12-02:2026-12-06"),
+        _meeting("-4", "2026-12-07:2028-12-03"),
+        _meeting("-3", "2025-01-01:2026-12-31"),
+    ]
+    rows = org_rows(crosswalk, committees=[], meetings=meetings, current_biennium="2025-26")
+    assert {r["entity_id"]: r["active"] for r in rows} == {"02B": True, "02C": False, "02D": True}
+    rows = org_rows(crosswalk, committees=[], meetings=meetings, current_biennium="2027-28")
+    assert {r["entity_id"]: r["active"] for r in rows} == {
+        "02B": False,
+        "02C": True,
+        "02D": False,
+    }
+
+
 def test_a_meeting_window_that_does_not_parse_attests_nothing() -> None:
     """The window is our own resource id, but a malformed one must not abort the
     nightly build: it simply attests no biennium."""
