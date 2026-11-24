@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import os
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -44,8 +45,14 @@ from zeep.exceptions import Fault
 
 from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
-from clearinghouse_domain_legislative.terms import biennium_for_date
+from clearinghouse_core.rawstore import (
+    RawRun,
+    RawStore,
+    RecordOutcome,
+    get_raw_root,
+    record_fetch,
+)
+from clearinghouse_domain_legislative.terms import biennium_for_date, next_biennium
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.resources import (
@@ -175,52 +182,10 @@ async def harvest_raw(
             )
             counters["sponsor_rows"] = _record_count(sponsor.payload)
 
-            roster_wire = _roster_wire(store, roster, roster_resource)
-            parsed: list[dict] | None = None
-            if roster_wire is not None and not roster_wire:
-                # The archived form of a benign fault (#82, CR 38): an
-                # out-of-coverage biennium returns an EMPTY wire — no committees,
-                # not a lost fan-out. The transport's parse raises on zero bytes,
-                # so short-circuit exactly as usa_wa_adapter_legislature.parsing does.
-                parsed = []
-            elif roster_wire is not None:
-                try:
-                    parsed = await committees.parse_committees(roster_wire)
-                except Exception:
-                    # An HTTP-200 roster that does not parse must not abandon the
-                    # run ledger: contain, skip the fan-out, degrade at job level.
-                    logger.exception(
-                        "wsl_raw_harvest_roster_unparseable", extra={"resource_id": roster_resource}
-                    )
-            if parsed is None:
-                counters["fanout_skipped"] = 1
-            else:
-                for committee in parsed:
-                    committee_id = committee.get("Id")
-                    agency = committee.get("Agency")
-                    name = committee.get("Name")
-                    if committee_id is None or not agency or not name:
-                        logger.warning(
-                            "wsl_raw_harvest_committee_unkeyed", extra={"record": committee}
-                        )
-                        continue
-                    counters["fanout_attempted"] += 1
-                    member = await record_fetch(
-                        run,
-                        store,
-                        committee_members_hist_resource_id(
-                            biennium, str(committee_id), agency, name
-                        ),
-                        f"{service}?biennium={biennium}&committee={committee_id}#GetCommitteeMembers",
-                        lambda a=agency, n=name: committees.fetch_historical_committee_members(
-                            biennium, a, n
-                        ),
-                        counters,
-                        ttl_days,
-                        log_event="wsl_raw_harvest_fetch_failed",
-                    )
-                    if not member.error:
-                        counters["fanout_landed"] += 1
+            await _fan_out(run, store, biennium, roster, committees, counters, ttl_days)
+            counters["next_biennium"] = await _harvest_next(
+                run, store, next_biennium(biennium), committees, sponsors, ttl_days
+            )
         finally:
             # An uncontained failure (corrupt latest.json, cancellation) must not
             # abandon already-fetched wires as unmanifested strays (#302 CR).
@@ -231,6 +196,167 @@ async def harvest_raw(
         raise JobFailure(counters) from exc
     logger.info("wsl_raw_harvest_complete", extra=counters)
     return counters
+
+
+async def _fan_out(
+    run: RawRun,
+    store: RawStore,
+    biennium: str,
+    roster: RecordOutcome,
+    committees: Any,
+    counters: dict[str, Any],
+    ttl_days: float,
+) -> None:
+    """Land each rostered committee's ``GetCommitteeMembers`` for ``biennium``, enumerated
+    from the roster wire this run fetched (or the stored one, when TTL-fresh). Counts
+    ``fanout_skipped`` / ``fanout_attempted`` / ``fanout_landed`` into ``counters``."""
+    service = f"{WSL_BASE_URL}/CommitteeService.asmx"
+    roster_resource = f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}"
+    roster_wire = _roster_wire(store, roster, roster_resource)
+    parsed: list[dict] | None = None
+    if roster_wire is not None and not roster_wire:
+        # The archived form of a benign fault (#82, CR 38): an
+        # out-of-coverage biennium returns an EMPTY wire — no committees,
+        # not a lost fan-out. The transport's parse raises on zero bytes,
+        # so short-circuit exactly as usa_wa_adapter_legislature.parsing does.
+        parsed = []
+    elif roster_wire is not None:
+        try:
+            parsed = await committees.parse_committees(roster_wire)
+        except Exception:
+            # An HTTP-200 roster that does not parse must not abandon the
+            # run ledger: contain, skip the fan-out, degrade at job level.
+            logger.exception(
+                "wsl_raw_harvest_roster_unparseable", extra={"resource_id": roster_resource}
+            )
+    if parsed is None:
+        counters["fanout_skipped"] = 1
+        return
+    for committee in parsed:
+        committee_id = committee.get("Id")
+        agency = committee.get("Agency")
+        name = committee.get("Name")
+        if committee_id is None or not agency or not name:
+            logger.warning("wsl_raw_harvest_committee_unkeyed", extra={"record": committee})
+            continue
+        counters["fanout_attempted"] += 1
+        member = await record_fetch(
+            run,
+            store,
+            committee_members_hist_resource_id(biennium, str(committee_id), agency, name),
+            f"{service}?biennium={biennium}&committee={committee_id}#GetCommitteeMembers",
+            lambda a=agency, n=name: committees.fetch_historical_committee_members(biennium, a, n),
+            counters,
+            ttl_days,
+            log_event="wsl_raw_harvest_fetch_failed",
+        )
+        if not member.error:
+            counters["fanout_landed"] += 1
+
+
+async def _harvest_next(
+    run: RawRun,
+    store: RawStore,
+    biennium: str,
+    committees: Any,
+    sponsors: Any,
+    ttl_days: float,
+) -> dict[str, Any]:
+    """Land the NEXT biennium's rosters from the night WSL publishes them (#599).
+
+    WSL published 2027-28 on 2026-11-24, while 2025-26 was current. So the run asks
+    ``GetSponsors(<next>)`` every night and, once it has rows, lands the sponsors, the
+    committee roster and its member fan-out under their own (per-biennium) resource ids.
+    Never ``GetActiveCommittees`` — it takes no biennium, so it would archive the current
+    snapshot under the next id — and never a meetings window.
+
+    "Not yet" is never an error: empty sponsors land nothing (not even the empty wire,
+    which says only that the biennium is unpublished), and a ``GetCommittees`` server
+    fault while sponsors have rows — the order a biennium can publish in — counts
+    ``roster_unpublished``. A transport error, or a fan-out that lands nothing, is an
+    outage: counted, and degrading at job level (:func:`_next_degraded`). Its own
+    counters, so the current biennium's stay what they always were."""
+    counters: dict[str, Any] = {
+        "biennium": biennium,
+        "sponsor_rows": None,
+        "fetched": 0,
+        "unchanged": 0,
+        "skipped_fresh": 0,
+        "errors": 0,
+        "roster_unpublished": 0,
+        "fanout_skipped": 0,
+        "fanout_attempted": 0,
+        "fanout_landed": 0,
+    }
+    sponsors_resource = f"{SPONSORS_RESOURCE_PREFIX}{biennium}"
+    sponsors_url = f"{WSL_BASE_URL}/SponsorService.asmx?biennium={biennium}#GetSponsors"
+    fetched, failure = await _attempt(lambda: sponsors.fetch_sponsors(biennium))
+    if failure is None:
+        counters["sponsor_rows"] = _record_count(fetched)
+        if not counters["sponsor_rows"]:
+            return counters
+    await record_fetch(
+        run,
+        store,
+        sponsors_resource,
+        sponsors_url,
+        _replay(fetched, failure),
+        counters,
+        ttl_days,
+        log_event="wsl_raw_harvest_next_fetch_failed",
+    )
+    if failure is not None:
+        return counters
+
+    roster_payload, failure = await _attempt(lambda: committees.fetch_committees(biennium))
+    if isinstance(failure, Fault):
+        counters["roster_unpublished"] = 1
+        return counters
+    roster = await record_fetch(
+        run,
+        store,
+        f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}",
+        f"{WSL_BASE_URL}/CommitteeService.asmx?biennium={biennium}#GetCommittees",
+        _replay(roster_payload, failure),
+        counters,
+        ttl_days,
+        log_event="wsl_raw_harvest_next_fetch_failed",
+    )
+    await _fan_out(run, store, biennium, roster, committees, counters, ttl_days)
+    return counters
+
+
+async def _attempt(fetch: Callable[[], Awaitable[Any]]) -> tuple[Any, Exception | None]:
+    """One fetch, its failure caught rather than raised: the caller decides whether it
+    is "not yet" (a gate) or an outage (replayed into :func:`record_fetch`)."""
+    try:
+        return await fetch(), None
+    except Exception as exc:
+        return None, exc
+
+
+def _replay(payload: Any, failure: Exception | None) -> Callable[[], Awaitable[Any]]:
+    """A fetcher that hands :func:`record_fetch` an attempt already made, so a gated
+    fetch is recorded (``ok`` or ``err``) exactly as a direct one would be, with one
+    request to WSL."""
+
+    async def fetcher() -> Any:
+        if failure is not None:
+            raise failure
+        return payload
+
+    return fetcher
+
+
+def _next_degraded(counters: dict[str, Any] | None) -> bool:
+    """The next-biennium pass had an outage (#599): an error, a roster that did not parse,
+    or a fan-out that landed nothing. "Not yet" (empty sponsors, a faulting roster) is not."""
+    if not counters:
+        return False
+    fanout_lost = counters["fanout_skipped"] or (
+        counters["fanout_attempted"] > 0 and counters["fanout_landed"] == 0
+    )
+    return bool(counters["errors"] or fanout_lost)
 
 
 def _record_count(payload: Any) -> int | None:
@@ -349,7 +475,19 @@ def job_outcome(
                 "follow_up": "docs/MODULES-LEGISLATURE.md § Vendored WSDLs",
             },
         )
-    if drift or counters.get("wsdl_check_failed") or stale or (degraded and not accepting):
+    next_degraded = _next_degraded(counters.get("next_biennium"))
+    if next_degraded:
+        logger.warning(
+            "wsl_raw_harvest_next_biennium_degraded",
+            extra={"next_biennium": counters["next_biennium"], "issue": "#599"},
+        )
+    if (
+        drift
+        or counters.get("wsdl_check_failed")
+        or stale
+        or next_degraded
+        or (degraded and not accepting)
+    ):
         return JobResult.degraded(reported)
     return JobResult.ok(reported)
 

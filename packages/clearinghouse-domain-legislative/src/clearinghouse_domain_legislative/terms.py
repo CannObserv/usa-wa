@@ -72,6 +72,13 @@ def previous_biennium(label: str) -> str:
     return f"{start}-{(start + 1) % 100:02d}"
 
 
+def next_biennium(label: str) -> str:
+    """The biennium two years after ``label``: the one WSL publishes ahead of a rollover
+    (#599 — 2027-28 answered on 2026-11-24, while 2025-26 was current)."""
+    start = biennium_start_year(label) + 2
+    return f"{start}-{(start + 1) % 100:02d}"
+
+
 def bienniums_in_range(from_biennium: str, to_biennium: str) -> list[str]:
     """Inclusive list of biennium labels from ``from_biennium`` to ``to_biennium``.
 
