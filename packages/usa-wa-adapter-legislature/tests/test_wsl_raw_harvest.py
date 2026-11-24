@@ -869,3 +869,112 @@ async def test_next_sponsors_with_no_derived_rows_land_nothing_and_say_so(tmp_pa
     [record] = [r for r in caplog.records if r.getMessage() == "wsl_raw_harvest_next_rows_unknown"]
     assert record.levelname == "WARNING"
     assert record.biennium == NEXT
+
+
+#: The first nightly of the 2027-28 filing window (#597): 08:00 UTC = 00:00 PST.
+FILING_FLIP = date(2026, 12, 7)
+
+
+async def _on(tmp_path, today, *, sponsors, committees, biennium=None) -> dict:
+    return await harvest_raw(
+        tmp_path,
+        biennium=biennium,
+        committee_client=committees,
+        meeting_client=FakeMeetingClient(),
+        sponsor_client=sponsors,
+        today=today,
+    )
+
+
+class TestFilingClock:
+    """#597: the harvest targets the FILING biennium (first Monday in December, Pacific),
+    and "next" is judged on it too."""
+
+    async def test_the_target_turns_on_the_first_monday_in_december(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+        rows = {BIENNIUM: 2, NEXT: 3}
+        before = await _on(
+            tmp_path / "b",
+            date(2026, 12, 6),
+            sponsors=_SponsorsByBiennium(rows),
+            committees=_CommitteesByBiennium(),
+        )
+        after = await _on(
+            tmp_path / "a",
+            FILING_FLIP,
+            sponsors=_SponsorsByBiennium(rows),
+            committees=_CommitteesByBiennium(),
+        )
+        assert before["biennium"] == BIENNIUM
+        assert before["next_biennium"]["biennium"] == NEXT
+        assert after["biennium"] == NEXT
+        assert after["next_biennium"]["biennium"] == "2029-30"
+
+    async def test_after_the_flip_a_pin_to_the_outgoing_biennium_looks_nowhere_ahead(
+        self, tmp_path
+    ) -> None:
+        summary = await _on(
+            tmp_path,
+            FILING_FLIP,
+            biennium=BIENNIUM,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+            committees=_CommitteesByBiennium(),
+        )
+        assert summary["next_biennium"] is None
+
+
+class TestOutgoingBiennium:
+    """#597 (owner, 2026-11-24): between the filing flip and the term flip, the outgoing
+    biennium's legislators still serve, so the nightly keeps refreshing its sponsors, roster
+    and members. December resignations and appointments are still captured."""
+
+    async def test_the_outgoing_rosters_are_refreshed_after_the_filing_flip(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+        committees = _CommitteesByBiennium()
+        summary = await _on(
+            tmp_path,
+            FILING_FLIP,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+            committees=committees,
+        )
+        outgoing = summary["outgoing_biennium"]
+        assert outgoing["biennium"] == BIENNIUM
+        assert outgoing["sponsor_rows"] == 2
+        assert outgoing["fanout_landed"] == len(COMMITTEES)
+        landed = {r for r in _entries(tmp_path) if BIENNIUM in r}
+        assert landed == {f"sponsors:{BIENNIUM}", f"committees-roster:{BIENNIUM}"} | {
+            committee_members_hist_resource_id(BIENNIUM, str(c["Id"]), c["Agency"], c["Name"])
+            for c in COMMITTEES
+        }
+        assert committees.active_calls == 1  # the current biennium's only
+        assert job_outcome(summary).outcome == "ok"
+
+    @pytest.mark.parametrize("today", [PUBLISHED_ON, date(2027, 1, 1)])
+    async def test_no_outgoing_pass_while_the_clocks_agree(
+        self, tmp_path, monkeypatch, today
+    ) -> None:
+        """Before the filing flip there is no outgoing biennium yet; from the term flip
+        (Jan 1 until #598) its legislators no longer serve."""
+        monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+        summary = await _on(
+            tmp_path,
+            today,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+            committees=_CommitteesByBiennium(),
+        )
+        assert summary["outgoing_biennium"] is None
+
+    async def test_a_lost_outgoing_fanout_degrades(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+        summary = await _on(
+            tmp_path,
+            FILING_FLIP,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+            committees=_CommitteesByBiennium(members_fail_in=frozenset({BIENNIUM})),
+        )
+        assert summary["outgoing_biennium"]["fanout_landed"] == 0
+        assert job_outcome(summary).outcome == "degraded"

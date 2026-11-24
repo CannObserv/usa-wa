@@ -1,8 +1,15 @@
 # Runbook — biennium rollover (Nov 2026 → Feb 2027)
 
-The first rollover since the #302 replatform (#135). On 2027-01-01 every clock in the
-pipeline flips to `2027-28` at once: the harvests' window, `spans.current_biennium()`, and
-the `active` flag on organizations. WSL publishes the new biennium on its own schedule.
+The first rollover since the #302 replatform (#135). Two clocks flip, on different days
+(#597, `usa_wa_common.legislative_calendar`):
+
+- the **filing window** (CannObserv/cli's rule) on **2026-12-07**, 00:00 Pacific, which is the
+  08:00 UTC nightly. From then on, the harvests target `2027-28`, meetings windows are
+  filing windows, and WSL also refreshes 2025-26 (the outgoing pass) until its terms end;
+- the **term** on **2027-01-01**, at which `spans.current_biennium()` and `organizations.active`
+  move together. #598 moves this to 2027-01-11 (RCW 44.04.021).
+
+WSL publishes the new biennium on its own schedule.
 This page says what to expect, what to check, and the few steps that stay manual.
 
 **Status, 2026-11-24: WSL published 2027-28 before the rollover.** The availability probe
@@ -20,7 +27,7 @@ run with `scripts/rollover-rehearsal.sh`.
 
 | Unit | When | What it does in this window |
 |---|---|---|
-| `usa-wa-pipeline.timer` | daily 08:00 UTC | From **2026-11-04** the PDC and SOS harvests also fetch the 2026 general (`lookahead_election_year`). From #601's deploy (the first nightly after it) the WSL harvest also lands `2027-28`'s sponsors, committee roster and members (#599: the next biennium, from the night WSL publishes it; its own `next_biennium` counters). From **2027-01-01** every harvest targets `2027-28` (#597 moves that to 2026-12-07). |
+| `usa-wa-pipeline.timer` | daily 08:00 UTC | From **2026-11-04** the PDC and SOS harvests also fetch the 2026 general (`lookahead_election_year`). From #601's deploy (the first nightly after it) the WSL harvest also lands `2027-28`'s sponsors, committee roster and members (#599: the next biennium, from the night WSL publishes it; its own `next_biennium` counters). From **2026-12-07** every harvest targets `2027-28` (the filing window, #597), and the WSL harvest refreshes 2025-26 as `outgoing_biennium` until the term flip. |
 | `usa-wa-wsl-availability-probe.timer` | daily 09:20 UTC, through 2027-02-28 | Measures how much of `2027-28` WSL serves (`data/research/wsl-availability.jsonl`). **Exit 4 = a roster changed state** (faulting, empty, has rows): the morning WSL starts publishing. Growth alone is logged, not mailed. |
 | claude.ai routine `trig_01RrbHtAt554TKzoHDsBxAbc` | 2026-11-04 16:07 UTC, once | Checks the upstream sources from outside, then @mentions the owner on #135 with the 11-04 checklist below. |
 

@@ -22,6 +22,7 @@ from clearinghouse_domain_legislative.span_kinds import (
     KIND_SENATE,
 )
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
+from usa_wa_common.legislative_calendar import term_biennium_on
 from usa_wa_pipeline.conformed.span_key import span_key
 from usa_wa_pipeline.conformed.spans import (
     ROSTER_SOURCE,
@@ -874,6 +875,16 @@ def test_current_biennium_honours_the_pin(monkeypatch) -> None:
     spans the model built, and the biennium decides which of them stay open."""
     monkeypatch.setenv("USA_WA_BIENNIUM", "2019-20")
     assert current_biennium() == "2019-20"
+
+
+def test_current_biennium_is_the_term_clock_not_the_filing_window(monkeypatch) -> None:
+    """#597 (owner, 2026-11-24): spans, memberships and committee ``active`` follow the
+    legislators' TERM. The harvests turn to 2027-28 on 2026-12-07 (the filing window), but
+    the 2025-26 legislators serve on, so their spans stay open. INV1 needs ``active`` and
+    membership openness on one clock."""
+    monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+    assert current_biennium(today=date(2026, 12, 7)) == "2025-26"
+    assert current_biennium(today=date(2026, 12, 7)) == term_biennium_on(date(2026, 12, 7))
 
 
 def test_current_biennium_defaults_to_today(monkeypatch) -> None:

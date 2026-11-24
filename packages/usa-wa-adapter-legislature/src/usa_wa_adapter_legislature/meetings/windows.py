@@ -3,29 +3,34 @@
 The meeting docket (`CommitteeMeetingService.GetCommitteeMeetings`) is fetched per
 **date window** so each closed window is a stable cache key fetched once — request
 frugality, since WSL is a vital upstream we must not hammer. A biennium maps to its
-full two-year window; the ``committee-meetings:<begin>:<end>`` resource id keys the
-raw harvest's cache-or-fetch decision and the archived object.
+**filing window** (#597, ``usa_wa_common.legislative_calendar``): the first Monday in
+December before it through the day before the next, so December's interim committee days
+belong to the upcoming biennium, as in CannObserv/cli. The ``committee-meetings:<begin>:<end>``
+resource id keys the raw harvest's cache-or-fetch decision and the archived object. Windows
+archived before #597 are calendar years (``2025-01-01:2026-12-31``); they stay in the raw
+store under their own ids, and a window's start day still names its biennium on the filing
+calendar.
 
-Windows are UTC-naive ``datetime``s because the WSDL parameter is a bare
-``s:dateTime`` and zeep serializes naive values without an offset.
+Windows are naive ``datetime``s on the window's Pacific calendar days, because the WSDL
+parameter is a bare ``s:dateTime`` and zeep serializes naive values without an offset.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 
-from clearinghouse_domain_legislative.terms import parse_biennium
+from usa_wa_common.legislative_calendar import filing_window
 
 COMMITTEE_MEETINGS_RESOURCE_PREFIX = "committee-meetings:"
 
 
 def biennium_window(biennium: str) -> tuple[datetime, datetime]:
-    """Full two-year ``[begin, end]`` window covering a biennium.
+    """A biennium's ``[begin, end]`` meetings window: its filing window, whole days (#597).
 
-    ``2023-24`` → ``(2023-01-01T00:00:00, 2024-12-31T23:59:59)``.
+    ``2023-24`` → ``(2022-12-05T00:00:00, 2024-12-01T23:59:59)``.
     """
-    start, end = parse_biennium(biennium)
-    return datetime(start, 1, 1, 0, 0, 0), datetime(end, 12, 31, 23, 59, 59)
+    first, last = filing_window(biennium)
+    return datetime.combine(first, time(0, 0, 0)), datetime.combine(last, time(23, 59, 59))
 
 
 def meetings_resource_id(begin: datetime, end: datetime) -> str:

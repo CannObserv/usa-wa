@@ -382,13 +382,15 @@ async def test_no_lookahead_on_election_day(tmp_path, monkeypatch) -> None:
     assert results == {legresults_resource_id(y) for y in election_years_for_biennium(BIENNIUM)}
 
 
-async def test_the_rollover_hands_2026_off_without_a_gap(tmp_path, monkeypatch) -> None:
-    """Dec 31 fetches 2026 as 2025-26's lookahead; Jan 1 fetches it as 2027-28's own."""
+async def test_the_filing_flip_hands_2026_off_without_a_gap(tmp_path, monkeypatch) -> None:
+    """#597: the harvest targets the filing biennium, which turns on the first Monday in
+    December. Dec 6 2026 fetches 2026 as 2025-26's lookahead; Dec 7 fetches it as 2027-28's
+    own."""
     monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
-    _f, december = await _harvest_on(tmp_path / "dec", date(2026, 12, 31))
-    _f, january = await _harvest_on(tmp_path / "jan", date(2027, 1, 1))
-    assert january == {legresults_resource_id(y) for y in election_years_for_biennium("2027-28")}
-    assert legresults_resource_id(2026) in december & january
+    _f, before = await _harvest_on(tmp_path / "before", date(2026, 12, 6))
+    _f, after = await _harvest_on(tmp_path / "after", date(2026, 12, 7))
+    assert after == {legresults_resource_id(y) for y in election_years_for_biennium("2027-28")}
+    assert legresults_resource_id(2026) in before & after
 
 
 async def test_a_pinned_biennium_looks_ahead_on_its_own_calendar(tmp_path, monkeypatch) -> None:

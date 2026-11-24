@@ -192,13 +192,17 @@ async def test_no_lookahead_on_election_day(tmp_path, monkeypatch) -> None:
     assert _recorded(tmp_path) == set(biennium_resource_ids(BIENNIUM))
 
 
-async def test_the_rollover_hands_the_2026_cohorts_off_without_a_gap(tmp_path, monkeypatch) -> None:
-    """Dec 31 fetches 2026 as 2025-26's lookahead; Jan 1 fetches it as 2027-28's own."""
+async def test_the_filing_flip_hands_the_2026_cohorts_off_without_a_gap(
+    tmp_path, monkeypatch
+) -> None:
+    """#597: the harvest targets the filing biennium, which turns on the first Monday in
+    December. Dec 6 2026 fetches 2026 as 2025-26's lookahead; Dec 7 fetches it as 2027-28's
+    own."""
     monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
-    await harvest_raw(tmp_path / "dec", today=date(2026, 12, 31), pdc_client=FakePDCClient())
-    await harvest_raw(tmp_path / "jan", today=date(2027, 1, 1), pdc_client=FakePDCClient())
-    assert _recorded(tmp_path / "jan") == set(biennium_resource_ids("2027-28"))
-    assert COHORTS_2026 <= _recorded(tmp_path / "dec") & _recorded(tmp_path / "jan")
+    await harvest_raw(tmp_path / "before", today=date(2026, 12, 6), pdc_client=FakePDCClient())
+    await harvest_raw(tmp_path / "after", today=date(2026, 12, 7), pdc_client=FakePDCClient())
+    assert _recorded(tmp_path / "after") == set(biennium_resource_ids("2027-28"))
+    assert COHORTS_2026 <= _recorded(tmp_path / "before") & _recorded(tmp_path / "after")
 
 
 async def test_a_pinned_biennium_looks_ahead_on_its_own_calendar(tmp_path, monkeypatch) -> None:
