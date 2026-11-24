@@ -927,7 +927,7 @@ def test_a_wire_from_after_the_current_biennium_changes_nothing(caplog) -> None:
     published a newcomer's spans before they started. Until the rollover makes it current
     it is not an observation, so the build is the one it would be without it."""
     before = build_families(_inputs(BIENNIUM, CURRENT), current_biennium=CURRENT)
-    with caplog.at_level("WARNING"):
+    with caplog.at_level("INFO"):
         after = build_families(
             _inputs(BIENNIUM, CURRENT, "2027-28", newcomer_in="2027-28"), current_biennium=CURRENT
         )
@@ -936,6 +936,9 @@ def test_a_wire_from_after_the_current_biennium_changes_nothing(caplog) -> None:
     [record] = [r for r in caplog.records if r.getMessage() == "spans_future_bienniums_excluded"]
     assert record.bienniums == ["2027-28"]
     assert record.rows == 3
+    # #599: the WSL harvest lands the next biennium nightly once it publishes, so the
+    # exclusion is routine from then until the rollover — counted, not a warning.
+    assert record.levelname == "INFO"
 
 
 def test_the_rollover_closes_every_span_until_the_new_roster_lands() -> None:

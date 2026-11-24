@@ -112,8 +112,12 @@ biennium after `spans.current_biennium()` (`without_future_bienniums`, logged
 and a run ending past the current biennium reads as closed: one early
 `sponsors:2027-28` wire would close every returning member at 2028-12-31 and
 publish newcomers' spans before they start. **Spans only:** the registrar
-(`load_sponsor_keys`), `persons`, `organizations` and `citations` (`newest_biennium`)
-still read every staged biennium, so a WSL lookahead must settle those first.
+(`load_sponsor_keys`), `persons`, `organizations` and `citations` still read every
+staged biennium. Since #599 the WSL harvest lands the next biennium nightly once WSL
+publishes it, and a write-free build measured all four as recording what WSL states:
+newcomers get a `persons` row with no assignment yet, committees read the next
+biennium as `last_biennium` (with `active` unchanged), and persons and committees
+cite the next biennium's wires. No assignment changes. The exclusion line is INFO.
 The rollover itself needs no switch:
 on Jan 1 the clock flips, every 2025-26 span closes at 2026-12-31 (the
 `assignments_chamber_vacancy` warning), and the new roster reopens them.
