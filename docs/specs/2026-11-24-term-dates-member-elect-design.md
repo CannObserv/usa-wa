@@ -1,6 +1,6 @@
 # Term dates and member-elects: the 2027 rollover release (#598, #600)
 
-**Status:** draft for owner review, 2026-11-24 · **Issues:** #598 (statutory term dates),
+**Status:** owner decisions recorded 2026-11-24 (§ Decisions); implementation next · **Issues:** #598 (statutory term dates),
 #600 (member-elect role assignment) · **Builds on:** #597 (the two clocks, PR #602), #599 (the
 next-biennium capture, PR #601), #501 (the boundary-basis contract, D6) · **Deadline:** live
 before the term clock's next flip. Under today's rule that is 2027-01-01; under this release's
@@ -35,8 +35,8 @@ gets one notice and one re-pin.
   - **Start:** the earliest evidence (WSL's next-biennium listing or SOS certification), with
     a window from general election day. An operator attestation overrides it.
 - Provisional ballot Positions are allowed before certification (#599 D2).
-- The partial-roster vacancy warning is informational (#599 D3). Its timing is decided here
-  (§ D3).
+- The partial-roster vacancy warning stays a gate (§ D3; this supersedes #599 D3's
+  "informational").
 
 ## Part 1 — the statutory term clock (#598)
 
@@ -137,7 +137,7 @@ term-commencement text is readable online: the session laws are scanned images.
 | **B. Second Monday from 1981 on; calendar edges before** | Only what the cited statute states. It adds an era floor (`TermCalendar` carries it) and a visible seam in 1981. |
 | **C. B now, and A after the session laws are read** | B ships by the deadline; A is a follow-up once someone obtains the 1891 and 1981 texts (State Library or OCR). |
 
-**Recommendation: C.** The deadline concerns the 2025-26 → 2027-28 seam. Back-dating 90 years
+**Decided: C** (owner, 2026-11-24). The floor is **1981**, and #604 reads the session laws to lower it. The reasoning: the deadline concerns the 2025-26 → 2027-28 seam. Back-dating 90 years
 of edges on an inferred rule is the kind of wrong hop #101 calls dishonest. The floor is one
 constant, and lowering it later is a reviewed data change.
 
@@ -254,10 +254,8 @@ first one occurs and its shape can be audited (there's one each November; the ne
 
 Under the term clock, nothing counts 2027-28 seats until 2027-01-11. By then WSL lists every
 sworn member, and the House Positions come from the certified ballot. A partial roster after
-the term start would be a real data gap. **Proposal:** keep `assignments_chamber_vacancy` a
-gate, and make it informational only for the first 14 days of a term
-(`INFORMATIONAL_WINDOWS`: node + days after `term_start`), which covers late swearings-in.
-After that it warns again.
+the term start is a real data gap. **Decided (owner): `assignments_chamber_vacancy` stays a
+gate, with no grace window.** A vacancy after the term start emails. This supersedes #599 D3.
 
 ## The release
 
@@ -270,9 +268,9 @@ After that it warns again.
 | `stg_wsl_first_seen` | — | **1.0.0** (new) | First-listing evidence. |
 
 No `contract_hash` moves on the existing datasets. So by the gate it is a minor,
-semantics-only release, the precedent of organizations 1.2.0. **Whether power-map wants a
-major** for an edge move this broad is their call, because their puller pins majors (Q2).
-Nearly every `assignments` and `role_periods` row changes in one mint.
+semantics-only release, the precedent of organizations 1.2.0. **Decided (owner): minor.**
+The power-map notice announces it without asking. Nearly every `assignments` and
+`role_periods` row changes in one mint.
 
 **Sequence**, as #501 did it:
 1. PR A (spec) merged.
@@ -285,10 +283,11 @@ Nearly every `assignments` and `role_periods` row changes in one mint.
 6. One deploy before **2026-12-31**, so the Jan 1 nightly runs on the statutory clock and no
    span is rewritten twice.
 
-## Open questions for the owner
+## Decisions (owner, 2026-11-24)
 
-- **Q1, the history floor:** A, B, or C (recommended)? § 1.4.
-- **Q2, the version:** minor (1.9.0), by the gate and the precedent, or a major because nearly
-  every row moves? Ask power-map in the notice.
-- **Q3, D3:** keep the vacancy gate, informational for the first 14 days of a term?
-- **Q4, member-elect scope:** current flip forward only, specials excluded until audited (§ 2.5)?
+| | Question | Decision |
+|---|---|---|
+| Q1 | History floor | **C:** second Monday from 1981, calendar edges before. #604 lowers the floor once the 1891 and 1981 session laws are read. |
+| Q2 | Version | **Minor:** `assignments` 1.9.0, `role_periods` 1.1.0, `roles` 1.4.0. Announced to power-map, not asked. |
+| Q3 | D3 | **Always a gate**, with no grace window (supersedes #599 D3). |
+| Q4 | Member-elect scope | **2026 general forward.** Odd-year specials wait for the first one (Nov 2027) to be audited (#605). |
