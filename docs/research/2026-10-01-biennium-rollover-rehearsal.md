@@ -111,14 +111,30 @@ nightly should exit 0 and send no email.
 
 | Source | Operation | First answered | How measured |
 |---|---|---|---|
-| WSL | `GetSponsors(2027-28)` has rows | — | `usa-wa-wsl-availability-probe` (daily; `data/research/wsl-availability.jsonl`) |
-| WSL | `GetCommittees(2027-28)` stops faulting | — | same |
-| WSL | `GetCommitteeMembers(2027-28, …)` has rows | — | same |
+| WSL | `GetSponsors(2027-28)` has rows | **2026-11-24** (74 House, 44 Senate) | `usa-wa-wsl-availability-probe` (daily; `data/research/wsl-availability.jsonl`) |
+| WSL | `GetCommittees(2027-28)` stops faulting | **2026-11-24** (34 committees) | same |
+| WSL | `GetCommitteeMembers(2027-28, …)` has rows | **2026-11-24** (34 committees, 362 members) | same |
 | PDC | `Won in general` marked for 2026 | — | the nightly's lookahead fetch: first non-empty `house-winners:2026` |
-| SOS | 2026 results (unofficial) | — | first `ok` fetch of `sos-legresults:20261103` |
+| SOS | 2026 results (unofficial) | **2026-11-04** (17:27Z, the #575 re-run) | first `ok` fetch of `sos-legresults:20261103` |
 | SOS | 2026 results (certified) | — | that resource's sha256 change around certification |
 
 Baseline, 2026-10-01: GetSponsors empty, GetCommittees faulting, no committee members.
+
+**WSL, 2026-11-24.** The probe's 09:23Z run measured the first change of state. The previous
+run, 2026-11-23 09:24Z, found nothing, so WSL published inside that day. All three WSL
+operations answered at once. The roster is a carry-forward, not a seated one: 117 of the 118
+sponsors are 2025-26 members, and the one newcomer is Hillary Pham (House LD 4, #595). The 34
+committee names match 2025-26, and their rosters are 2025-26's minus the members who are
+leaving, with no additions. That makes this an early, partial roster (5 Senate and 24 House
+seats unlisted), published before certification (~2026-12-03) and before the 2027 session
+organizes. Both #452 acceptances were removed the same day, before 2027-01-01, so neither
+ever applied.
+
+**SOS, through 2026-11-24.** `sos-legresults:20261103` has changed hash on most nights since
+election night (17 distinct bodies, 153,854–154,431 bytes) as counting continued. So
+certification shows as the hash **settling**, not as the first change after election night,
+as predicted below. PDC's `house-winners:2026` is still the empty 3-byte cohort it has been
+since 2026-07-30.
 
 For the PDC and SOS rows, the raw store's run manifests are the record. Each nightly run
 adds one manifest, and a changed body shows up as a new sha256. **Date PDC by its first

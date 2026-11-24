@@ -2,10 +2,15 @@
 
 The first rollover since the #302 replatform (#135). On 2027-01-01 every clock in the
 pipeline flips to `2027-28` at once: the harvests' window, `spans.current_biennium()`, and
-the `active` flag on organizations. WSL publishes the new biennium on its own schedule,
-and until it does, the nightly carries two known failures, which it accepts in code (#452)
-rather than mailing about. This page says what that looks like, which email is expected
-when WSL publishes, what to check, and the few steps that stay manual.
+the `active` flag on organizations. WSL publishes the new biennium on its own schedule.
+This page says what to expect, what to check, and the few steps that stay manual.
+
+**Status, 2026-11-24: WSL published 2027-28 before the rollover.** The availability probe
+measured the first rows that morning: 74 House and 44 Senate sponsors, 34 committees, and
+362 committee members. These are 2025-26 incumbents carried forward, plus one newcomer
+(#595). The two #452 acceptances below were written for a rollover with nothing published
+yet. Neither would ever have applied, so both were removed the same day, unused. Sections
+that describe that unpublished window are kept as the record of what was planned.
 
 Evidence for every "expected" below comes from the rehearsals in
 [research/2026-10-01-biennium-rollover-rehearsal.md](research/2026-10-01-biennium-rollover-rehearsal.md),
@@ -54,61 +59,31 @@ From the same night, the published `stg_sos_results` carries the 2026 election's
 - **Appointments dated in December** still need their operator `seated` event (#107).
   #282 tracks why an even-year November/December seating can be inert.
 
-## 2027-01-01 — no email expected
+## 2027-01-01
 
-Until WSL publishes 2027-28, the nightly carries two known failures and **accepts both**
-(#452, the #333 `ACCEPTED_OUTAGES` pattern), so it exits 0 and sends **no email**. Look for
-the acceptance lines in the journal instead:
+**Planned (superseded 2026-11-24):** a rollover with nothing published, where the nightly
+accepted the `GetCommittees` fault and the all-closed vacancy warning (#452) and sent no email.
+WSL published first, so neither shape can occur and both acceptances are gone. Any email on
+the night is unaccepted:
 
-```bash
-journalctl -u usa-wa-pipeline --since today | grep -E 'wsl_raw_harvest_accepted_fault|dbt_build_accepted_warning'
-```
-
-Each names `#452`. The vacancy line appears every night until 2027-28 sponsors stage; the
-harvest line only while `GetCommittees` still faults (if WSL publishes committees first, the
-harvest is simply ok). The stage summaries carry
-the same facts: `job=wsl-raw-harvest outcome=ok … errors=1 fanout_skipped=1 … roster_faulted=1
-sponsor_rows=0 accepted_faults=["2027-28"]` and `job=dbt-build-warnings outcome=ok … warned=1
-not_clean=[] accepted_warnings=["test.usa_wa_pipeline.assignments_chamber_vacancy"]`.
-
-- **The WSL harvest fault.** `GetCommittees(2027-28)` raises a server fault
-  (`DataPortal.Fetch failed (Object reference not set…)`) until WSL publishes the new
-  committees. It does not return an empty list. `GetSponsors(2027-28)` answers empty
-  without a fault. `ACCEPTED_ROSTER_FAULTS` accepts exactly that shape: a SOAP fault on the
-  roster (`roster_faulted=1`), as the run's only error, while sponsors answered with no rows
-  (`sponsor_rows=0`). **An outage looks different and still mails:** a transport error on
-  the roster, more than one error, `fetched=0`, or sponsors that did not land.
-- **The vacancy warning.** `assignments_chamber_vacancy` warns for both chambers: every
-  2025-26 span closed at 2026-12-31 and nothing is open (`0 < 49`, `0 < 98`).
-  `ACCEPTED_WARNINGS` accepts that one node, as a `warn` only, while the built duckdb stages
-  no 2027-28 sponsors. Any other warning still fails the stage.
-- **Any email in the window is real.** That includes the SOS harvest, because by Jan 1 the
-  certified 2026 export lands and only `2027` errs, so the source is not degraded.
-- **If the `dbt_build_accepted_warning` line is missing** and no email came, check that the
-  nightly ran at all (`GET /health/datasets`, `GET /api/v1/health/jobs`).
-
-The data state the same night, which is correct and needs no repair:
-
-| Dataset | Expected |
-|---|---|
-| `assignments` | same row count; **0 active**; every 2025-26 span `valid_to = 2026-12-31` |
-| `organizations` | same row count; every committee and Joint/Other body `active = false` (API.md) |
-| publish | new versions of `assignments`, `organizations`, `stg_raw_fetches`; **no shrink or floor refusal** (a floor refusal is a real regression — the floors sit ~5% under the 2026-10-06 counts, #472) |
-| `registry_coverage`, `parity_citations`, `multi_person_folds`, `chamber_move_departures` | ok |
+- **The WSL harvest** should be ok. `GetCommittees(2027-28)` has answered since 11-24, so a
+  fault now is an outage.
+- **The vacancy warning** fails `build_warnings` (exit 1) for as long as WSL's 2027-28
+  roster is short of 49 senators and 98 seated House Positions. As of 11-24 it was 44 and 74
+  sponsors. House seats reopen only through the 2026 ballot (below). That email is real: it
+  names the open seats.
+- **If no email came,** check that the nightly ran (`GET /health/datasets`,
+  `GET /api/v1/health/jobs`).
 
 ## When WSL publishes 2027-28
 
 The availability probe mails (exit 4) the morning a roster changes state: first rows, or `GetCommittees` stops faulting. `jq . data/research/wsl-availability.jsonl` shows what moved.
 
-**The next nightly emails too, on purpose.** Once `GetSponsors(2027-28)` has rows, both #452
-acceptances are false claims: the WSL harvest and `build_warnings` each fail (exit 4, or 1
-while the vacancy still warns) with `stale_acceptances` and log `wsl_raw_harvest_acceptance_stale` / `dbt_build_acceptance_stale`,
-every night until the entries are removed. The log line's `follow_up` is the cleanup: remove
-the 2027-28 entry from `ACCEPTED_ROSTER_FAULTS`
-(`usa_wa_adapter_legislature/raw_harvest.py`) and from `ACCEPTED_WARNINGS`
-(`usa_wa_pipeline/build_warnings.py`), and record the date in the research doc. If WSL
-publishes before 2027-01-01, neither acceptance ever applies, and the stale email arrives on
-the first nightly of 2027.
+**Done for 2027-28 (2026-11-24):** WSL published before 2027-01-01, so the two #452
+acceptances were removed before they ever applied, and the date is recorded in the research
+doc. At the next rollover, an entry still in place when sponsors land fails both stages with
+`stale_acceptances` (`wsl_raw_harvest_acceptance_stale` / `dbt_build_acceptance_stale`) every
+night until it is removed. The log line's `follow_up` names the cleanup.
 
 - **Sponsors land.** The next nightly stages them. Returning members' Senate and party
   spans reopen with their original start (same span keys). The registrar mints
@@ -128,14 +103,14 @@ the first nightly of 2027.
   the window, because publish runs despite the warnings.
 - `GET /api/v1/health/jobs`: the latest run per job slug. Rehearsal runs never appear
   here (`USA_WA_JOB_LEDGER=0`).
-- The journal's two #452 acceptance lines each night of the window; any email then is real.
+- Any nightly email in the window: no acceptance is in force, so each one is real.
 
 ## Manual steps
 
 - [ ] 2026-11-04: the checklist above (the routine's #135 comment will prompt it)
 - [ ] December: re-run both rehearsals; record them
-- [ ] As each source starts answering: record the date in the research doc
-- [ ] On the first stale-acceptance email: remove both #452 entries (§ When WSL publishes)
+- [ ] As each source starts answering: record the date in the research doc (WSL: 2026-11-24)
+- [x] Remove both #452 entries: done 2026-11-24, before they applied (§ When WSL publishes)
 - [ ] After 2027-02-28: `sudo systemctl disable --now usa-wa-wsl-availability-probe.timer`
       (the probe already asks nothing past `--until`). For the 2029 rollover, bump
       `--biennium` / `--until` in the unit and re-enable.
