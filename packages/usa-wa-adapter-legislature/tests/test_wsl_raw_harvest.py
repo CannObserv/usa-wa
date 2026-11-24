@@ -9,6 +9,7 @@ import argparse
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import date
 
 import pytest
 from zeep.exceptions import Fault
@@ -615,6 +616,8 @@ class TestWsdlDrift:
 
 
 NEXT = "2027-28"
+#: The day WSL first answered 2027-28 — pinned, so "next" is judged against a fixed clock.
+PUBLISHED_ON = date(2026, 11, 24)
 
 
 class _SponsorsByBiennium:
@@ -668,13 +671,14 @@ class _CommitteesByBiennium(FakeCommitteeClient):
         return _Wire(wire=f"members-{biennium}-{committee['Id']}".encode())
 
 
-async def _with_next(tmp_path, *, sponsors, committees) -> dict:
+async def _with_next(tmp_path, *, sponsors, committees, biennium: str = BIENNIUM) -> dict:
     return await harvest_raw(
         tmp_path,
-        biennium=BIENNIUM,
+        biennium=biennium,
         committee_client=committees,
         meeting_client=FakeMeetingClient(),
         sponsor_client=sponsors,
+        today=PUBLISHED_ON,
     )
 
 
@@ -776,11 +780,32 @@ class TestNextBiennium:
         assert job_outcome(summary).outcome == "degraded"
 
     async def test_the_next_biennium_follows_the_run(self, tmp_path) -> None:
-        summary = await harvest_raw(
+        summary = await _with_next(
             tmp_path,
+            sponsors=_SponsorsByBiennium({NEXT: 3}),
+            committees=_CommitteesByBiennium(),
             biennium=NEXT,
-            committee_client=_CommitteesByBiennium(),
-            meeting_client=FakeMeetingClient(),
-            sponsor_client=_SponsorsByBiennium({NEXT: 3}),
         )
         assert summary["next_biennium"]["biennium"] == "2029-30"
+
+    async def test_a_run_pinned_to_a_past_biennium_lands_no_other(self, tmp_path) -> None:
+        """CR 1: "next" is ahead of the clock, not of the pin. A backfill pinned to 2019-20
+        must not also land 2021-22 — a biennium the run was never asked for."""
+        committees = _CommitteesByBiennium()
+        summary = await _with_next(
+            tmp_path,
+            sponsors=_SponsorsByBiennium({"2019-20": 2, "2021-22": 3}),
+            committees=committees,
+            biennium="2019-20",
+        )
+        assert summary["next_biennium"] is None
+        assert not [r for r in _entries(tmp_path) if "2021-22" in r]
+        assert committees.roster_asked == ["2019-20"]
+
+    async def test_the_current_biennium_pinned_still_looks_ahead(self, tmp_path) -> None:
+        summary = await _with_next(
+            tmp_path,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+            committees=_CommitteesByBiennium(),
+        )
+        assert summary["next_biennium"]["biennium"] == NEXT

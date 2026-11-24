@@ -37,7 +37,7 @@ import argparse
 import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +52,11 @@ from clearinghouse_core.rawstore import (
     get_raw_root,
     record_fetch,
 )
-from clearinghouse_domain_legislative.terms import biennium_for_date, next_biennium
+from clearinghouse_domain_legislative.terms import (
+    biennium_for_date,
+    biennium_start_year,
+    next_biennium,
+)
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.meetings.windows import biennium_window, meetings_resource_id
 from usa_wa_adapter_legislature.resources import (
@@ -104,10 +108,13 @@ async def harvest_raw(
     meeting_client: Any | None = None,
     sponsor_client: Any | None = None,
     ttl_days: float = 0.0,
+    today: date | None = None,
 ) -> dict[str, int]:
-    """Fetch the daily WSL set + member fan-out into the raw store."""
+    """Fetch the daily WSL set + member fan-out into the raw store, plus the next biennium's
+    rosters while that biennium is still ahead of the clock (``today``, UTC by default)."""
+    today = today or datetime.now(UTC).date()
     if biennium is None:
-        biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(datetime.now(UTC).date())
+        biennium = os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(today)
     committees = committee_client or WSLClient("CommitteeService")
     meetings = meeting_client or WSLClient("CommitteeMeetingService")
     sponsors = sponsor_client or WSLClient("SponsorService")
@@ -183,9 +190,12 @@ async def harvest_raw(
             counters["sponsor_rows"] = _record_count(sponsor.payload)
 
             await _fan_out(run, store, biennium, roster, committees, counters, ttl_days)
-            counters["next_biennium"] = await _harvest_next(
-                run, store, next_biennium(biennium), committees, sponsors, ttl_days
-            )
+            counters["next_biennium"] = None
+            ahead = _ahead_of_clock(biennium, today)
+            if ahead is not None:
+                counters["next_biennium"] = await _harvest_next(
+                    run, store, ahead, committees, sponsors, ttl_days
+                )
         finally:
             # An uncontained failure (corrupt latest.json, cancellation) must not
             # abandon already-fetched wires as unmanifested strays (#302 CR).
@@ -252,6 +262,16 @@ async def _fan_out(
         )
         if not member.error:
             counters["fanout_landed"] += 1
+
+
+def _ahead_of_clock(biennium: str, today: date) -> str | None:
+    """The biennium after ``biennium`` when it is still ahead of ``today``'s, else ``None``
+    (CR 1). "Next" means ahead of now: a run pinned to a past biennium (a backfill) must not
+    also land the one after it, which it was never asked for."""
+    candidate = next_biennium(biennium)
+    if biennium_start_year(candidate) > biennium_start_year(biennium_for_date(today)):
+        return candidate
+    return None
 
 
 async def _harvest_next(
