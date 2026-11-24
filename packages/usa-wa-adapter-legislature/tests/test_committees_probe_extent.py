@@ -23,7 +23,8 @@ class _FakeCommitteeClient:
 
 
 class _FakeMeetingClient:
-    """Returns a WireFetch-shaped object keyed by the window's begin year."""
+    """Returns a WireFetch-shaped object keyed by the biennium whose window it is: the
+    window's begin year + 1 (#597: a filing window opens in December of the year before)."""
 
     def __init__(self, by_year):
         self._by = by_year
@@ -31,7 +32,7 @@ class _FakeMeetingClient:
 
     async def fetch_committee_meetings(self, begin, end):
         self.windows.append((begin, end))
-        records, wire = self._by.get(begin.year, ([], b""))
+        records, wire = self._by.get(begin.year + 1, ([], b""))
         return SimpleNamespace(records=records, wire=wire, content_type="text/xml")
 
 
