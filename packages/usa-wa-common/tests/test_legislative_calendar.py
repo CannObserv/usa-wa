@@ -14,6 +14,7 @@ import pytest
 
 from usa_wa_common.legislative_calendar import (
     SITE_TZ,
+    WA_TERMS,
     filing_biennium,
     filing_biennium_on,
     filing_window,
@@ -142,3 +143,11 @@ def test_the_harvest_target_is_the_filing_biennium(monkeypatch):
     assert harvest_biennium(None) == filing_biennium(datetime.now(UTC))
     monkeypatch.setenv("USA_WA_BIENNIUM", "2019-20")
     assert harvest_biennium(date(2026, 12, 7)) == "2019-20"
+
+
+def test_wa_terms_is_the_engine_calendar_for_the_statute():
+    """#598: the span engine takes a ``TermCalendar``; WA's is the statute's."""
+    assert WA_TERMS.start("2027-28") == date(2027, 1, 11)
+    assert WA_TERMS.end("2025-26") == date(2027, 1, 10)
+    assert WA_TERMS.biennium_on(date(2027, 1, 10)) == "2025-26"
+    assert WA_TERMS.start("1979-80") == date(1979, 1, 1)

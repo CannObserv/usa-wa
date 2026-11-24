@@ -18,7 +18,9 @@ apart and labels sort chronologically as plain strings.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import date
+from typing import Protocol
 
 _BIENNIUM_RE = re.compile(r"^(\d{4})-(\d{2})$")
 
@@ -89,3 +91,46 @@ def bienniums_in_range(from_biennium: str, to_biennium: str) -> list[str]:
     if start > end:
         raise ValueError(f"from-biennium {from_biennium!r} is after to-biennium {to_biennium!r}")
     return [f"{y}-{(y + 1) % 100:02d}" for y in range(start, end + 1, 2)]
+
+
+class TermCalendar(Protocol):
+    """When a jurisdiction's legislative terms start and end (#598).
+
+    The span engine is jurisdiction-agnostic, so the calendar is a parameter: an observed
+    tenure edge is a term's first or last day, and a dated event belongs to the term that
+    holds it. ``end(label)`` is the term's LAST day, inclusive: the day before the next
+    term's ``start``."""
+
+    def start(self, label: str) -> date:
+        """The first day of ``label``'s terms."""
+        ...
+
+    def end(self, label: str) -> date:
+        """The last day of ``label``'s terms."""
+        ...
+
+    def biennium_on(self, day: date) -> str:
+        """The biennium whose terms hold ``day``."""
+        ...
+
+
+@dataclass(frozen=True)
+class CalendarYearTerms:
+    """Terms on calendar years: Jan 1 of the odd year to Dec 31 of the even one. This is the
+    engine's default, and was every jurisdiction's edge before #598 gave WA its statute."""
+
+    def start(self, label: str) -> date:
+        """Jan 1 of the biennium's first year."""
+        return date(parse_biennium(label)[0], 1, 1)
+
+    def end(self, label: str) -> date:
+        """Dec 31 of the biennium's second year."""
+        return date(parse_biennium(label)[1], 12, 31)
+
+    def biennium_on(self, day: date) -> str:
+        """The calendar biennium holding ``day``."""
+        return biennium_for_date(day)
+
+
+#: The default term calendar: calendar years.
+CALENDAR_YEAR = CalendarYearTerms()

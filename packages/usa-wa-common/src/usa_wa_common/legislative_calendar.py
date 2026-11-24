@@ -26,6 +26,7 @@ Regular and Special Sessions are children *within* a filing window, with dates f
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -130,3 +131,27 @@ def harvest_biennium(today: date | None = None) -> str:
     if pinned:
         return pinned
     return filing_biennium_on(today) if today else filing_biennium(datetime.now(UTC))
+
+
+@dataclass(frozen=True)
+class WaTerms:
+    """WA's :class:`~clearinghouse_domain_legislative.terms.TermCalendar` (#598): the
+    statute's term from 1981 and calendar years before it. The span engine takes it as a
+    parameter, which keeps the engine jurisdiction-agnostic and the statute in WA's own
+    vocabulary."""
+
+    def start(self, label: str) -> date:
+        """:func:`term_start`."""
+        return term_start(label)
+
+    def end(self, label: str) -> date:
+        """:func:`term_end`."""
+        return term_end(label)
+
+    def biennium_on(self, day: date) -> str:
+        """:func:`term_biennium_on`."""
+        return term_biennium_on(day)
+
+
+#: The term calendar every WA span is built on.
+WA_TERMS = WaTerms()
