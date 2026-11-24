@@ -91,7 +91,7 @@ from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
     committee_member_ids_by_biennium,
     stale_exclusions_by_biennium,
 )
-from usa_wa_common.legislative_calendar import term_biennium_on
+from usa_wa_common.legislative_calendar import WA_TERMS, term_biennium_on
 from usa_wa_common.seats import district_number
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 from usa_wa_pipeline.conformed.house import build_house_spans
@@ -392,12 +392,13 @@ def build_roster_spans(
     # member_id anyway, so an unscoped overlay reads thousands of WSL-era rows
     # to apply none of them.
     scoped = [e for e in from_rows(events) if e.member_id in members]
-    built = build_tenure_spans(resolution.minted, current_biennium=current_biennium)
+    built = build_tenure_spans(resolution.minted, current_biennium=current_biennium, terms=WA_TERMS)
     spans = apply_operator_events(
         built,
         scoped,
         current_biennium=current_biennium,
         owned_kinds=set(SPONSOR_KINDS),
+        terms=WA_TERMS,
         context_spans=context_spans or [],
     )
     if unattested := unattested_spans(spans, built):
@@ -473,11 +474,14 @@ def build_all_spans(
     applied_departures: set[SuccessionEvent] = set()
     committee_spans = apply_operator_events(
         build_tenure_spans(
-            build_committee_membership_observations(rosters), current_biennium=current_biennium
+            build_committee_membership_observations(rosters),
+            current_biennium=current_biennium,
+            terms=WA_TERMS,
         ),
         events,
         current_biennium=current_biennium,
         owned_kinds=set(COMMITTEE_KINDS),
+        terms=WA_TERMS,
         applied_departures=applied_departures,
     )
     # House SECOND: it needs no other family, and both it and the committee
@@ -516,7 +520,7 @@ def build_all_spans(
         committee_member_ids_by_biennium(rosters),
         min_coverage=stale_min_coverage,
     )
-    latest_event_biennium = latest_event_biennium_by_member(events)
+    latest_event_biennium = latest_event_biennium_by_member(events, terms=WA_TERMS)
     exclusions = {
         biennium: (ids - stale_exempt_members(latest_event_biennium, biennium))
         for biennium, ids in exclusions.items()
@@ -525,10 +529,11 @@ def build_all_spans(
 
     observations = build_sponsor_observations(roster_map, exclusions) + extras
     sponsor_spans = apply_operator_events(
-        build_tenure_spans(observations, current_biennium=current_biennium),
+        build_tenure_spans(observations, current_biennium=current_biennium, terms=WA_TERMS),
         events,
         current_biennium=current_biennium,
         owned_kinds=set(SPONSOR_KINDS),
+        terms=WA_TERMS,
         context_spans=[*committee_spans, *house],
         applied_departures=applied_departures,
     )

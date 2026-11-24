@@ -143,7 +143,7 @@ def test_party_and_senate_spans_merge_contiguous_bienniums() -> None:
     assert set(by_kind) == {KIND_PARTY, KIND_SENATE}
     party = by_kind[KIND_PARTY]
     assert party.start_biennium == "2021-22"
-    assert party.valid_from == date(2021, 1, 1)
+    assert party.valid_from == date(2021, 1, 11)  # #598: the term's first day
     assert party.valid_to is None and party.is_active  # reaches the current biennium
     assert by_kind[KIND_SENATE].discriminator == "14"
 
@@ -163,7 +163,7 @@ def test_committee_spans_key_on_committee_id() -> None:
     assert span.kind == KIND_COMMITTEE
     assert span.discriminator == "500"
     assert span.start_biennium == "2021-22"
-    assert span.valid_to == date(2024, 12, 31)  # closed: does not reach current
+    assert span.valid_to == date(2025, 1, 12)  # closed at its term's last day (#598)
     assert not span.is_active
 
 
@@ -692,10 +692,10 @@ def test_a_senators_departure_logs_no_miss_from_the_overlays_holding_nothing(cap
 
 
 def test_a_term_end_departure_logs_already_closed_once(caplog) -> None:
-    """usa-wa#466: dated just after the biennium end the wire already closed the
-    tenure at, the event is redundant — one `already_closed` for the family, not a
-    miss per overlay."""
-    events = [SuccessionEvent("100", "departed", date(2025, 1, 4))]
+    """usa-wa#466: dated just after the term end the wire already closed the tenure at,
+    the event is redundant — one `already_closed` for the family, not a miss per overlay.
+    Since #598 that end is the statutory one: 2023-24 ends 2025-01-12."""
+    events = [SuccessionEvent("100", "departed", date(2025, 1, 20))]
     with caplog.at_level("INFO"):
         build_all_spans(
             SpanInputs(sponsors=[_sponsor("100", BIENNIUM)], committee_members=[], events=events),
@@ -704,6 +704,22 @@ def test_a_term_end_departure_logs_already_closed_once(caplog) -> None:
             house_spans=NO_HOUSE,
         )
     assert _departure_lines(caplog) == ["operator_departed_already_closed"]
+
+
+def test_a_departure_before_the_statutory_term_end_closes_the_tenure(caplog) -> None:
+    """#598 (spec § 1.3): 2025-01-04 was 'just after' a Dec 31 end; it is INSIDE the
+    2023-24 term, which runs to 2025-01-12. So it closes the tenure, dated, and is applied,
+    not logged as already closed."""
+    events = [SuccessionEvent("100", "departed", date(2025, 1, 4))]
+    with caplog.at_level("INFO"):
+        spans = build_all_spans(
+            SpanInputs(sponsors=[_sponsor("100", BIENNIUM)], committee_members=[], events=events),
+            current_biennium=CURRENT,
+            extra_observations=NO_DEEPENING,
+            house_spans=NO_HOUSE,
+        )
+    assert {(s.valid_to, s.end_basis) for s in spans} == {(date(2025, 1, 4), "dated")}
+    assert _departure_lines(caplog) == []
 
 
 def test_the_house_overlay_reports_its_departures_to_the_family(monkeypatch, caplog) -> None:
@@ -961,7 +977,7 @@ def test_the_rollover_closes_every_span_until_the_new_roster_lands() -> None:
     spans = build_families(_inputs(BIENNIUM, CURRENT), current_biennium="2027-28")[SOURCE]
     assert spans
     assert not any(s.is_active for s in spans)
-    assert {s.valid_to for s in spans} == {date(2026, 12, 31)}
+    assert {s.valid_to for s in spans} == {date(2027, 1, 10)}  # 2025-26's last day (#598)
 
 
 def _ex_officio_inputs(

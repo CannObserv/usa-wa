@@ -257,7 +257,7 @@ def test_a_move_in_the_current_biennium_closes_the_open_house_tenure() -> None:
 def test_an_undated_mover_keeps_the_prior_shape() -> None:
     """No Senate seating, no move date: her tenure ends where the wire last placed her."""
     [robinson] = [s for s in _robinson_ld38([]) if s.member_id == "18265"]
-    assert robinson.valid_to == date(2018, 12, 31)
+    assert robinson.valid_to == date(2019, 1, 13)  # 2017-18's statutory last day (#598)
 
 
 def test_a_2003_04_mover_takes_the_seat_their_successor_was_appointed_to() -> None:
@@ -283,5 +283,6 @@ def test_a_2003_04_mover_takes_the_seat_their_successor_was_appointed_to() -> No
     by_member = {s.member_id: s for s in spans}
     pflug = by_member["3479"]
     assert (pflug.discriminator, pflug.start_biennium) == ("ld-5-position-1", "2003-04")
-    assert (pflug.valid_from, pflug.valid_to) == (date(2003, 1, 1), date(2004, 1, 5))
+    # #598: the 2003-04 term opened on its second Monday in January, 2003-01-13.
+    assert (pflug.valid_from, pflug.valid_to) == (date(2003, 1, 13), date(2004, 1, 5))
     assert pflug.is_active is False

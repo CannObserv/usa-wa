@@ -64,6 +64,7 @@ from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
     stale_exclusions_by_biennium,
 )
 from usa_wa_adapter_sos.results.normalize import build_house_positions, build_house_winners
+from usa_wa_common.legislative_calendar import WA_TERMS
 from usa_wa_facts_seats.house.backchain import (
     MAX_BACKCHAIN_HOPS_DEFAULT,
     backchain_house_observations,
@@ -177,7 +178,7 @@ def build_house_spans(
         min_coverage=stale_min_coverage,
     )
     overlay = from_rows(events)
-    latest_event_biennium = latest_event_biennium_by_member(overlay)
+    latest_event_biennium = latest_event_biennium_by_member(overlay, terms=WA_TERMS)
     movers_by_biennium = {
         biennium: house_mover_ids(rows) for biennium, rows in rows_by_biennium.items()
     }
@@ -217,10 +218,11 @@ def build_house_spans(
         },
     )
     spans = apply_operator_events(
-        build_tenure_spans(observations, current_biennium=current_biennium),
+        build_tenure_spans(observations, current_biennium=current_biennium, terms=WA_TERMS),
         [*overlay, *implied_vacates],
         current_biennium=current_biennium,
         owned_kinds=set(HOUSE_KINDS),
+        terms=WA_TERMS,
         movers_by_biennium=movers_by_biennium,
         context_spans=context_spans or [],
         applied_departures=applied_departures,
