@@ -627,8 +627,10 @@ class _SponsorsByBiennium:
     def __init__(self, rows: dict[str, int], *, dead: frozenset[str] = frozenset()) -> None:
         self.rows = rows
         self.dead = dead
+        self.asked: list[str] = []
 
     async def fetch_sponsors(self, biennium: str) -> _Records:
+        self.asked.append(biennium)
         if biennium in self.dead:
             raise RuntimeError("connection reset")
         count = self.rows.get(biennium, 0)
@@ -671,7 +673,9 @@ class _CommitteesByBiennium(FakeCommitteeClient):
         return _Wire(wire=f"members-{biennium}-{committee['Id']}".encode())
 
 
-async def _with_next(tmp_path, *, sponsors, committees, biennium: str = BIENNIUM) -> dict:
+async def _with_next(
+    tmp_path, *, sponsors, committees, biennium: str = BIENNIUM, ttl_days: float = 0.0
+) -> dict:
     return await harvest_raw(
         tmp_path,
         biennium=biennium,
@@ -679,6 +683,7 @@ async def _with_next(tmp_path, *, sponsors, committees, biennium: str = BIENNIUM
         meeting_client=FakeMeetingClient(),
         sponsor_client=sponsors,
         today=PUBLISHED_ON,
+        ttl_days=ttl_days,
     )
 
 
@@ -831,3 +836,21 @@ async def test_a_next_biennium_failure_keeps_the_pass_counters_reached(tmp_path)
     reached = caught.value.counters["next_biennium"]
     assert reached["sponsor_rows"] == 3
     assert reached["fetched"] == 1
+
+
+async def test_a_ttl_fresh_next_biennium_asks_wsl_nothing(tmp_path) -> None:
+    """CR 3: ``--ttl-days`` spares WSL requests. A next-biennium resource landed within the
+    TTL is recorded ``skipped`` without its gate request: a fresh ``sponsors:<next>`` already
+    says the biennium is published (an empty one never lands)."""
+    rows = {BIENNIUM: 2, NEXT: 3}
+    await _with_next(
+        tmp_path, sponsors=_SponsorsByBiennium(rows), committees=_CommitteesByBiennium()
+    )
+    sponsors, committees = _SponsorsByBiennium(rows), _CommitteesByBiennium()
+    summary = await _with_next(tmp_path, sponsors=sponsors, committees=committees, ttl_days=1)
+    assert NEXT not in sponsors.asked
+    assert NEXT not in committees.roster_asked
+    reached = summary["next_biennium"]
+    assert reached["skipped_fresh"] == 2 + len(COMMITTEES)
+    assert reached["fetched"] == 0
+    assert job_outcome(summary).outcome == "ok"

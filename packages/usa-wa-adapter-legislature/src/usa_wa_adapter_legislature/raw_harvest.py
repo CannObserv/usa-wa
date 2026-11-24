@@ -319,11 +319,20 @@ async def _harvest_next(
     biennium = counters["biennium"]
     sponsors_resource = f"{SPONSORS_RESOURCE_PREFIX}{biennium}"
     sponsors_url = f"{WSL_BASE_URL}/SponsorService.asmx?biennium={biennium}#GetSponsors"
-    fetched, failure = await _attempt(lambda: sponsors.fetch_sponsors(biennium))
-    if failure is None:
-        counters["sponsor_rows"] = _record_count(fetched)
-        if not counters["sponsor_rows"]:
-            return
+
+    def fresh(resource_id: str) -> bool:
+        # A resource landed within the TTL is recorded ``skipped`` by record_fetch without
+        # its gate request (CR 3): a fresh ``sponsors:<next>`` already says "published".
+        return bool(ttl_days) and store.is_fresh(resource_id, ttl_days=ttl_days)
+
+    fetched: Any = None
+    failure: Exception | None = None
+    if not fresh(sponsors_resource):
+        fetched, failure = await _attempt(lambda: sponsors.fetch_sponsors(biennium))
+        if failure is None:
+            counters["sponsor_rows"] = _record_count(fetched)
+            if not counters["sponsor_rows"]:
+                return
     await record_fetch(
         run,
         store,
@@ -337,14 +346,17 @@ async def _harvest_next(
     if failure is not None:
         return
 
-    roster_payload, failure = await _attempt(lambda: committees.fetch_committees(biennium))
-    if isinstance(failure, Fault):
-        counters["roster_unpublished"] = 1
-        return
+    roster_resource = f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}"
+    roster_payload: Any = None
+    if not fresh(roster_resource):
+        roster_payload, failure = await _attempt(lambda: committees.fetch_committees(biennium))
+        if isinstance(failure, Fault):
+            counters["roster_unpublished"] = 1
+            return
     roster = await record_fetch(
         run,
         store,
-        f"{COMMITTEES_ROSTER_RESOURCE_PREFIX}{biennium}",
+        roster_resource,
         f"{WSL_BASE_URL}/CommitteeService.asmx?biennium={biennium}#GetCommittees",
         _replay(roster_payload, failure),
         counters,
