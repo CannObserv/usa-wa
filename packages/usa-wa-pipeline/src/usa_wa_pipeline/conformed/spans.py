@@ -65,7 +65,7 @@ from clearinghouse_domain_legislative.tenure_spans import (
     TenureSpan,
     build_tenure_spans,
 )
-from clearinghouse_domain_legislative.terms import biennium_for_date, parse_biennium
+from clearinghouse_domain_legislative.terms import parse_biennium
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.membership.projector import (
     build_committee_membership_observations,
@@ -91,6 +91,7 @@ from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
     committee_member_ids_by_biennium,
     stale_exclusions_by_biennium,
 )
+from usa_wa_common.legislative_calendar import term_biennium_on
 from usa_wa_common.seats import district_number
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
 from usa_wa_pipeline.conformed.house import build_house_spans
@@ -541,13 +542,16 @@ def build_all_spans(
 
 def current_biennium(*, today: date | None = None) -> str:
     """The biennium whose spans stay open: ``USA_WA_BIENNIUM`` (a scoped rebuild's
-    pin), else the one containing today (UTC).
+    pin), else the TERM biennium of today (``legislative_calendar.term_biennium_on``).
 
     One rule for the ``assignments`` model and both probes that rebuild its
     spans (CR 1): the biennium decides which spans stay open, so a probe that
-    read it differently would audit a build that never published.
+    read it differently would audit a build that never published. It is the term
+    clock, never the filing window the harvests target (#597): legislators serve
+    past the first Monday in December, and ``organizations.active`` shares this
+    clock so INV1 cannot fire on a rollover.
     """
-    return os.environ.get("USA_WA_BIENNIUM") or biennium_for_date(today or datetime.now(UTC).date())
+    return os.environ.get("USA_WA_BIENNIUM") or term_biennium_on(today or datetime.now(UTC).date())
 
 
 def without_future_bienniums(inputs: SpanInputs, *, current_biennium: str) -> SpanInputs:
