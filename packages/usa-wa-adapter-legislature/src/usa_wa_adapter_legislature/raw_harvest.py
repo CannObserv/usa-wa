@@ -86,30 +86,7 @@ class AcceptedRosterFault:
 
 #: The rollover faults currently accepted. Empty is the normal state; an entry lives for
 #: one rollover window and is removed when it goes stale.
-ACCEPTED_ROSTER_FAULTS: tuple[AcceptedRosterFault, ...] = (
-    AcceptedRosterFault(
-        biennium="2027-28",
-        reason=(
-            "WSL answers GetCommittees for an unpublished biennium with a server fault "
-            "(DataPortal.Fetch failed), not an empty list; GetSponsors answers empty. From "
-            "2027-01-01 until WSL publishes 2027-28 the harvest would degrade every night "
-            "with nothing to act on."
-        ),
-        issue="#452",
-        observed="2026-10-01",
-        follow_up=(
-            (
-                "remove this entry from ACCEPTED_ROSTER_FAULTS in "
-                "usa_wa_adapter_legislature/raw_harvest.py"
-            ),
-            "remove the 2027-28 entry from ACCEPTED_WARNINGS in usa_wa_pipeline/build_warnings.py",
-            (
-                "record the date WSL published 2027-28 in "
-                "docs/research/2026-10-01-biennium-rollover-rehearsal.md"
-            ),
-        ),
-    ),
-)
+ACCEPTED_ROSTER_FAULTS: tuple[AcceptedRosterFault, ...] = ()
 
 
 async def harvest_raw(

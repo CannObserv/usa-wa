@@ -85,29 +85,7 @@ class AcceptedWarning:
 
 #: The warnings currently accepted. Empty is the normal state; an entry lives for one
 #: rollover window and is removed when it goes stale.
-ACCEPTED_WARNINGS: tuple[AcceptedWarning, ...] = (
-    AcceptedWarning(
-        node="test.usa_wa_pipeline.assignments_chamber_vacancy",
-        biennium="2027-28",
-        reason=(
-            "Every 2025-26 span closes at 2026-12-31 and nothing opens until WSL publishes "
-            "2027-28 sponsors, so both chambers read 0 open seats every night until then."
-        ),
-        issue="#452",
-        observed="2026-10-01",
-        follow_up=(
-            "remove this entry from ACCEPTED_WARNINGS in usa_wa_pipeline/build_warnings.py",
-            (
-                "remove the 2027-28 entry from ACCEPTED_ROSTER_FAULTS in "
-                "usa_wa_adapter_legislature/raw_harvest.py"
-            ),
-            (
-                "record the date WSL published 2027-28 in "
-                "docs/research/2026-10-01-biennium-rollover-rehearsal.md"
-            ),
-        ),
-    ),
-)
+ACCEPTED_WARNINGS: tuple[AcceptedWarning, ...] = ()
 
 
 #: Nodes whose ``warn`` is a listing, never news (#501 correction 2): counted and
@@ -242,7 +220,9 @@ async def _warnings_job(ctx: JobContext) -> JobResult:
         # stage stays the run_results reader it always was.
         db = ctx.args.db or os.environ.get("USA_WA_PIPELINE_DB", DEFAULT_DB)
         staged = staged_sponsors(Path(db), biennium)
-    return summarize(run_results, biennium=biennium, staged_sponsors=staged)
+    return summarize(
+        run_results, accepted=ACCEPTED_WARNINGS, biennium=biennium, staged_sponsors=staged
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -17,6 +17,7 @@ import pytest
 
 from clearinghouse_core.job import EXIT_DEGRADED, OUTCOME_DEGRADED, OUTCOME_FAILED, OUTCOME_OK
 from clearinghouse_core.testing import patch_job_runtime
+from usa_wa_pipeline import build_warnings
 from usa_wa_pipeline.build_warnings import (
     ACCEPTED_WARNINGS,
     INFORMATIONAL_NODES,
@@ -220,16 +221,11 @@ class TestAcceptedWarnings:
         assert result.counters["not_clean"] == [VACANCY]
         assert result.counters["stale_acceptances"] == [VACANCY]
 
-    def test_the_shipped_acceptance_is_the_2027_rollover_vacancy(self) -> None:
-        """Pins what is shipped, so widening it is a deliberate diff."""
-        assert [(a.node, a.biennium, a.issue) for a in ACCEPTED_WARNINGS] == [
-            (VACANCY, "2027-28", "#452")
-        ]
-
-    def test_the_shipped_follow_up_names_both_entries(self) -> None:
-        [shipped] = ACCEPTED_WARNINGS
-        assert any("ACCEPTED_WARNINGS" in step for step in shipped.follow_up)
-        assert any("ACCEPTED_ROSTER_FAULTS" in step for step in shipped.follow_up)
+    def test_nothing_is_shipped_between_rollover_windows(self) -> None:
+        """Pins what is shipped, so adding an entry is a deliberate diff. The 2027-28 entry
+        was removed when WSL published 2027-28 sponsors on 2026-11-24 (#135), before it
+        ever applied."""
+        assert ACCEPTED_WARNINGS == ()
 
 
 def _db_with_sponsors(tmp_path, bienniums: list[str]):
@@ -259,8 +255,11 @@ class TestStagedSponsors:
 
 
 def test_main_accepts_the_rollover_vacancy_from_the_built_db(tmp_path, monkeypatch) -> None:
-    """End to end: the current biennium and its staged sponsors come from the run itself."""
+    """End to end: the current biennium and its staged sponsors come from the run itself,
+    and the acceptances from the module's live tuple (the shipped one is empty between
+    rollover windows)."""
     patch_job_runtime(monkeypatch)
+    monkeypatch.setattr(build_warnings, "ACCEPTED_WARNINGS", TestAcceptedWarnings.ACCEPT)
     monkeypatch.setenv("USA_WA_BIENNIUM", "2027-28")
     path = tmp_path / "run_results.json"
     path.write_text(json.dumps(ROLLOVER))
@@ -275,6 +274,7 @@ def test_main_accepts_the_rollover_vacancy_from_the_built_db(tmp_path, monkeypat
 
 def test_main_reads_the_db_from_the_environment_by_default(tmp_path, monkeypatch) -> None:
     patch_job_runtime(monkeypatch)
+    monkeypatch.setattr(build_warnings, "ACCEPTED_WARNINGS", TestAcceptedWarnings.ACCEPT)
     monkeypatch.setenv("USA_WA_BIENNIUM", "2027-28")
     monkeypatch.setenv("USA_WA_PIPELINE_DB", str(_db_with_sponsors(tmp_path, [])))
     path = tmp_path / "run_results.json"
