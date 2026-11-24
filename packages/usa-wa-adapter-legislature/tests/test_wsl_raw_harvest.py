@@ -809,3 +809,25 @@ class TestNextBiennium:
             committees=_CommitteesByBiennium(),
         )
         assert summary["next_biennium"]["biennium"] == NEXT
+
+
+async def test_a_next_biennium_failure_keeps_the_pass_counters_reached(tmp_path) -> None:
+    """CR 2 (#331): an uncontained failure inside the next-biennium pass (a ``wire=None``
+    roster) must still carry how far that pass got, not only the current biennium's."""
+
+    class NullNextRoster(_CommitteesByBiennium):
+        async def fetch_committees(self, biennium: str) -> _Wire:
+            if biennium == NEXT:
+                return _Wire(wire=None)
+            return await super().fetch_committees(biennium)
+
+    with pytest.raises(JobFailure) as caught:
+        await _with_next(
+            tmp_path,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+            committees=NullNextRoster(),
+        )
+    assert isinstance(caught.value.__cause__, ValueError)
+    reached = caught.value.counters["next_biennium"]
+    assert reached["sponsor_rows"] == 3
+    assert reached["fetched"] == 1

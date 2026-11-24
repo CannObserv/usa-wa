@@ -193,8 +193,11 @@ async def harvest_raw(
             counters["next_biennium"] = None
             ahead = _ahead_of_clock(biennium, today)
             if ahead is not None:
-                counters["next_biennium"] = await _harvest_next(
-                    run, store, ahead, committees, sponsors, ttl_days
+                # Attached before the pass runs, filled in place: an uncontained failure
+                # inside it still reports how far it got (CR 2, #331).
+                counters["next_biennium"] = _next_counters(ahead)
+                await _harvest_next(
+                    run, store, counters["next_biennium"], committees, sponsors, ttl_days
                 )
         finally:
             # An uncontained failure (corrupt latest.json, cancellation) must not
@@ -274,14 +277,30 @@ def _ahead_of_clock(biennium: str, today: date) -> str | None:
     return None
 
 
+def _next_counters(biennium: str) -> dict[str, Any]:
+    """The next-biennium pass's own counters, nested under ``next_biennium``."""
+    return {
+        "biennium": biennium,
+        "sponsor_rows": None,
+        "fetched": 0,
+        "unchanged": 0,
+        "skipped_fresh": 0,
+        "errors": 0,
+        "roster_unpublished": 0,
+        "fanout_skipped": 0,
+        "fanout_attempted": 0,
+        "fanout_landed": 0,
+    }
+
+
 async def _harvest_next(
     run: RawRun,
     store: RawStore,
-    biennium: str,
+    counters: dict[str, Any],
     committees: Any,
     sponsors: Any,
     ttl_days: float,
-) -> dict[str, Any]:
+) -> None:
     """Land the NEXT biennium's rosters from the night WSL publishes them (#599).
 
     WSL published 2027-28 on 2026-11-24, while 2025-26 was current. So the run asks
@@ -294,27 +313,17 @@ async def _harvest_next(
     which says only that the biennium is unpublished), and a ``GetCommittees`` server
     fault while sponsors have rows — the order a biennium can publish in — counts
     ``roster_unpublished``. A transport error, or a fan-out that lands nothing, is an
-    outage: counted, and degrading at job level (:func:`_next_degraded`). Its own
-    counters, so the current biennium's stay what they always were."""
-    counters: dict[str, Any] = {
-        "biennium": biennium,
-        "sponsor_rows": None,
-        "fetched": 0,
-        "unchanged": 0,
-        "skipped_fresh": 0,
-        "errors": 0,
-        "roster_unpublished": 0,
-        "fanout_skipped": 0,
-        "fanout_attempted": 0,
-        "fanout_landed": 0,
-    }
+    outage: counted, and degrading at job level (:func:`_next_degraded`). ``counters`` is
+    its own (:func:`_next_counters`), filled in place, so the current biennium's stay what
+    they always were."""
+    biennium = counters["biennium"]
     sponsors_resource = f"{SPONSORS_RESOURCE_PREFIX}{biennium}"
     sponsors_url = f"{WSL_BASE_URL}/SponsorService.asmx?biennium={biennium}#GetSponsors"
     fetched, failure = await _attempt(lambda: sponsors.fetch_sponsors(biennium))
     if failure is None:
         counters["sponsor_rows"] = _record_count(fetched)
         if not counters["sponsor_rows"]:
-            return counters
+            return
     await record_fetch(
         run,
         store,
@@ -326,12 +335,12 @@ async def _harvest_next(
         log_event="wsl_raw_harvest_next_fetch_failed",
     )
     if failure is not None:
-        return counters
+        return
 
     roster_payload, failure = await _attempt(lambda: committees.fetch_committees(biennium))
     if isinstance(failure, Fault):
         counters["roster_unpublished"] = 1
-        return counters
+        return
     roster = await record_fetch(
         run,
         store,
@@ -343,7 +352,6 @@ async def _harvest_next(
         log_event="wsl_raw_harvest_next_fetch_failed",
     )
     await _fan_out(run, store, biennium, roster, committees, counters, ttl_days)
-    return counters
 
 
 async def _attempt(fetch: Callable[[], Awaitable[Any]]) -> tuple[Any, Exception | None]:
