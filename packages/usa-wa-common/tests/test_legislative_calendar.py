@@ -151,3 +151,10 @@ def test_wa_terms_is_the_engine_calendar_for_the_statute():
     assert WA_TERMS.end("2025-26") == date(2027, 1, 10)
     assert WA_TERMS.biennium_on(date(2027, 1, 10)) == "2025-26"
     assert WA_TERMS.start("1979-80") == date(1979, 1, 1)
+
+
+def test_the_term_clock_takes_a_datetime_as_its_day():
+    """dbt hands Python models pandas Timestamps (a datetime subclass): the term clock reads
+    the day, never comparing a timestamp with a date (role_periods, 2026-11-24)."""
+    assert term_biennium_on(datetime(2027, 1, 10, 23, 0)) == "2025-26"
+    assert term_biennium_on(datetime(2027, 1, 11, 0, 0)) == "2027-28"

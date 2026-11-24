@@ -115,7 +115,10 @@ def term_biennium_on(day: date) -> str:
 
     It flips on the second Monday in January of the odd year (calendar years before the 1981
     floor). Between the filing flip (first Monday in December) and the term flip, it lags
-    :func:`filing_biennium_on` by one biennium."""
+    :func:`filing_biennium_on` by one biennium. A ``datetime`` (a pandas ``Timestamp`` from a
+    dbt model included) is read as its day."""
+    if isinstance(day, datetime):
+        day = day.date()
     odd = day.year if day.year % 2 else day.year - 1
     label = _label(odd)
     return label if day >= term_start(label) else _label(odd - 2)
