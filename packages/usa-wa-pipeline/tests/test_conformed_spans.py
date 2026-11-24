@@ -888,9 +888,11 @@ def test_current_biennium_is_the_term_clock_not_the_filing_window(monkeypatch) -
 
 
 def test_current_biennium_defaults_to_today(monkeypatch) -> None:
+    """#598: the term flips on the second Monday in January (RCW 44.04.021), not Jan 1."""
     monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
-    assert current_biennium(today=date(2027, 1, 1)) == "2027-28"
-    assert current_biennium(today=date(2026, 12, 31)) == "2025-26"
+    assert current_biennium(today=date(2027, 1, 11)) == "2027-28"
+    assert current_biennium(today=date(2027, 1, 10)) == "2025-26"
+    assert current_biennium(today=date(2027, 1, 1)) == "2025-26"
 
 
 def _ballot(district: int = 14) -> dict:
