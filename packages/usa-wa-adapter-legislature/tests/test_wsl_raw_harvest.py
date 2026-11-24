@@ -9,6 +9,7 @@ import argparse
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import date
 
 import pytest
 from zeep.exceptions import Fault
@@ -612,3 +613,259 @@ class TestWsdlDrift:
 
     def test_a_failed_drift_check_degrades(self) -> None:
         assert job_outcome({**self.OK_RUN, "wsdl_check_failed": 1}).outcome == "degraded"
+
+
+NEXT = "2027-28"
+#: The day WSL first answered 2027-28 — pinned, so "next" is judged against a fixed clock.
+PUBLISHED_ON = date(2026, 11, 24)
+
+
+class _SponsorsByBiennium:
+    """``GetSponsors`` answering per biennium: rows where published, an empty envelope
+    elsewhere (what WSL answers for an unpublished one)."""
+
+    def __init__(self, rows: dict[str, int], *, dead: frozenset[str] = frozenset()) -> None:
+        self.rows = rows
+        self.dead = dead
+        self.asked: list[str] = []
+
+    async def fetch_sponsors(self, biennium: str) -> _Records:
+        self.asked.append(biennium)
+        if biennium in self.dead:
+            raise RuntimeError("connection reset")
+        count = self.rows.get(biennium, 0)
+        return _Records(
+            wire=f"sponsors-{biennium}".encode(), records=[{"Id": i} for i in range(count)]
+        )
+
+
+class _CommitteesByBiennium(FakeCommitteeClient):
+    """``GetCommittees`` faulting for an unpublished biennium; members failing per biennium."""
+
+    def __init__(
+        self,
+        *,
+        unpublished: frozenset[str] = frozenset(),
+        members_fail_in: frozenset[str] = frozenset(),
+    ) -> None:
+        super().__init__()
+        self.unpublished = unpublished
+        self.members_fail_in = members_fail_in
+        self.active_calls = 0
+        self.roster_asked: list[str] = []
+
+    async def fetch_committees(self, biennium: str) -> _Wire:
+        self.roster_asked.append(biennium)
+        if biennium in self.unpublished:
+            raise Fault("DataPortal.Fetch failed (Object reference not set to an instance)")
+        return await super().fetch_committees(biennium)
+
+    async def fetch_active_committees(self) -> _Wire:
+        self.active_calls += 1
+        return await super().fetch_active_committees()
+
+    async def fetch_historical_committee_members(
+        self, biennium: str, agency: str, committee_name: str
+    ) -> _Wire:
+        if biennium in self.members_fail_in:
+            raise RuntimeError("soap fault")
+        committee = next(c for c in COMMITTEES if c["Name"] == committee_name)
+        return _Wire(wire=f"members-{biennium}-{committee['Id']}".encode())
+
+
+async def _with_next(
+    tmp_path, *, sponsors, committees, biennium: str = BIENNIUM, ttl_days: float = 0.0
+) -> dict:
+    return await harvest_raw(
+        tmp_path,
+        biennium=biennium,
+        committee_client=committees,
+        meeting_client=FakeMeetingClient(),
+        sponsor_client=sponsors,
+        today=PUBLISHED_ON,
+        ttl_days=ttl_days,
+    )
+
+
+def _entries(tmp_path) -> dict[str, str]:
+    store = RawStore(tmp_path, SOURCE_SLUG)
+    [manifest_path] = store.manifest_paths()
+    return {e["resource_id"]: e["status"] for e in json.loads(manifest_path.read_text())["entries"]}
+
+
+class TestNextBiennium:
+    """#599: WSL published 2027-28 on 2026-11-24, while 2025-26 was current. The run also
+    lands the next biennium's rosters from the night they answer: sponsors, the committee
+    roster and its member fan-out. Never ``GetActiveCommittees`` (no biennium argument: it
+    would archive the current snapshot under the next id) and never a meetings window."""
+
+    async def test_lands_the_next_biennium_once_published(self, tmp_path) -> None:
+        committees = _CommitteesByBiennium()
+        summary = await _with_next(
+            tmp_path, sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}), committees=committees
+        )
+        recorded = set(_entries(tmp_path))
+        landed_next = {r for r in recorded if NEXT in r}
+        assert landed_next == {f"sponsors:{NEXT}", f"committees-roster:{NEXT}"} | {
+            committee_members_hist_resource_id(NEXT, str(c["Id"]), c["Agency"], c["Name"])
+            for c in COMMITTEES
+        }
+        assert committees.active_calls == 1
+        assert summary["next_biennium"] == {
+            "biennium": NEXT,
+            "sponsor_rows": 3,
+            "fetched": 4,
+            "unchanged": 0,
+            "skipped_fresh": 0,
+            "errors": 0,
+            "roster_unpublished": 0,
+            "fanout_skipped": 0,
+            "fanout_attempted": 2,
+            "fanout_landed": 2,
+        }
+        assert job_outcome(summary).outcome == "ok"
+
+    async def test_the_current_counters_are_the_current_biennium_alone(self, tmp_path) -> None:
+        summary = await _with_next(
+            tmp_path,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+            committees=_CommitteesByBiennium(),
+        )
+        assert summary["fetched"] == 4 + len(COMMITTEES)
+        assert summary["fanout_landed"] == len(COMMITTEES)
+
+    async def test_an_unpublished_next_biennium_lands_nothing_and_asks_no_roster(
+        self, tmp_path
+    ) -> None:
+        committees = _CommitteesByBiennium(unpublished=frozenset({NEXT}))
+        summary = await _with_next(
+            tmp_path, sponsors=_SponsorsByBiennium({BIENNIUM: 2}), committees=committees
+        )
+        assert not [r for r in _entries(tmp_path) if NEXT in r]
+        assert committees.roster_asked == [BIENNIUM]
+        assert summary["next_biennium"]["sponsor_rows"] == 0
+        assert summary["next_biennium"]["fetched"] == 0
+        assert job_outcome(summary).outcome == "ok"
+
+    async def test_sponsors_before_committees_is_not_yet_not_an_error(self, tmp_path) -> None:
+        """A biennium's sponsors can answer while its ``GetCommittees`` still faults: the
+        sponsors land, the roster is "not yet", and nothing is recorded ``err``."""
+        summary = await _with_next(
+            tmp_path,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+            committees=_CommitteesByBiennium(unpublished=frozenset({NEXT})),
+        )
+        entries = _entries(tmp_path)
+        assert entries[f"sponsors:{NEXT}"] == "ok"
+        assert f"committees-roster:{NEXT}" not in entries
+        assert summary["next_biennium"]["roster_unpublished"] == 1
+        assert summary["next_biennium"]["errors"] == 0
+        assert job_outcome(summary).outcome == "ok"
+
+    async def test_a_next_biennium_transport_error_degrades(self, tmp_path) -> None:
+        summary = await _with_next(
+            tmp_path,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2}, dead=frozenset({NEXT})),
+            committees=_CommitteesByBiennium(),
+        )
+        assert _entries(tmp_path)[f"sponsors:{NEXT}"] == "err"
+        assert summary["next_biennium"]["errors"] == 1
+        assert summary["errors"] == 0
+        assert job_outcome(summary).outcome == "degraded"
+
+    async def test_a_lost_next_biennium_fanout_degrades(self, tmp_path) -> None:
+        summary = await _with_next(
+            tmp_path,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+            committees=_CommitteesByBiennium(members_fail_in=frozenset({NEXT})),
+        )
+        assert summary["next_biennium"]["fanout_attempted"] == 2
+        assert summary["next_biennium"]["fanout_landed"] == 0
+        assert summary["fanout_landed"] == len(COMMITTEES)
+        assert job_outcome(summary).outcome == "degraded"
+
+    async def test_the_next_biennium_follows_the_run(self, tmp_path) -> None:
+        summary = await _with_next(
+            tmp_path,
+            sponsors=_SponsorsByBiennium({NEXT: 3}),
+            committees=_CommitteesByBiennium(),
+            biennium=NEXT,
+        )
+        assert summary["next_biennium"]["biennium"] == "2029-30"
+
+    async def test_a_run_pinned_to_a_past_biennium_lands_no_other(self, tmp_path) -> None:
+        """CR 1: "next" is ahead of the clock, not of the pin. A backfill pinned to 2019-20
+        must not also land 2021-22 — a biennium the run was never asked for."""
+        committees = _CommitteesByBiennium()
+        summary = await _with_next(
+            tmp_path,
+            sponsors=_SponsorsByBiennium({"2019-20": 2, "2021-22": 3}),
+            committees=committees,
+            biennium="2019-20",
+        )
+        assert summary["next_biennium"] is None
+        assert not [r for r in _entries(tmp_path) if "2021-22" in r]
+        assert committees.roster_asked == ["2019-20"]
+
+    async def test_the_current_biennium_pinned_still_looks_ahead(self, tmp_path) -> None:
+        summary = await _with_next(
+            tmp_path,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+            committees=_CommitteesByBiennium(),
+        )
+        assert summary["next_biennium"]["biennium"] == NEXT
+
+
+async def test_a_next_biennium_failure_keeps_the_pass_counters_reached(tmp_path) -> None:
+    """CR 2 (#331): an uncontained failure inside the next-biennium pass (a ``wire=None``
+    roster) must still carry how far that pass got, not only the current biennium's."""
+
+    class NullNextRoster(_CommitteesByBiennium):
+        async def fetch_committees(self, biennium: str) -> _Wire:
+            if biennium == NEXT:
+                return _Wire(wire=None)
+            return await super().fetch_committees(biennium)
+
+    with pytest.raises(JobFailure) as caught:
+        await _with_next(
+            tmp_path,
+            sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+            committees=NullNextRoster(),
+        )
+    assert isinstance(caught.value.__cause__, ValueError)
+    reached = caught.value.counters["next_biennium"]
+    assert reached["sponsor_rows"] == 3
+    assert reached["fetched"] == 1
+
+
+async def test_a_ttl_fresh_next_biennium_asks_wsl_nothing(tmp_path) -> None:
+    """CR 3: ``--ttl-days`` spares WSL requests. A next-biennium resource landed within the
+    TTL is recorded ``skipped`` without its gate request: a fresh ``sponsors:<next>`` already
+    says the biennium is published (an empty one never lands)."""
+    rows = {BIENNIUM: 2, NEXT: 3}
+    await _with_next(
+        tmp_path, sponsors=_SponsorsByBiennium(rows), committees=_CommitteesByBiennium()
+    )
+    sponsors, committees = _SponsorsByBiennium(rows), _CommitteesByBiennium()
+    summary = await _with_next(tmp_path, sponsors=sponsors, committees=committees, ttl_days=1)
+    assert NEXT not in sponsors.asked
+    assert NEXT not in committees.roster_asked
+    reached = summary["next_biennium"]
+    assert reached["skipped_fresh"] == 2 + len(COMMITTEES)
+    assert reached["fetched"] == 0
+    assert job_outcome(summary).outcome == "ok"
+
+
+async def test_next_sponsors_with_no_derived_rows_land_nothing_and_say_so(tmp_path, caplog) -> None:
+    """CR 4: a sponsors payload carrying no ``records`` is UNKNOWN, not empty (as
+    ``_record_count`` documents). It lands nothing, but a transport-contract change must not
+    silently stop the capture: it is logged at WARNING."""
+    with caplog.at_level("WARNING"):
+        summary = await _with_next(
+            tmp_path, sponsors=FakeSponsorClient(), committees=_CommitteesByBiennium()
+        )
+    assert summary["next_biennium"]["sponsor_rows"] is None
+    assert not [r for r in _entries(tmp_path) if NEXT in r]
+    [record] = [r for r in caplog.records if r.getMessage() == "wsl_raw_harvest_next_rows_unknown"]
+    assert record.levelname == "WARNING"
+    assert record.biennium == NEXT

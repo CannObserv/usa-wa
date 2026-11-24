@@ -20,7 +20,7 @@ run with `scripts/rollover-rehearsal.sh`.
 
 | Unit | When | What it does in this window |
 |---|---|---|
-| `usa-wa-pipeline.timer` | daily 08:00 UTC | From **2026-11-04** the PDC and SOS harvests also fetch the 2026 general (`lookahead_election_year`). From **2027-01-01** every harvest targets `2027-28`. |
+| `usa-wa-pipeline.timer` | daily 08:00 UTC | From **2026-11-04** the PDC and SOS harvests also fetch the 2026 general (`lookahead_election_year`). From #601's deploy (the first nightly after it) the WSL harvest also lands `2027-28`'s sponsors, committee roster and members (#599: the next biennium, from the night WSL publishes it; its own `next_biennium` counters). From **2027-01-01** every harvest targets `2027-28` (#597 moves that to 2026-12-07). |
 | `usa-wa-wsl-availability-probe.timer` | daily 09:20 UTC, through 2027-02-28 | Measures how much of `2027-28` WSL serves (`data/research/wsl-availability.jsonl`). **Exit 4 = a roster changed state** (faulting, empty, has rows): the morning WSL starts publishing. Growth alone is logged, not mailed. |
 | claude.ai routine `trig_01RrbHtAt554TKzoHDsBxAbc` | 2026-11-04 16:07 UTC, once | Checks the upstream sources from outside, then @mentions the owner on #135 with the 11-04 checklist below. |
 
@@ -50,9 +50,13 @@ From the same night, the published `stg_sos_results` carries the 2026 election's
   scripts/rollover-rehearsal.sh empty      # what upstream serves that day
   scripts/rollover-rehearsal.sh partial    # a synthesized half-published 2027-28 roster
   ```
-  Expected since #452: `empty` exits 0 with both acceptance lines in `nightly.log`;
-  `partial` (synthesized sponsors stage) has `build_warnings` exit 1, still warning on the
-  vacancy with `stale_acceptances` naming it — the "WSL published" path.
+  **Since 2026-11-24 (#596) only `empty` models anything.** WSL has published 2027-28, and
+  the nightly lands it (#599), so `empty` now rehearses the published case on the real
+  roster. Expect `build_warnings` to exit 1 on the partial roster's vacancy until it turns
+  informational (#599 D3). `partial` overwrites the real `sponsors:2027-28` wire in its
+  scratch copy with a synthesized one, so it no longer rehearses anything real: skip it.
+  (The #452 expectation, `empty` exiting 0 with both acceptance lines, applied only before
+  WSL published.)
   Not while the 08:00 nightly runs (the wrapper refuses: it would copy a half-written run).
   Each prints its scratch dir under `~/rehearsal/`; record the outcome lines in the
   research doc beside the October run. Delete the scratch dirs afterwards (~135 MB each).

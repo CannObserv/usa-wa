@@ -560,12 +560,23 @@ def without_future_bienniums(inputs: SpanInputs, *, current_biennium: str) -> Sp
     makes it current it is not an observation. A row whose biennium does not parse is kept:
     judging it is not this guard's job.
 
-    **Spans only.** Four other readers still take every staged biennium: the registrar's
-    ``load_sponsor_keys`` (mints a person per staged sponsor), ``persons`` (name survivorship),
-    ``organizations`` (the committee rosters) and ``citations`` (``newest_biennium``, which open
-    spans run to). A WSL lookahead must settle each of them before it lands a future wire.
+    **Spans only.** Four other readers take every staged biennium. The WSL harvest lands the
+    next biennium nightly once WSL publishes it (#599; 2027-28 from 2026-11-24), and a write-free
+    build with the 2027-28 wires staged measured each of them, all accepted as recording what WSL
+    states:
 
-    Logged at WARNING because no harvest fetches a future biennium today, so one is an anomaly.
+    - the registrar's ``load_sponsor_keys`` mints a person per staged sponsor: each newcomer
+      (2027-28: one, 35476, measured 2026-11-24) gets a ``persons`` row with no assignment
+      until the rollover makes the biennium current;
+    - ``persons`` name survivorship: no incumbent's row changed;
+    - ``organizations`` (the committee rosters): ``last_biennium`` reads the next biennium for
+      every committee it lists, while ``active`` (equality with the current biennium) is
+      unchanged;
+    - ``citations``: persons and committees gain the next biennium's wires as attestations, and
+      no assignment cites one (an open span carries the current biennium as its
+      ``span_end_biennium``, so ``newest_biennium`` never extends it).
+
+    Logged at INFO: from the night WSL publishes until the rollover the exclusion is routine.
     The ``assignments`` model's log reaches nobody (see there); ``registry_coverage`` runs this
     same sequence under the job harness, which is where the line lands.
     """
@@ -589,7 +600,7 @@ def without_future_bienniums(inputs: SpanInputs, *, current_biennium: str) -> Sp
         committee_members=[r for r in inputs.committee_members if _current_or_past(r)],
     )
     if future:
-        logger.warning(
+        logger.info(
             "spans_future_bienniums_excluded",
             extra={
                 "current_biennium": current_biennium,

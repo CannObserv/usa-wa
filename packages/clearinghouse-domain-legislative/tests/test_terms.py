@@ -18,6 +18,7 @@ from clearinghouse_domain_legislative.terms import (
     biennium_start_date,
     biennium_start_year,
     bienniums_in_range,
+    next_biennium,
     parse_biennium,
     previous_biennium,
 )
@@ -88,6 +89,19 @@ def test_biennium_start_date_is_jan1_of_the_odd_year(label, expected):
 def test_previous_biennium_steps_back_two_years(label, expected):
     """The prior biennium is the rename diff's "before" side."""
     assert previous_biennium(label) == expected
+
+
+@pytest.mark.parametrize(
+    "label,expected",
+    [
+        ("2025-26", "2027-28"),
+        ("1997-98", "1999-00"),
+        ("1999-00", "2001-02"),
+    ],
+)
+def test_next_biennium_steps_forward_two_years(label, expected):
+    """The biennium after ``label``: what WSL publishes ahead of a rollover (#599)."""
+    assert next_biennium(label) == expected
 
 
 def test_biennium_start_year_is_public():
