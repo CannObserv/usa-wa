@@ -854,3 +854,18 @@ async def test_a_ttl_fresh_next_biennium_asks_wsl_nothing(tmp_path) -> None:
     assert reached["skipped_fresh"] == 2 + len(COMMITTEES)
     assert reached["fetched"] == 0
     assert job_outcome(summary).outcome == "ok"
+
+
+async def test_next_sponsors_with_no_derived_rows_land_nothing_and_say_so(tmp_path, caplog) -> None:
+    """CR 4: a sponsors payload carrying no ``records`` is UNKNOWN, not empty (as
+    ``_record_count`` documents). It lands nothing, but a transport-contract change must not
+    silently stop the capture: it is logged at WARNING."""
+    with caplog.at_level("WARNING"):
+        summary = await _with_next(
+            tmp_path, sponsors=FakeSponsorClient(), committees=_CommitteesByBiennium()
+        )
+    assert summary["next_biennium"]["sponsor_rows"] is None
+    assert not [r for r in _entries(tmp_path) if NEXT in r]
+    [record] = [r for r in caplog.records if r.getMessage() == "wsl_raw_harvest_next_rows_unknown"]
+    assert record.levelname == "WARNING"
+    assert record.biennium == NEXT

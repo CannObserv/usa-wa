@@ -331,6 +331,9 @@ async def _harvest_next(
         fetched, failure = await _attempt(lambda: sponsors.fetch_sponsors(biennium))
         if failure is None:
             counters["sponsor_rows"] = _record_count(fetched)
+            if counters["sponsor_rows"] is None:
+                # Unknown, not empty (CR 4): land nothing, but never stop silently.
+                logger.warning("wsl_raw_harvest_next_rows_unknown", extra={"biennium": biennium})
             if not counters["sponsor_rows"]:
                 return
     await record_fetch(
