@@ -1,7 +1,7 @@
 """Operator-succession overlay (#107) — pure, the LD5 Ramos/Hunt golden cases."""
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 
 from clearinghouse_domain_legislative.operator_overlay import (
     SuccessionEvent,
@@ -1247,3 +1247,93 @@ def test_a_same_seat_return_is_never_the_re_entry_of_its_own_head():
         ("1941-42", date(1941, 1, 1), date(1944, 2, 19)),
         ("1945-46", date(1944, 10, 15), date(1948, 12, 31)),
     ]
+
+
+# ---- #598: the overlay buckets events on the term calendar its spans were built on ----
+
+
+class _SecondMondayTerms:
+    """A statutory term calendar: 2023-24 runs 2023-01-09 → 2025-01-12, 2025-26 from
+    2025-01-13. A date in early January belongs to the term still running."""
+
+    _STARTS = {
+        "2021-22": date(2021, 1, 11),
+        "2023-24": date(2023, 1, 9),
+        "2025-26": date(2025, 1, 13),
+        "2027-28": date(2027, 1, 11),
+    }
+
+    def start(self, label):
+        return self._STARTS[label]
+
+    def end(self, label):
+        start = int(label[:4]) + 2
+        return self._STARTS[f"{start}-{(start + 1) % 100:02d}"] - timedelta(days=1)
+
+    def biennium_on(self, day):
+        return max((b for b, s in self._STARTS.items() if s <= day), key=lambda b: b)
+
+
+TERMS = _SecondMondayTerms()
+
+
+def _term_span(member, kind, disc, *, start="2025-26", to=None):
+    """A span the builder made on ``TERMS``: it opens on the term's first day."""
+    return TenureSpan(
+        member_id=member,
+        kind=kind,
+        discriminator=disc,
+        start_biennium=start,
+        end_biennium="2025-26",
+        valid_from=TERMS.start(start),
+        valid_to=to,
+        is_active=to is None,
+        terms=TERMS,
+    )
+
+
+def test_a_pre_term_january_seating_dates_the_term_it_precedes():
+    """#598: a seating dated 2025-01-07, before the 2025-01-13 term start, belongs to the
+    2023-24 term still running. So it is the #282 lookback onto the span opening at
+    2025-01-13, not an inert date before a calendar-year span."""
+    spans = [_term_span("48001", "chamber-house", "ld-48-position-1")]
+    events = [
+        SuccessionEvent("48001", "seated", date(2025, 1, 7), "chamber-house", "ld-48-position-1")
+    ]
+    [out] = apply_operator_events(
+        spans, events, current_biennium=CURRENT, owned_kinds={"chamber-house"}, terms=TERMS
+    )
+    assert out.valid_from == date(2025, 1, 7)
+    assert out.start_basis == "dated"
+
+
+def test_synthesis_and_split_keys_follow_the_term_calendar():
+    """A seating with no built span mints its tenure in the term holding the date, and a
+    re-entry splits onto the term the return falls in."""
+    events = [
+        SuccessionEvent("50001", "seated", date(2025, 2, 1), "chamber-senate", "9"),
+    ]
+    [minted] = apply_operator_events(
+        [], events, current_biennium=CURRENT, owned_kinds={"chamber-senate"}, terms=TERMS
+    )
+    assert minted.terms is TERMS
+    assert minted.valid_from_latest == date(2025, 2, 1)
+    assert latest_event_biennium_by_member(
+        [SuccessionEvent("50001", "departed", date(2025, 1, 10))], terms=TERMS
+    ) == {"50001": "2023-24"}
+
+
+def test_a_movers_synthesized_tenure_opens_on_its_terms_first_day():
+    events = [
+        SuccessionEvent("60001", "vacated", date(2025, 6, 1), "chamber-house", "ld-5-position-1")
+    ]
+    [minted] = apply_operator_events(
+        [],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+        movers_by_biennium={"2025-26": {"60001"}},
+        terms=TERMS,
+    )
+    assert minted.valid_from == date(2025, 1, 13)
+    assert minted.valid_to == date(2025, 6, 1)

@@ -52,8 +52,8 @@ from clearinghouse_domain_legislative.operator_events import (
 )
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan, merge_party_continuity
 from clearinghouse_domain_legislative.terms import (
-    biennium_for_date,
-    biennium_start_date,
+    CALENDAR_YEAR,
+    TermCalendar,
     parse_biennium,
     previous_biennium,
 )
@@ -61,11 +61,13 @@ from clearinghouse_domain_legislative.terms import (
 logger = get_logger(__name__)
 
 #: How long after a member's last span end a ``departed`` that closed nothing still reads as
-#: that tenure's own end (usa-wa#466). The wire closes a tenure at its biennium's last day,
-#: and the operator dates the departure at the term's real end — up to the next session's
-#: convening on the second Monday of January, or a successor's swearing-in just after it
-#: (186: 1993-01-13, thirteen days past 1992-12-31). A month holds every term end measured;
-#: member 656's sixteen-month gap is a missing tenure or a misdated event, not a term end.
+#: that tenure's own end (usa-wa#466). The wire closes a tenure at its term's last day, and
+#: the operator dates the departure at the term's real end. On calendar-year terms that was
+#: up to the next session's convening on the second Monday of January, or a successor's
+#: swearing-in just after it (186: 1993-01-13, thirteen days past 1992-12-31). On statutory
+#: terms (#598, from 1981) the end already sits there, and the month only absorbs a
+#: swearing-in a few days late. A month holds every term end measured; member 656's
+#: sixteen-month gap is a missing tenure or a misdated event, not a term end.
 DEPARTED_ALREADY_CLOSED_GRACE = timedelta(days=31)
 
 
@@ -102,15 +104,17 @@ def from_rows(rows: Iterable[object]) -> list[SuccessionEvent]:
     ]
 
 
-def latest_event_biennium_by_member(events: Iterable[SuccessionEvent]) -> dict[str, str]:
-    """Each member's **latest** operator-event biennium (``biennium_for_date`` of their maximum
-    ``effective_date``). A member with events in two biennia resolves to the later one — the last
-    boundary the operator asserts for them. Build this **once** per span rebuild; the map is
-    biennium-invariant, so :func:`stale_exempt_members` takes it (not ``events``) to avoid
-    recomputing it per biennium."""
+def latest_event_biennium_by_member(
+    events: Iterable[SuccessionEvent], *, terms: TermCalendar = CALENDAR_YEAR
+) -> dict[str, str]:
+    """Each member's **latest** operator-event biennium (the ``terms`` biennium of their
+    maximum ``effective_date``, #598). A member with events in two biennia resolves to the
+    later one — the last boundary the operator asserts for them. Build this **once** per span
+    rebuild; the map is biennium-invariant, so :func:`stale_exempt_members` takes it (not
+    ``events``) to avoid recomputing it per biennium."""
     out: dict[str, str] = {}
     for e in events:
-        b = biennium_for_date(e.effective_date)
+        b = terms.biennium_on(e.effective_date)
         if e.member_id not in out or parse_biennium(b)[0] > parse_biennium(out[e.member_id])[0]:
             out[e.member_id] = b
     return out
@@ -180,8 +184,8 @@ def _opens_after_seating(span: TenureSpan, event: SuccessionEvent) -> bool:
         span.member_id == event.member_id
         and span.kind == event.seat_kind
         and span.discriminator == event.seat_discriminator
-        and span.valid_from == biennium_start_date(span.start_biennium)
-        and previous_biennium(span.start_biennium) == biennium_for_date(event.effective_date)
+        and span.valid_from == span.terms.start(span.start_biennium)
+        and previous_biennium(span.start_biennium) == span.terms.biennium_on(event.effective_date)
     )
 
 
@@ -206,7 +210,7 @@ def _seating_starts_tenure(span: TenureSpan, effective_date: date) -> bool:
     dated it; the floor-quantized case is :func:`_opens_after_seating`'s (usa-wa#282)."""
     return (
         parse_biennium(span.start_biennium)[0]
-        >= parse_biennium(biennium_for_date(effective_date))[0]
+        >= parse_biennium(span.terms.biennium_on(effective_date))[0]
     )
 
 
@@ -221,7 +225,9 @@ def _close(span: TenureSpan, event: SuccessionEvent) -> TenureSpan:
     )
 
 
-def _synthesize(event: SuccessionEvent, current_biennium: str) -> TenureSpan:
+def _synthesize(
+    event: SuccessionEvent, current_biennium: str, terms: TermCalendar = CALENDAR_YEAR
+) -> TenureSpan:
     """A seated event whose seat the wire built no span for — mint the open tenure from the
     seat descriptor (keyed on the current biennium, so its ``source_id`` is stable)."""
     return TenureSpan(
@@ -235,17 +241,19 @@ def _synthesize(event: SuccessionEvent, current_biennium: str) -> TenureSpan:
         is_active=True,
         start_basis=event.basis,
         end_basis=BASIS_OPEN,
+        terms=terms,
     )
 
 
-def _synthesize_closed(event: SuccessionEvent, biennium: str) -> TenureSpan:
+def _synthesize_closed(
+    event: SuccessionEvent, biennium: str, terms: TermCalendar = CALENDAR_YEAR
+) -> TenureSpan:
     """A `vacated` event for a **mover** whose House seat the roster deliberately excluded (#105)
     — mint their CLOSED tenure ``[biennium-floor → effective_date]``, keyed on the event's own
     biennium so the ``source_id`` is stable (#145). This replaces the roster re-inclusion that
     perturbed the #103 elimination. Safe where the #119 *open*-synth guard is not: a closed
     historical span cannot inflate the current open-chamber count."""
-    start_year, _ = parse_biennium(biennium)
-    floor = date(start_year, 1, 1)
+    floor = terms.start(biennium)
     return TenureSpan(
         member_id=event.member_id,
         kind=event.seat_kind or "",
@@ -253,12 +261,13 @@ def _synthesize_closed(event: SuccessionEvent, biennium: str) -> TenureSpan:
         start_biennium=biennium,
         end_biennium=biennium,
         valid_from=floor,
-        # ``biennium_for_date`` yields a biennium whose floor ≤ the date, so this holds; the
+        # ``terms.biennium_on`` yields a biennium whose floor ≤ the date, so this holds; the
         # ``max`` mirrors ``_close`` and guards ``valid_from ≤ valid_to`` defensively regardless.
         valid_to=max(event.effective_date, floor),
         is_active=False,
         start_basis=BASIS_OBSERVED,
         end_basis=event.basis,
+        terms=terms,
     )
 
 
@@ -271,8 +280,13 @@ def apply_operator_events(
     movers_by_biennium: dict[str, set[str]] | None = None,
     context_spans: Iterable[TenureSpan] = (),
     applied_departures: set[SuccessionEvent] | None = None,
+    terms: TermCalendar = CALENDAR_YEAR,
 ) -> list[TenureSpan]:
     """Return ``spans`` with the operator events applied (``spans`` untouched).
+
+    ``terms`` (#598) is the term calendar the spans were built on: a span the overlay mints
+    opens on its days, and an event with no span in hand is bucketed by it. Helpers holding a
+    span read ``span.terms`` instead, so the two can't disagree.
 
     ``owned_kinds`` scopes the seat-scoped events to the kinds this builder produces — a
     seated/vacated for a foreign seat kind is ignored (another builder owns it). ``departed``
@@ -317,7 +331,7 @@ def apply_operator_events(
     # floor to the real swearing-in. Ordering by phase rather than by input makes the split
     # read settled starts: Huntley's party tenure reopens 1967-04-24, not 1967-01-01.
     ordered = sorted(events, key=lambda e: (e.kind == KIND_DEPARTED, e.effective_date))
-    result.extend(_synthesize_mover_tenures(result, ordered, owned, movers))
+    result.extend(_synthesize_mover_tenures(result, ordered, owned, movers, terms))
     # A member is seated ONCE per tenure. A second `seated` matching a span it has already
     # dated is a re-seating that belongs to a different tenure, or — as the #226 backfill
     # produced for Christine Rolfes — a successor's seating mis-resolved onto the incumbent.
@@ -476,8 +490,8 @@ def apply_operator_events(
                 # (#119) — corrupting the record + tripping the succession invariant. The build
                 # covers every biennium, so their span is built and a matching event never
                 # reaches synthesis. Skip + log rather than mint a false seat.
-                if _in_biennium(event.effective_date, current_biennium):
-                    synthesized = _synthesize(event, current_biennium)
+                if _in_biennium(event.effective_date, current_biennium, terms):
+                    synthesized = _synthesize(event, current_biennium, terms)
                     result.append(synthesized)
                     # Registered like a matched seating, so a same-instant
                     # `departed` spares it too (usa-wa#363). A synthesized span is
@@ -562,6 +576,7 @@ def _synthesize_mover_tenures(
     events: list[SuccessionEvent],
     owned: set[str],
     movers: dict[str, set[str]],
+    terms: TermCalendar = CALENDAR_YEAR,
 ) -> list[TenureSpan]:
     """The closed House tenures a #105-excluded chamber-mover's ``vacated`` events imply
     (#145) — minted BEFORE any event applies (usa-wa#461).
@@ -587,12 +602,12 @@ def _synthesize_mover_tenures(
     for event in events:
         if event.kind != KIND_VACATED or event.seat_kind not in owned:
             continue
-        biennium = biennium_for_date(event.effective_date)
+        biennium = terms.biennium_on(event.effective_date)
         if event.member_id not in movers.get(biennium, set()):
             continue
         if any(_matches_seat(span, event) for span in candidates):
             continue
-        synthesized = _synthesize_closed(event, biennium)
+        synthesized = _synthesize_closed(event, biennium, terms)
         if synthesized.source_id in keys:
             continue
         keys.add(synthesized.source_id)
@@ -623,10 +638,9 @@ def _seated_at_this_instant(
     return seated_spans.get(key) == effective_date
 
 
-def _in_biennium(effective_date: date, biennium: str) -> bool:
-    """The date falls within ``biennium``'s two calendar years (``2025-26`` → 2025 or 2026)."""
-    start, end = parse_biennium(biennium)
-    return start <= effective_date.year <= end
+def _in_biennium(effective_date: date, biennium: str, terms: TermCalendar = CALENDAR_YEAR) -> bool:
+    """The date falls within ``biennium``'s term (#598: ``terms``' first to last day)."""
+    return terms.start(biennium) <= effective_date <= terms.end(biennium)
 
 
 def _warn_if_predates(spans: list[TenureSpan], event: SuccessionEvent) -> None:
@@ -669,7 +683,7 @@ def _split_tail(span: TenureSpan, return_date: date) -> TenureSpan | None:
 
     Its start is ``derived`` (usa-wa#501 D6): the return date is another span's start, not
     a date any source states about this tenure."""
-    biennium = biennium_for_date(return_date)
+    biennium = span.terms.biennium_on(return_date)
     if biennium == span.start_biennium:
         return None
     return replace(span, start_biennium=biennium, valid_from=return_date, start_basis=BASIS_DERIVED)
