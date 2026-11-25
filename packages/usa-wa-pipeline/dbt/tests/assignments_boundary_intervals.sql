@@ -34,7 +34,7 @@ with y as (
         cast(split_part(span_end_biennium, '-', 1) as integer) as ey
     from {{ ref('assignments') }}
 ),
-t as (
+a as (
     select
         *,
         -- ts(y): Jan 1 before 1981; else Jan 1 + days to the first Monday + 7
@@ -53,8 +53,7 @@ t as (
                  + cast((8 - isodow(make_date(ey + 2, 1, 1))) % 7 + 7 as integer)
         end - 1 as end_ceiling
     from y
-),
-a as (select * from t)
+)
 select span_key, 'open_end' as defect
 from a
 where (end_basis = 'open') <> (valid_to is null)
