@@ -24,14 +24,19 @@ the weekly integrity sweep covers — its only provenance since #412 PR F droppe
 `FetchEvent`/`RawPayload` tables.
 
 ```bash
-# Record operator succession events (#107) — the live interjection surface. Three kinds
-# split by scope so a chamber move never touches the party span:
+# Record operator succession events (#107) — the live interjection surface. Three dated
+# kinds split by scope so a chamber move never touches the party span, and one term-scoped:
 #   departed (person-scoped, no seat) — the member stops serving entirely; every open span
 #     (seat + party + committee) closes at the date. Death, full resignation, expulsion.
 #   vacated  (seat-scoped) — ONE named seat's span closes at the date; party + committees
 #     untouched. A chamber move's old seat, or a single-seat resignation.
 #   seated   (seat-scoped) — one named seat's span opens at the date (instead of the
-#     biennium floor), synthesized if the wire built none. Appointment, swearing-in.
+#     term's first day), synthesized if the wire built none. Appointment, swearing-in.
+#   never_seated (person-scoped, no seat; #598 spec § 1.5) — listed for a term and never
+#     served it: the member's spans that start and end in that term (a senator's: either of
+#     its two bienniums) are removed before any other event. --biennium names the term and
+#     dates it to its first day (no --effective-date). Reasons resigned | refused | declined.
+#     One that removes nothing is stale, and the nightly's assignments model refuses it.
 # A chamber move = vacated(old seat) + seated(new seat) on the same member, never departed:
 # the nightly's chamber_move_departures probe (#518) fails on a departed dated at one. Each is
 # applied to the span family that owns that seat kind. seat_kind/seat_discriminator name the seat the same
@@ -70,6 +75,9 @@ python -m usa_wa_adapter_legislature.operators.cli \
     --member-id 35410 --kind seated --reason appointed \
     --seat-kind chamber-senate --seat-discriminator 5 \
     --effective-date 2025-06-03 --evidence-url https://...
+python -m usa_wa_adapter_legislature.operators.cli \
+    --member-id 3476 --kind never_seated --reason resigned \
+    --biennium 2007-08 --evidence-url https://...   # Lovick: resigned 2007-01-05, pre-term
 python -m usa_wa_adapter_legislature.operators.cli --file events.json   # JSON-array batch
 python -m usa_wa_adapter_legislature.operators.cli --supersede <id> \
     --member-id 35410 --kind seated --reason appointed \
