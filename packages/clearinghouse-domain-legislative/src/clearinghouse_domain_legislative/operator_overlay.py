@@ -557,7 +557,8 @@ def _remove_never_seated(
     The attestation's date is the first day of the term the member never served. The spans
     removed are the member's that start AND end in that term: a listing for it, nothing more.
     A Senate term is two bienniums, so a member with a Senate seat starting there loses spans
-    ending in either.
+    ending in either. The rule reads the spans of the family being built: a family that holds
+    no Senate span (the WSL committee family) removes only spans ending in the term itself.
     One that runs past it is a later listing rejoined under the same key (#289), so it stays
     (#546's outgrown-row rule). Person-scoped like ``departed``, so each builder removes its
     own and reports to the caller through ``applied``; with none, this overlay is the whole
