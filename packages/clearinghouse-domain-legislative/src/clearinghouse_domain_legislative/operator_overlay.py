@@ -117,6 +117,9 @@ def latest_event_biennium_by_member(
     ``events``) to avoid recomputing it per biennium."""
     out: dict[str, str] = {}
     for e in events:
+        # A ``never_seated`` counts too, deliberately (#598 § 1.5): its exemption keeps the
+        # never-served listing BUILT, so the attestation finds its spans to remove. Skipping
+        # it would let stale hygiene drop them first, and the build refuses the attestation.
         b = terms.biennium_on(e.effective_date)
         if e.member_id not in out or parse_biennium(b)[0] > parse_biennium(out[e.member_id])[0]:
             out[e.member_id] = b
