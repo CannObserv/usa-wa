@@ -142,6 +142,7 @@ def build_house_spans(
     max_backchain_hops: int = MAX_BACKCHAIN_HOPS_DEFAULT,
     context_spans: list[TenureSpan] | None = None,
     applied_departures: set[SuccessionEvent] | None = None,
+    applied_never_seated: set[SuccessionEvent] | None = None,
 ) -> list[TenureSpan]:
     """WSL roster × SOS ballot → ``chamber-house`` tenure spans.
 
@@ -226,5 +227,6 @@ def build_house_spans(
         movers_by_biennium=movers_by_biennium,
         context_spans=context_spans or [],
         applied_departures=applied_departures,
+        applied_never_seated=applied_never_seated,
     )
     return sorted(spans, key=lambda s: (s.member_id, s.kind, s.discriminator, s.start_biennium))

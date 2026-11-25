@@ -24,14 +24,18 @@ applied after the windows in `build_families`; the `assignments` model refuses a
 entry no built span carries, and `assignments_substitutes_nested` requires each to
 sit, dated on both edges, inside a principal's tenure on its seat.
 
-**Never-seated rows** (#546): three senators the roster lists never sat — Couplin
-(LD-9 1921, resigned without serving), Westman (LD-39 1941, refused by the
-Senate), Mulligan (LD-39 1943, appointed, did not serve). A second curated table,
-`conformed.never_seated.NEVER_SEATED`, names each row's seat and party span, and
-`build_families` removes them last, before the clip. **Spans, never rows:** the
-projector reads every row first, and Mulligan's is the only interlude that keeps
-Reardon's 1943 and 1945 terms apart (#517). The persons stay, with no tenure. An
-entry that removes less than it names fails the `assignments` model.
+**Never-seated rows** (#546; operator attestations since #598 spec § 1.5). Four members
+were listed for a term and never sat it:
+- Couplin (LD-9 1921, resigned without serving);
+- Westman (LD-39 1941, refused by the Senate);
+- Mulligan (LD-39 1943, appointed, did not serve);
+- Lovick (LD-44 House 2007-08, resigned 2007-01-05, before the term opened).
+
+Each is a `never_seated` operator event dated by the term's first day. The overlay removes
+the member's spans that start and end in that term (two bienniums for a senator), first,
+before any other event. **Spans, never rows:** the projector reads every row first, and
+Mulligan's is the only interlude that keeps Reardon's 1943 and 1945 terms apart (#517). The
+persons stay, with no tenure. An attestation no family applied fails the `assignments` model.
 
 **Two tiers, from the boundary intervals** (#501 D6):
 

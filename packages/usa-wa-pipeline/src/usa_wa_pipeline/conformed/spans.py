@@ -46,6 +46,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from clearinghouse_core.logging import get_logger
+from clearinghouse_domain_legislative.operator_events import KIND_NEVER_SEATED
 from clearinghouse_domain_legislative.operator_overlay import (
     SuccessionEvent,
     apply_operator_events,
@@ -101,7 +102,6 @@ from usa_wa_pipeline.conformed.movers import (
     committee_agencies,
     date_mover_committees,
 )
-from usa_wa_pipeline.conformed.never_seated import NeverSeated, without_never_seated
 from usa_wa_pipeline.conformed.roles import role_for_span
 from usa_wa_pipeline.conformed.span_key import span_key
 from usa_wa_pipeline.conformed.windows import apply_windows, edge_windows
@@ -358,6 +358,7 @@ def build_roster_spans(
     events: list[Any],
     current_biennium: str,
     context_spans: list[TenureSpan] | None = None,
+    applied_never_seated: set[SuccessionEvent] | None = None,
 ) -> list[TenureSpan]:
     """The roster family: pre-1991 tenure for the MINTED identities.
 
@@ -400,6 +401,7 @@ def build_roster_spans(
         owned_kinds=set(SPONSOR_KINDS),
         terms=WA_TERMS,
         context_spans=context_spans or [],
+        applied_never_seated=applied_never_seated,
     )
     if unattested := unattested_spans(spans, built):
         raise OracleViolation(
@@ -418,6 +420,7 @@ def build_all_spans(
     extra_observations: list[Observation] | None = None,
     house_spans: list[TenureSpan] | None = None,
     roster_members: Collection[str] = frozenset(),
+    applied_never_seated: set[SuccessionEvent] | None = None,
 ) -> list[TenureSpan]:
     """Every span this module owns, in the Postgres tier's own order.
 
@@ -483,6 +486,7 @@ def build_all_spans(
         owned_kinds=set(COMMITTEE_KINDS),
         terms=WA_TERMS,
         applied_departures=applied_departures,
+        applied_never_seated=applied_never_seated,
     )
     # House SECOND: it needs no other family, and both it and the committee
     # spans are #267 context for the sponsor build below. `house_spans` is the
@@ -500,6 +504,7 @@ def build_all_spans(
             stale_min_coverage=stale_min_coverage,
             context_spans=committee_spans,
             applied_departures=applied_departures,
+            applied_never_seated=applied_never_seated,
         )
     )
     # usa-wa#490: WSL lists a chamber-mover on both chambers' committees for the
@@ -536,6 +541,7 @@ def build_all_spans(
         terms=WA_TERMS,
         context_spans=[*committee_spans, *house],
         applied_departures=applied_departures,
+        applied_never_seated=applied_never_seated,
     )
     spans = sorted(
         [*committee_spans, *house, *sponsor_spans],
@@ -670,7 +676,7 @@ def build_families(
     *,
     current_biennium: str,
     window_counts: Counter | None = None,
-    never_seated_stale: list[NeverSeated] | None = None,
+    never_seated_stale: list[SuccessionEvent] | None = None,
 ) -> dict[str, list[TenureSpan]]:
     """Both span families, keyed by source — the one sequence every caller runs.
 
@@ -688,22 +694,29 @@ def build_families(
     (:func:`without_non_legislator_committee_rows`, #469). After every overlay and
     before the clip, the roster's annotation windows date observed edges
     (``conformed.windows``, #501 D6a), the curated substitute tenures are marked
-    (``conformed.memberships``, #501 D5) and the curated never-seated rows' spans
-    are removed (``conformed.never_seated``, #546) — spans, never rows: the
-    projector has already read every row as a #517 interlude. A caller that
-    refuses a stale entry passes ``never_seated_stale``.
+    (``conformed.memberships``, #501 D5). A term a member never served is removed
+    by the overlays' ``never_seated`` attestation (#598 spec § 1.5, which retired #546's
+    curated table) — spans, never rows: the projector has already read every row as a
+    #517 interlude. One set collects the attestations either family applied; one that
+    neither did is stale, and a caller that refuses it passes ``never_seated_stale``.
     """
     inputs = without_future_bienniums(inputs, current_biennium=current_biennium)
     inputs = without_non_legislator_committee_rows(inputs)
     resolution = roster_resolution(inputs.roster, inputs.sponsors)
+    applied_never_seated: set[SuccessionEvent] = set()
     spans = build_all_spans(
         inputs,
         current_biennium=current_biennium,
         extra_observations=resolution.joined,
         roster_members={o.member_id for o in resolution.minted},
+        applied_never_seated=applied_never_seated,
     )
     roster_spans = build_roster_spans(
-        resolution, events=inputs.events, current_biennium=current_biennium, context_spans=spans
+        resolution,
+        events=inputs.events,
+        current_biennium=current_biennium,
+        context_spans=spans,
+        applied_never_seated=applied_never_seated,
     )
     # The roster's month/year/election dates, after every overlay and before the clip
     # (#501 D6a): an observed edge a clause dates becomes that window.
@@ -713,7 +726,20 @@ def build_families(
     # A model's log reaches nobody; a caller that reports passes a Counter (CR 7).
     if window_counts is not None:
         window_counts.update(counts)
-    families, stale = without_never_seated(apply_memberships(families))
+    families = apply_memberships(families)
+    stale = [
+        e
+        for e in from_rows(inputs.events)
+        if e.kind == KIND_NEVER_SEATED and e not in applied_never_seated
+    ]
+    for event in stale:
+        logger.warning(
+            "operator_never_seated_no_span",
+            extra={
+                "member_id": event.member_id,
+                "effective_date": event.effective_date.isoformat(),
+            },
+        )
     if never_seated_stale is not None:
         never_seated_stale.extend(stale)
     return families

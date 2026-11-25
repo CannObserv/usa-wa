@@ -1390,21 +1390,30 @@ def test_a_departure_after_never_seated_finds_no_return():
     ]
 
 
-def test_an_unapplied_never_seated_is_reported_as_a_miss(caplog):
-    applied: set = set()
+def test_an_unapplied_never_seated_is_its_overlays_miss_or_its_callers(caplog):
+    """With no collector the overlay is the whole corpus and logs the miss; with one, the
+    caller decides, because the attestation may be another family's (a roster key)."""
     events = [SuccessionEvent("44009", "never_seated", date(2025, 1, 13))]
     with caplog.at_level("INFO"):
         apply_operator_events(
-            [],
-            events,
+            [], events, current_biennium=CURRENT, owned_kinds={"committee"}, terms=TERMS
+        )
+    assert "operator_never_seated_no_span" in [r.getMessage() for r in caplog.records]
+    caplog.clear()
+    applied: set = set()
+    listed = _term_span("44001", "committee", "12171", start="2025-26")
+    hit = SuccessionEvent("44001", "never_seated", date(2025, 1, 13))
+    with caplog.at_level("INFO"):
+        apply_operator_events(
+            [listed],
+            [*events, hit],
             current_biennium=CURRENT,
             owned_kinds={"committee"},
             terms=TERMS,
-            applied_departures=applied,
+            applied_never_seated=applied,
         )
-        log_departure_misses(events, applied=applied, spans=[])
-    assert applied == set()
-    assert "operator_never_seated_no_span" in [r.getMessage() for r in caplog.records]
+    assert applied == {hit}
+    assert "operator_never_seated_no_span" not in [r.getMessage() for r in caplog.records]
 
 
 def test_events_may_arrive_as_a_generator():

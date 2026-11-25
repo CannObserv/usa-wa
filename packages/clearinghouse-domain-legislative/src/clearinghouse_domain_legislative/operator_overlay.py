@@ -284,6 +284,7 @@ def apply_operator_events(
     context_spans: Iterable[TenureSpan] = (),
     applied_departures: set[SuccessionEvent] | None = None,
     terms: TermCalendar = CALENDAR_YEAR,
+    applied_never_seated: set[SuccessionEvent] | None = None,
 ) -> list[TenureSpan]:
     """Return ``spans`` with the operator events applied (``spans`` untouched).
 
@@ -330,7 +331,7 @@ def apply_operator_events(
     # Never-seated attestations apply FIRST (#598 spec § 1.5): a term the member never served
     # is not a return a later ``departed`` may split at, nor a tenure a seating may date.
     events = list(events)  # read twice: the never-seated pass, then the rest
-    result = _remove_never_seated(list(spans), events, terms, applied_departures)
+    result = _remove_never_seated(list(spans), events, terms, applied_never_seated)
     events = [e for e in events if e.kind != KIND_NEVER_SEATED]
     # Seat-scoped events apply BEFORE person-scoped ones (usa-wa#267). ``departed`` splits a
     # re-entered span at the member's return, and the return date it reads is a span's
@@ -543,8 +544,6 @@ def log_departure_misses(
     for event in events:
         if event.kind == KIND_DEPARTED and event not in applied:
             _log_departure_miss(family, event)
-        elif event.kind == KIND_NEVER_SEATED and event not in applied:
-            logger.warning("operator_never_seated_no_span", extra=_departure_extra(event))
 
 
 def _remove_never_seated(
@@ -561,7 +560,9 @@ def _remove_never_seated(
     ending in either.
     One that runs past it is a later listing rejoined under the same key (#289), so it stays
     (#546's outgrown-row rule). Person-scoped like ``departed``, so each builder removes its
-    own and reports to the family through ``applied``."""
+    own and reports to the caller through ``applied``; with none, this overlay is the whole
+    corpus and logs its own miss. A miss is a stale attestation, which a caller refuses
+    (``conformed.spans.build_families``)."""
     events = list(events)
     for event in events:
         if event.kind != KIND_NEVER_SEATED:

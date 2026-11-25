@@ -538,11 +538,20 @@ def _reardon_and_mulligan() -> list[dict]:
     ]
 
 
+#: #598 spec § 1.5: the operator attestation that replaced #546's curated entry.
+MULLIGAN_NEVER_SEATED = SuccessionEvent("williampmulligan:1943", "never_seated", date(1943, 1, 1))
+
+
 def test_a_holder_who_never_sat_publishes_no_span() -> None:
-    """usa-wa#546: Mulligan's row is curated as never seated, so neither his seat
-    nor his party span is built."""
+    """usa-wa#546: Mulligan never sat, attested ``never_seated`` (#598 § 1.5), so
+    neither his seat nor his party span is built."""
     families = build_families(
-        SpanInputs(sponsors=[], committee_members=[], roster=_reardon_and_mulligan()),
+        SpanInputs(
+            sponsors=[],
+            committee_members=[],
+            roster=_reardon_and_mulligan(),
+            events=[MULLIGAN_NEVER_SEATED],
+        ),
         current_biennium=CURRENT,
     )
     assert not [s for s in families[ROSTER_SOURCE] if s.member_id == "williampmulligan:1943"]
@@ -552,7 +561,10 @@ def test_a_never_seated_row_still_splits_the_return() -> None:
     """usa-wa#546's hazard: the spans go, never the row. Mulligan's row is the only
     interlude between Reardon's terms, so dropping it before projection would re-merge
     them and his departure would erase 1945-48 again (#517)."""
-    events = [SuccessionEvent("keironwreardon:1943", "departed", date(1944, 2, 19))]
+    events = [
+        SuccessionEvent("keironwreardon:1943", "departed", date(1944, 2, 19)),
+        MULLIGAN_NEVER_SEATED,
+    ]
     families = build_families(
         SpanInputs(
             sponsors=[], committee_members=[], roster=_reardon_and_mulligan(), events=events
@@ -568,16 +580,23 @@ def test_a_never_seated_row_still_splits_the_return() -> None:
     )
 
 
-def test_a_never_seated_entry_matching_no_span_is_reported() -> None:
-    """The ``assignments`` model refuses a stale entry; ``build_families`` hands it
-    the list, as it hands ``registry_coverage`` the window counts."""
+def test_a_never_seated_attestation_matching_no_span_is_reported() -> None:
+    """The ``assignments`` model refuses a stale attestation; ``build_families`` hands it
+    the list, as it hands ``registry_coverage`` the window counts. Stale means NO family
+    applied it, so a WSL family missing a roster key is no miss."""
+    couplin = SuccessionEvent("cacouplin:1921", "never_seated", date(1921, 1, 1))
     stale: list = []
     build_families(
-        SpanInputs(sponsors=[], committee_members=[], roster=_reardon_and_mulligan()),
+        SpanInputs(
+            sponsors=[],
+            committee_members=[],
+            roster=_reardon_and_mulligan(),
+            events=[MULLIGAN_NEVER_SEATED, couplin],
+        ),
         current_biennium=CURRENT,
         never_seated_stale=stale,
     )
-    assert sorted(e.name for e in stale) == ["C. A. Couplin", "Lenus Westman"]
+    assert stale == [couplin]
 
 
 def test_a_return_takes_its_own_election_window_and_clears_the_seat() -> None:
