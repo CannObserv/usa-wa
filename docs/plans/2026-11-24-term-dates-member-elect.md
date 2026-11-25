@@ -54,6 +54,12 @@ one (C) for #600. Both deploy together in one release.
      in SQL with the 1981 floor, replacing `make_date(…,1,1)` / `(…,12,31)` in F/C.
    - `seat_overlap_pairs`: re-derive `accepted_seat_overlaps.csv` and review any stale or
      new pair by hand.
+5b. **Never-seated attestation** (spec § 1.5). This adds:
+   - the `never_seated` kind, reasons, CHECK migration and CLI `--biennium`;
+   - in the overlay, removing spans that start and end in the term, first, before any
+     other event, plus miss logging;
+   - the four attestations (Lovick + #546's three), with `conformed.never_seated` removed
+     in the same deploy.
 6. **Contract.**
    - `ContractRelease` assignments 1.9.0 and role_periods 1.1.0 (semantics only; the hash
      holds).

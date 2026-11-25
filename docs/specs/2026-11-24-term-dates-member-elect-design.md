@@ -141,6 +141,43 @@ term-commencement text is readable online: the session laws are scanned images.
 of edges on an inferred rule is the kind of wrong hop #101 calls dishonest. The floor is one
 constant, and lowering it later is a reviewed data change.
 
+### 1.5 Never-seated becomes an operator attestation (owner, 2026-11-25)
+
+Statutory edges expose a shape that calendar edges hid. **John Lovick** (WSL 3476) was
+re-elected in November 2006 and resigned on 2007-01-05, three days before the 2007-08 term
+opened (2007-01-08). The roster's 2007 row reads "Resigned January 5, 2007; Elected
+Snohomish County Sheriff Nov. 6, 2007". WSL lists him for 2007-08 anyway (sponsor and
+committees).
+
+- **Calendar edges:** his departure fell inside the 2007-08 spans and left 4-day phantoms.
+- **Term edges:** the departure precedes them, so they would publish as full-biennium
+  memberships, plus two split "return" tails.
+
+A date-only rule can't tell him from Pike (departed 2012-12-07) or Chapman (2024-12-05). Both
+departed in December and did serve the next term. The #546 curated table
+(`conformed.never_seated`, three roster senators) says a fourth case makes it an operator
+attestation. The owner chose to build that now.
+
+- **Kind `never_seated`**, person-scoped and term-scoped. `effective_date` is the **first day
+  of the term the member never served** (`WA_TERMS.start(B)`). That makes it a fact keyed to
+  a term, not a date the sources lack: two of #546's three have no date. The CLI takes
+  `--biennium B` and computes the date. A stated date must be a term start.
+- **Reasons:** `resigned` (Lovick; #546 Mulligan), `refused` (the Senate refused the
+  seat), `declined` (appointed, never served).
+- **Effect, in every builder:** spans of the member that **start and end in B** are removed,
+  before any other event applies. So a `departed` that follows can't read them as a return.
+  A span that starts in B and runs past it is a later listing, and is kept: #546's
+  outgrown-row rule.
+- **Misses** (an attestation that removes nothing anywhere) log
+  `operator_never_seated_no_span`, as departures do.
+- **Schema:** `ck_operator_events_kind` and `ck_operator_events_seat_shape` admit the kind
+  (an alembic migration, owner role). The raw-store provenance and supersede/retract work
+  as for every event.
+- **Retiring the curated table:** the three #546 entries and Lovick's are entered as
+  attestations in the same deploy that removes `conformed.never_seated`, before the next
+  nightly. A nightly in between would publish the senators' phantom spans, so the release
+  runbook makes the entries one step.
+
 ## Part 2 — the member-elect assignment (#600)
 
 ### 2.1 Shape
