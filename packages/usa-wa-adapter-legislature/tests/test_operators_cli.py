@@ -708,3 +708,13 @@ def test_biennium_dates_only_a_never_seated():
     """``--biennium`` would silently date a death to a term's first day (CR 1)."""
     with pytest.raises(OperatorEventError, match="never_seated only"):
         load_specs([_row(kind="departed", reason="died", biennium="2025-26")])
+
+
+@pytest.mark.parametrize(
+    "over",
+    [{"biennium": "2007"}, {"kind": "departed", "reason": "died", "effective_date": "2025-4-19x"}],
+)
+def test_a_malformed_date_is_a_validation_error_not_a_traceback(over):
+    """The job maps only ``OperatorEventError`` onto exit 2 (CR 2)."""
+    with pytest.raises(OperatorEventError):
+        load_specs([_row(**over)])

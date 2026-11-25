@@ -342,10 +342,17 @@ def _effective_date(effective_date: object, biennium: object, kind: str) -> date
             raise OperatorEventError(f"--biennium is for never_seated only, not {kind!r}")
         if effective_date is not None:
             raise OperatorEventError("give --effective-date or --biennium, not both")
-        return WA_TERMS.start(str(biennium))
+        try:
+            return WA_TERMS.start(str(biennium))
+        except ValueError as exc:
+            raise OperatorEventError(f"--biennium: {exc}") from exc
     if effective_date is None:
         raise KeyError("effective_date")
-    return date.fromisoformat(str(effective_date))
+    # The job maps only OperatorEventError onto exit 2; a bare ValueError is a traceback.
+    try:
+        return date.fromisoformat(str(effective_date))
+    except ValueError as exc:
+        raise OperatorEventError(f"--effective-date: {exc}") from exc
 
 
 def _spec_from_args(args: argparse.Namespace) -> EventSpec:
