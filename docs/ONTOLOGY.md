@@ -163,9 +163,15 @@ biennium)`. The resolution of the whole model is therefore **one biennium**:
   existence, because a span models a *served-this-biennium* fact). A return inside contiguous
   biennia has no gap to split on, so a source that sees the interlude flags the return's first
   observation `opens_tenure` and the span splits there too (#517: the roster's listing order);
-- a span reaching the current biennium is open — `valid_to=None`, `is_active=True`; otherwise it
-  closes at Dec 31 of its last biennium's even year;
-- `valid_from` is Jan 1 of the start biennium's odd year.
+- a span reaching the current biennium (the **term** clock) is open, `valid_to=None`,
+  `is_active=True`. Otherwise it closes on the last day of its last biennium's term;
+- `valid_from` is the first day of the start biennium's term.
+
+**Edges are term days** (#598, `TermCalendar`; `legislative_calendar.WA_TERMS`). From 1981 a
+term opens on the second Monday in January and closes the day before the next one opens
+(RCW 44.04.021), so 2025-26 runs 2025-01-13 → 2027-01-10. Before the 1981 floor terms are
+calendar years (#604). Every dated event is bucketed into a biennium on the same calendar,
+so a seating dated before its term's start belongs to the term still running.
 
 Quantization is what **motivates operator events** (§3). A mid-biennium succession is invisible to
 every wire signal: a member who died in April stays named in the cumulative roster all biennium,
