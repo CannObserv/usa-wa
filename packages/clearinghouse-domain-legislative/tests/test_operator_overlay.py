@@ -1337,3 +1337,93 @@ def test_a_movers_synthesized_tenure_opens_on_its_terms_first_day():
     )
     assert minted.valid_from == date(2025, 1, 13)
     assert minted.valid_to == date(2025, 6, 1)
+
+
+# ---- #598 § 1.5: never_seated, the operator attestation that retires #546's table ----
+
+
+def test_never_seated_removes_the_terms_listing_and_keeps_the_rest(caplog):
+    """The Lovick shape: listed for a term (2025-26 here) he resigned before it opened. The
+    attestation names the term by its first day; spans that start AND end in it go, a merged
+    span from an earlier term and a later listing that runs past it stay."""
+    listed_only = _term_span("44001", "committee", "12171", start="2025-26")
+    merged = replace(
+        _term_span("44001", "committee", "1300", start="2023-24"), end_biennium="2025-26"
+    )
+    outgrown = replace(
+        _term_span("44001", "committee", "900", start="2025-26"), end_biennium="2027-28"
+    )
+    events = [SuccessionEvent("44001", "never_seated", date(2025, 1, 13))]
+    with caplog.at_level("INFO"):
+        out = apply_operator_events(
+            [listed_only, merged, outgrown],
+            events,
+            current_biennium=CURRENT,
+            owned_kinds={"committee"},
+            terms=TERMS,
+        )
+    assert sorted(s.discriminator for s in out) == ["1300", "900"]
+    assert "operator_never_seated_removed" in [r.getMessage() for r in caplog.records]
+
+
+def test_a_departure_after_never_seated_finds_no_return():
+    """Lovick in full: departed 2025-01-10 from the running term, and never seated in the
+    next. The merged committee span closes at the departure; the next term's listing is
+    gone before the departure looks for a return, so nothing is split off."""
+    merged = replace(
+        _term_span("44001", "committee", "1300", start="2023-24"), end_biennium="2025-26"
+    )
+    listed_only = _term_span("44001", "committee", "12171", start="2025-26")
+    events = [
+        SuccessionEvent("44001", "departed", date(2025, 1, 10)),
+        SuccessionEvent("44001", "never_seated", date(2025, 1, 13)),
+    ]
+    out = apply_operator_events(
+        [merged, listed_only],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"committee"},
+        terms=TERMS,
+    )
+    assert [(s.discriminator, s.valid_to, s.end_basis) for s in out] == [
+        ("1300", date(2025, 1, 10), "dated")
+    ]
+
+
+def test_an_unapplied_never_seated_is_reported_as_a_miss(caplog):
+    applied: set = set()
+    events = [SuccessionEvent("44009", "never_seated", date(2025, 1, 13))]
+    with caplog.at_level("INFO"):
+        apply_operator_events(
+            [],
+            events,
+            current_biennium=CURRENT,
+            owned_kinds={"committee"},
+            terms=TERMS,
+            applied_departures=applied,
+        )
+        log_departure_misses(events, applied=applied, spans=[])
+    assert applied == set()
+    assert "operator_never_seated_no_span" in [r.getMessage() for r in caplog.records]
+
+
+def test_events_may_arrive_as_a_generator():
+    """The overlay reads its events twice (the never-seated pass, then the rest), so a
+    one-shot iterable must still reach the second read."""
+    listed_only = _term_span("44001", "committee", "12171", start="2025-26")
+    events = (
+        e
+        for e in [
+            SuccessionEvent("44001", "never_seated", date(2025, 1, 13)),
+            SuccessionEvent("44002", "departed", date(2025, 4, 1)),
+        ]
+    )
+    other = _term_span("44002", "committee", "500", start="2025-26")
+    out = apply_operator_events(
+        [listed_only, other],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"committee"},
+        terms=TERMS,
+    )
+    assert [(s.member_id, s.valid_to) for s in out] == [("44002", date(2025, 4, 1))]

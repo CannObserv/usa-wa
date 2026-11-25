@@ -47,6 +47,7 @@ from clearinghouse_domain_legislative.boundary_basis import (
 )
 from clearinghouse_domain_legislative.operator_events import (
     KIND_DEPARTED,
+    KIND_NEVER_SEATED,
     KIND_SEATED,
     KIND_VACATED,
 )
@@ -324,7 +325,11 @@ def apply_operator_events(
     owned = set(owned_kinds)
     movers = movers_by_biennium or {}
     context = list(context_spans)
-    result = list(spans)
+    # Never-seated attestations apply FIRST (#598 spec § 1.5): a term the member never served
+    # is not a return a later ``departed`` may split at, nor a tenure a seating may date.
+    events = list(events)  # read twice: the never-seated pass, then the rest
+    result = _remove_never_seated(list(spans), events, terms, applied_departures)
+    events = [e for e in events if e.kind != KIND_NEVER_SEATED]
     # Seat-scoped events apply BEFORE person-scoped ones (usa-wa#267). ``departed`` splits a
     # re-entered span at the member's return, and the return date it reads is a span's
     # ``valid_from`` — which a ``seated`` event may still be about to correct from a biennium
@@ -536,6 +541,51 @@ def log_departure_misses(
     for event in events:
         if event.kind == KIND_DEPARTED and event not in applied:
             _log_departure_miss(family, event)
+        elif event.kind == KIND_NEVER_SEATED and event not in applied:
+            logger.warning("operator_never_seated_no_span", extra=_departure_extra(event))
+
+
+def _remove_never_seated(
+    spans: list[TenureSpan],
+    events: Iterable[SuccessionEvent],
+    terms: TermCalendar,
+    applied: set[SuccessionEvent] | None,
+) -> list[TenureSpan]:
+    """``spans`` less every tenure a ``never_seated`` attestation names (#598 spec § 1.5).
+
+    The attestation's date is the first day of the term the member never served. The spans
+    removed are the member's that start AND end in that term: a listing for it, nothing more.
+    One that runs past it is a later listing rejoined under the same key (#289), so it stays
+    (#546's outgrown-row rule). Person-scoped like ``departed``, so each builder removes its
+    own and reports to the family through ``applied``."""
+    events = list(events)
+    for event in events:
+        if event.kind != KIND_NEVER_SEATED:
+            continue
+        term = terms.biennium_on(event.effective_date)
+        removed = [
+            s
+            for s in spans
+            if s.member_id == event.member_id
+            and s.start_biennium == term
+            and s.end_biennium == term
+        ]
+        if not removed:
+            if applied is None:
+                logger.warning("operator_never_seated_no_span", extra=_departure_extra(event))
+            continue
+        spans = [s for s in spans if s not in removed]
+        if applied is not None:
+            applied.add(event)
+        logger.info(
+            "operator_never_seated_removed",
+            extra={
+                **_departure_extra(event),
+                "term": term,
+                "removed": sorted(s.source_id for s in removed),
+            },
+        )
+    return spans
 
 
 def _log_departure_miss(spans: list[TenureSpan], event: SuccessionEvent) -> None:
