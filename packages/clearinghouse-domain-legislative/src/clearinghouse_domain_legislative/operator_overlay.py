@@ -51,10 +51,12 @@ from clearinghouse_domain_legislative.operator_events import (
     KIND_SEATED,
     KIND_VACATED,
 )
+from clearinghouse_domain_legislative.span_kinds import KIND_SENATE
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan, merge_party_continuity
 from clearinghouse_domain_legislative.terms import (
     CALENDAR_YEAR,
     TermCalendar,
+    next_biennium,
     parse_biennium,
     previous_biennium,
 )
@@ -555,6 +557,8 @@ def _remove_never_seated(
 
     The attestation's date is the first day of the term the member never served. The spans
     removed are the member's that start AND end in that term: a listing for it, nothing more.
+    A Senate term is two bienniums, so a member with a Senate seat starting there loses spans
+    ending in either.
     One that runs past it is a later listing rejoined under the same key (#289), so it stays
     (#546's outgrown-row rule). Person-scoped like ``departed``, so each builder removes its
     own and reports to the family through ``applied``."""
@@ -563,13 +567,12 @@ def _remove_never_seated(
         if event.kind != KIND_NEVER_SEATED:
             continue
         term = terms.biennium_on(event.effective_date)
-        removed = [
-            s
-            for s in spans
-            if s.member_id == event.member_id
-            and s.start_biennium == term
-            and s.end_biennium == term
-        ]
+        mine = [s for s in spans if s.member_id == event.member_id and s.start_biennium == term]
+        # A senator's term is four years (two bienniums), and the row projects both: Couplin's
+        # never-served 1921 seat runs 1921-22 → 1923-24 (#546). A House term is one.
+        senate = any(s.kind == KIND_SENATE for s in mine)
+        ends = {term, next_biennium(term)} if senate else {term}
+        removed = [s for s in mine if s.end_biennium in ends]
         if not removed:
             if applied is None:
                 logger.warning("operator_never_seated_no_span", extra=_departure_extra(event))

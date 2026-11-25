@@ -1427,3 +1427,36 @@ def test_events_may_arrive_as_a_generator():
         terms=TERMS,
     )
     assert [(s.member_id, s.valid_to) for s in out] == [("44002", date(2025, 4, 1))]
+
+
+def test_a_never_seated_senators_term_is_four_years():
+    """Couplin (#546): elected to the Senate in 1920, resigned without serving. A senator's
+    term spans two bienniums, so his seat and party spans run 1921-22 → 1923-24; both go.
+    A House member's term is one biennium, so the same rule removes only that one."""
+    seat = TenureSpan(
+        member_id="cacouplin:1921",
+        kind="chamber-senate",
+        discriminator="9",
+        start_biennium="1921-22",
+        end_biennium="1923-24",
+        valid_from=date(1921, 1, 1),
+        valid_to=date(1924, 12, 31),
+        is_active=False,
+    )
+    party = replace(seat, kind="party", discriminator="republican")
+    later = replace(
+        party,
+        member_id="cacouplin:1921",
+        start_biennium="1921-22",
+        end_biennium="1925-26",
+        valid_to=date(1926, 12, 31),
+        discriminator="democratic",
+    )
+    events = [SuccessionEvent("cacouplin:1921", "never_seated", date(1921, 1, 1))]
+    out = apply_operator_events(
+        [seat, party, later],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-senate", "party"},
+    )
+    assert [(s.kind, s.discriminator) for s in out] == [("party", "democratic")]
