@@ -44,7 +44,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Collection, Iterable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 from clearinghouse_domain_legislative.boundary_basis import (
@@ -59,7 +59,11 @@ from clearinghouse_domain_legislative.membership_types import (
     MEMBERSHIP_TYPES,
 )
 from clearinghouse_domain_legislative.span_kinds import KIND_PARTY
-from clearinghouse_domain_legislative.terms import biennium_start_date, parse_biennium
+from clearinghouse_domain_legislative.terms import (
+    CALENDAR_YEAR,
+    TermCalendar,
+    parse_biennium,
+)
 
 
 @dataclass(frozen=True)
@@ -109,6 +113,10 @@ class TenureSpan:
     start_window_end: date | None = None
     #: The mirror for a dated end known only to a window: its near edge.
     end_window_start: date | None = None
+    #: When this jurisdiction's terms start and end (#598): what an OBSERVED edge and its
+    #: interval bound mean. Carried on the span so a writer that moves an edge (``replace``)
+    #: keeps the bounds right; never part of equality or the repr.
+    terms: TermCalendar = field(default=CALENDAR_YEAR, compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.end_basis is None:
@@ -160,7 +168,7 @@ class TenureSpan:
         clamped by the span's own end (#501 D6)."""
         if self.start_basis == BASIS_DATED:
             return self.start_window_end or self.valid_from
-        ceiling = biennium_end_date(self.start_biennium)
+        ceiling = self.terms.end(self.start_biennium)
         bound = ceiling if self.valid_to is None else min(ceiling, self.valid_to)
         return max(self.valid_from, bound)
 
@@ -176,7 +184,7 @@ class TenureSpan:
             return None
         if self.end_basis == BASIS_DATED:
             return self.end_window_start or self.valid_to
-        floor = max(biennium_start_date(self.end_biennium), self.valid_from)
+        floor = max(self.terms.start(self.end_biennium), self.valid_from)
         return min(self.valid_to, floor)
 
     @property
@@ -208,13 +216,17 @@ def _consecutive_runs(ordered: list[str], breaks: Collection[str] = ()) -> list[
 
 
 def build_tenure_spans(
-    observations: Iterable[Observation], *, current_biennium: str
+    observations: Iterable[Observation],
+    *,
+    current_biennium: str,
+    terms: TermCalendar = CALENDAR_YEAR,
 ) -> list[TenureSpan]:
     """Collapse ``observations`` into merged :class:`TenureSpan`s (deterministically ordered).
 
     Groups by ``(member_id, kind, discriminator)``, orders each group's biennia, splits on
     dormancy gaps and ``opens_tenure`` breaks, and resolves each run's validity window — the
-    run reaching ``current_biennium`` stays open (``is_active``)."""
+    run reaching ``current_biennium`` stays open (``is_active``). Observed edges are ``terms``'
+    first and last days (#598); the default is the calendar year."""
     grouped: dict[tuple[str, str, str], set[str]] = defaultdict(set)
     breaks: dict[tuple[str, str, str], set[str]] = defaultdict(set)
     for obs in observations:
@@ -236,11 +248,12 @@ def build_tenure_spans(
                     discriminator=discriminator,
                     start_biennium=start,
                     end_biennium=end,
-                    valid_from=date(parse_biennium(start)[0], 1, 1),
-                    valid_to=None if reaches_current else biennium_end_date(end),
+                    valid_from=terms.start(start),
+                    valid_to=None if reaches_current else terms.end(end),
                     is_active=reaches_current,
                     start_basis=BASIS_OBSERVED,
                     end_basis=BASIS_OPEN if reaches_current else BASIS_OBSERVED,
+                    terms=terms,
                 )
             )
     spans.sort(key=lambda s: (s.member_id, s.kind, s.discriminator, s.start_biennium))

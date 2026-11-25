@@ -8,13 +8,15 @@ open current-biennium end, and rollover closing a span.
 
 from __future__ import annotations
 
-from datetime import date
+from dataclasses import replace
+from datetime import date, timedelta
 
 from clearinghouse_domain_legislative.tenure_spans import (
     Observation,
     TenureSpan,
     build_tenure_spans,
 )
+from clearinghouse_domain_legislative.terms import CALENDAR_YEAR
 
 CURRENT = "2025-26"
 
@@ -185,3 +187,58 @@ def test_output_is_deterministically_ordered():
     b = _spans(list(reversed(obs)))
     assert a == b  # order-independent, stable output
     assert all(isinstance(s, TenureSpan) for s in a)
+
+
+class _SecondMondayTerms:
+    """A jurisdiction's term calendar (#598): terms start on a stated day, not Jan 1."""
+
+    _STARTS = {
+        "2021-22": date(2021, 1, 11),
+        "2023-24": date(2023, 1, 9),
+        "2025-26": date(2025, 1, 13),
+        "2027-28": date(2027, 1, 11),
+    }
+
+    def start(self, label):
+        return self._STARTS[label]
+
+    def end(self, label):
+        start = int(label[:4]) + 2
+        return self._STARTS[f"{start}-{(start + 1) % 100:02d}"] - timedelta(days=1)
+
+    def biennium_on(self, day):
+        return max((b for b, s in self._STARTS.items() if s <= day), key=lambda b: b)
+
+
+def test_observed_edges_follow_the_term_calendar_it_is_given():
+    """#598: the engine is jurisdiction-agnostic, so the term calendar is a parameter. An
+    observed start is the term's first day and an observed end its last day."""
+    terms = _SecondMondayTerms()
+    (span,) = build_tenure_spans(
+        _obs("100", "chamber-senate", "5", "2021-22", "2023-24"),
+        current_biennium=CURRENT,
+        terms=terms,
+    )
+    assert span.valid_from == date(2021, 1, 11)
+    assert span.valid_to == date(2025, 1, 12)
+    assert span.valid_from_latest == date(2023, 1, 8)  # the start biennium's last day
+    assert span.valid_to_earliest == date(2023, 1, 9)  # the end biennium's first day
+
+
+def test_the_term_calendar_survives_replace_and_stays_out_of_equality():
+    """Spans carry their calendar, so a writer that moves an edge (``replace``) keeps the
+    bounds right, and two spans equal on every fact stay equal whatever calendar built them."""
+    terms = _SecondMondayTerms()
+    (span,) = build_tenure_spans(
+        _obs("100", "chamber-senate", "5", "2023-24"), current_biennium=CURRENT, terms=terms
+    )
+    moved = replace(span, end_biennium="2025-26", valid_to=date(2027, 1, 10))
+    assert moved.valid_to_earliest == date(2025, 1, 13)
+    plain = replace(span, terms=CALENDAR_YEAR)
+    assert plain == span
+
+
+def test_the_default_calendar_is_the_calendar_year():
+    (span,) = _spans(_obs("100", "chamber-senate", "5", "2021-22"))
+    assert span.terms is CALENDAR_YEAR
+    assert (span.valid_from, span.valid_to) == (date(2021, 1, 1), date(2022, 12, 31))

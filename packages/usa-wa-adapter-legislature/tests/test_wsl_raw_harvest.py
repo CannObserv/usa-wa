@@ -953,12 +953,12 @@ class TestOutgoingBiennium:
         assert committees.active_calls == 1  # the current biennium's only
         assert job_outcome(summary).outcome == "ok"
 
-    @pytest.mark.parametrize("today", [PUBLISHED_ON, date(2027, 1, 1)])
+    @pytest.mark.parametrize("today", [PUBLISHED_ON, date(2027, 1, 11)])
     async def test_no_outgoing_pass_while_the_clocks_agree(
         self, tmp_path, monkeypatch, today
     ) -> None:
-        """Before the filing flip there is no outgoing biennium yet; from the term flip
-        (Jan 1 until #598) its legislators no longer serve."""
+        """Before the filing flip there is no outgoing biennium yet; from the term flip (the
+        second Monday in January, #598: 2027-01-11) its legislators no longer serve."""
         monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
         summary = await _on(
             tmp_path,
@@ -978,3 +978,16 @@ class TestOutgoingBiennium:
         )
         assert summary["outgoing_biennium"]["fanout_landed"] == 0
         assert job_outcome(summary).outcome == "degraded"
+
+
+async def test_the_outgoing_pass_runs_until_the_statutory_term_ends(tmp_path, monkeypatch) -> None:
+    """#598: 2025-26's legislators serve through 2027-01-10, so Jan 1 no longer ends the
+    outgoing refresh."""
+    monkeypatch.delenv("USA_WA_BIENNIUM", raising=False)
+    summary = await _on(
+        tmp_path,
+        date(2027, 1, 10),
+        sponsors=_SponsorsByBiennium({BIENNIUM: 2, NEXT: 3}),
+        committees=_CommitteesByBiennium(),
+    )
+    assert summary["outgoing_biennium"]["biennium"] == BIENNIUM

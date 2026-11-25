@@ -274,30 +274,35 @@ ASSIGNMENT_FIELDS: dict[str, FieldDoc] = {
         "The latest the tenure can have ended — a HANDOFF date: a successor may open on the "
         "same day, so an occupancy check reads it as exclusive. Null while still serving."
     ),
-    "is_active": FieldDoc("Still serving: valid_to is null."),
+    "is_active": FieldDoc(
+        "Still serving: valid_to is null — the tenure reaches the current term (#598: the term "
+        "flips on the second Monday in January, so a departing member reads active until then)."
+    ),
     "span_key": FieldDoc(
         "The row's name: entity_id|role_key|span_kind|span_discriminator|span_start_biennium."
     ),
     "start_basis": FieldDoc(
         "Where valid_from came from. dated: a source states it (an operator event, a day); "
         "derived: a rule moved it onto another tenure's boundary — an inference, not "
-        "evidence; observed: the first day of the first biennium the tenure is attested in. "
+        "evidence; observed: the first day of the first TERM the tenure is attested in (#598: "
+        "from 1981 the second Monday in January, RCW 44.04.021; Jan 1 before). "
         "Never open.",
         enum=("dated", "derived", "observed"),
     ),
     "end_basis": FieldDoc(
         "Where valid_to came from: dated, derived or observed as for start_basis (observed: "
-        "the last day of the last attested biennium), or open while still serving.",
+        "the last day of the last attested term, the day before the next term opens), or "
+        "open while still serving.",
         enum=("dated", "derived", "observed", "open"),
     ),
     "valid_from_latest": FieldDoc(
         "The latest the true start can be: [valid_from, valid_from_latest] holds it. Equal "
-        "to valid_from when dated to the day; the attested biennium's last day, clamped by "
+        "to valid_from when dated to the day; the attested term's last day, clamped by "
         "valid_to, when observed or derived."
     ),
     "valid_to_earliest": FieldDoc(
         "The earliest the true end can be: [valid_to_earliest, valid_to] holds it. Equal to "
-        "valid_to when dated to the day; the attested biennium's first day, clamped by "
+        "valid_to when dated to the day; the attested term's first day, clamped by "
         "valid_from, otherwise. Null while open."
     ),
     "membership_type": FieldDoc(
@@ -331,7 +336,10 @@ ROLE_FIELDS: dict[str, FieldDoc] = {
 
 ROLE_PERIOD_FIELDS: dict[str, FieldDoc] = {
     "role_key": FieldDoc("The role this period describes; joins roles.role_key."),
-    "valid_from": FieldDoc("The period's first day, a biennium's first day."),
+    "valid_from": FieldDoc(
+        "The period's first day, a term's first day (#598: from 1981 the second Monday in "
+        "January; Jan 1 before)."
+    ),
     "valid_to": FieldDoc(
         "The period's LAST day, inclusive — unlike assignments.valid_to, a handoff date. "
         "Periods tile: the next one opens the day after. Null through the present."
@@ -785,6 +793,33 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "and the tenure's membership_type, appended. Additive, so a minor; the two "
                 "enums enter the contract hash",
             ),
+            ContractRelease(
+                "1.9.0",
+                (
+                    "entity_id",
+                    "member_id",
+                    "source",
+                    "role_key",
+                    "span_kind",
+                    "span_discriminator",
+                    "span_start_biennium",
+                    "span_end_biennium",
+                    "valid_from",
+                    "valid_to",
+                    "is_active",
+                    "span_key",
+                    "start_basis",
+                    "end_basis",
+                    "valid_from_latest",
+                    "valid_to_earliest",
+                    "membership_type",
+                ),
+                "#598: an observed edge is a statutory TERM day from 1981 (RCW 44.04.021: "
+                "the second Monday in January, ending the day before the next), not Jan 1 / "
+                "Dec 31; is_active is open on the term clock; never_seated attestations "
+                "remove terms never served (#598 § 1.5). No field moved, so contract_hash "
+                "holds; the minor says the edges' meaning changed",
+            ),
         ),
         min_rows=7950,
         fields=ASSIGNMENT_FIELDS,
@@ -803,6 +838,12 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 ("role_key", "valid_from", "valid_to", "max_holders", "max_holders_basis"),
                 "#501 D1: first release — dense capacity periods for every held role; the "
                 "counterpart clip and the occupancy gate read the same periods",
+            ),
+            ContractRelease(
+                "1.1.0",
+                ("role_key", "valid_from", "valid_to", "max_holders", "max_holders_basis"),
+                "#598: a period floor is a statutory term's first day from 1981 (the second "
+                "Monday in January), not Jan 1. No field moved, so contract_hash holds",
             ),
         ),
         min_rows=300,

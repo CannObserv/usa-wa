@@ -49,13 +49,13 @@ def model(dbt, session):
             "SUBSTITUTE_TENURES entries match no built span — re-adjudicate them in "
             f"usa_wa_pipeline/conformed/memberships.py: {[t.key for t in stale]}"
         )
-    # Likewise a never-seated entry that removed less than it names (#546): its span
-    # re-keyed and would publish again under the new key.
+    # Likewise a never_seated attestation no family applied (#598 spec § 1.5, which
+    # replaced #546's curated table): its spans re-keyed, and would publish again.
     if any(families.values()) and never_seated_stale:
         raise ValueError(
-            "NEVER_SEATED entries remove fewer spans than they name — re-adjudicate them in "
-            "usa_wa_pipeline/conformed/never_seated.py: "
-            f"{[e.member_id for e in never_seated_stale]}"
+            "never_seated operator events remove no span — supersede or retract them "
+            "(python -m usa_wa_adapter_legislature.operators.cli --list): "
+            f"{[(e.member_id, e.effective_date.isoformat()) for e in never_seated_stale]}"
         )
     # The join's counters — `unregistered_spans` above all — are reported by
     # `usa_wa_pipeline.registry_coverage`, not from here (CR 68; #412 PR B). A

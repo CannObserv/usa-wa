@@ -45,11 +45,10 @@ from clearinghouse_domain_legislative.operator_overlay import SuccessionEvent
 from clearinghouse_domain_legislative.span_kinds import KIND_COMMITTEE, KIND_HOUSE, KIND_SENATE
 from clearinghouse_domain_legislative.tenure_spans import Observation, TenureSpan
 from clearinghouse_domain_legislative.terms import (
-    biennium_for_date,
-    biennium_start_date,
     previous_biennium,
 )
 from usa_wa_common.ballot import HousePositionsByLd, position_for
+from usa_wa_common.legislative_calendar import WA_TERMS
 from usa_wa_common.seats import house_span_discriminator, parse_house_span_discriminator
 from usa_wa_facts_seats.house.backchain import REDISTRICTING_ERA_START_BIENNIA
 from usa_wa_facts_seats.house.roster import (
@@ -109,8 +108,8 @@ def chamber_moves(
             target = vacates
         else:
             continue
-        key = (event.member_id, biennium_for_date(event.effective_date))
-        if event.effective_date > biennium_start_date(key[1]):
+        key = (event.member_id, WA_TERMS.biennium_on(event.effective_date))
+        if event.effective_date > WA_TERMS.start(key[1]):
             target[key] = min(target.get(key, event.effective_date), event.effective_date)
     moves: list[ChamberMove] = []
     for biennium, rows in sorted(rows_by_biennium.items()):
@@ -183,7 +182,7 @@ def carry_mover_house_tenures(
             for e in events
             if _is_house_vacate(e)
             and e.member_id == move.member_id
-            and biennium_for_date(e.effective_date) == move.biennium
+            and WA_TERMS.biennium_on(e.effective_date) == move.biennium
         }
         successor_seats = set() if explicit else _successor_seats(move, carried, events)
         sources = (
@@ -281,7 +280,7 @@ def _date_committee(
     if (
         agency == AGENCY_SENATE
         and span.start_biennium == move.biennium
-        and span.valid_from == biennium_start_date(move.biennium)
+        and span.valid_from == span.terms.start(move.biennium)
         and (span.valid_to is None or move.moved_on <= span.valid_to)
     ):
         return replace(span, valid_from=move.moved_on, start_basis=BASIS_DERIVED)
@@ -326,7 +325,7 @@ def _successor_seats(
     recorded seating filled."""
     if move.ld is None:
         return set()
-    floor = biennium_start_date(move.biennium)
+    floor = WA_TERMS.start(move.biennium)
     # Matched against the LD's own two seats, never parsed: an operator event's seat
     # is hand-entered, and a stray spelling must not fail the build.
     ld_seats = {house_span_discriminator(move.ld, f"Position {n}") for n in (1, 2)}
@@ -338,7 +337,7 @@ def _successor_seats(
         and e.seat_discriminator in ld_seats
         and e.member_id != move.member_id
         and e.effective_date > floor
-        and biennium_for_date(e.effective_date) == move.biennium
+        and WA_TERMS.biennium_on(e.effective_date) == move.biennium
     ]
     successors = {e.member_id for e in seatings}
     observed = [o for o in observations if o.kind == KIND_HOUSE and o.biennium == move.biennium]
@@ -360,14 +359,14 @@ def _left_mid_biennium(event: SuccessionEvent, move: ChamberMove) -> bool:
     """A departure or House vacate inside the move biennium, after its first day."""
     return (
         (event.kind == KIND_DEPARTED or _is_house_vacate(event))
-        and event.effective_date > biennium_start_date(move.biennium)
-        and biennium_for_date(event.effective_date) == move.biennium
+        and event.effective_date > WA_TERMS.start(move.biennium)
+        and WA_TERMS.biennium_on(event.effective_date) == move.biennium
     )
 
 
 def _house_end(move: ChamberMove, seat: str, events: list[SuccessionEvent]) -> date:
     """The move, or a successor's earlier seating on ``seat`` inside the move biennium."""
-    floor = biennium_start_date(move.biennium)
+    floor = WA_TERMS.start(move.biennium)
     successors = [
         e.effective_date
         for e in events
@@ -387,8 +386,8 @@ def _house_ends(house_spans: Iterable[TenureSpan]) -> dict[tuple[str, str], date
     for span in house_spans:
         if span.kind != KIND_HOUSE or span.valid_to is None:
             continue
-        floor = biennium_start_date(span.end_biennium)
-        ceiling = date(floor.year + 1, 12, 31)
+        floor = span.terms.start(span.end_biennium)
+        ceiling = span.terms.end(span.end_biennium)
         key = (span.member_id, span.end_biennium)
         if floor < span.valid_to < ceiling and span.valid_to > out.get(key, floor):
             out[key] = span.valid_to

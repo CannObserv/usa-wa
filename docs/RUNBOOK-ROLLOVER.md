@@ -6,8 +6,9 @@ The first rollover since the #302 replatform (#135). Two clocks flip, on differe
 - the **filing window** (CannObserv/cli's rule) on **2026-12-07**, 00:00 Pacific, which is the
   08:00 UTC nightly. From then on, the harvests target `2027-28`, meetings windows are
   filing windows, and WSL also refreshes 2025-26 (the outgoing pass) until its terms end;
-- the **term** on **2027-01-01**, at which `spans.current_biennium()` and `organizations.active`
-  move together. #598 moves this to 2027-01-11 (RCW 44.04.021).
+- the **term** on **2027-01-11**, the second Monday in January (RCW 44.04.021, #598), at which
+  `spans.current_biennium()` and `organizations.active` move together. 2025-26 spans close at
+  2027-01-10, their term's last day. Until then the 2025-26 legislators read active.
 
 WSL publishes the new biennium on its own schedule.
 This page says what to expect, what to check, and the few steps that stay manual.
@@ -70,7 +71,7 @@ From the same night, the published `stg_sos_results` carries the 2026 election's
 - **Appointments dated in December** still need their operator `seated` event (#107).
   #282 tracks why an even-year November/December seating can be inert.
 
-## 2027-01-01
+## 2027-01-11, the term flip (2027-01-01 before #598)
 
 **Planned (superseded 2026-11-24):** a rollover with nothing published, where the nightly
 accepted the `GetCommittees` fault and the all-closed vacancy warning (#452) and sent no email.

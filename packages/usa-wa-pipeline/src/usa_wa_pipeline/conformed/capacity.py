@@ -36,8 +36,8 @@ from typing import Any
 
 from clearinghouse_domain_legislative.seat_clipping import Capacity, CapacityPeriod
 from clearinghouse_domain_legislative.span_kinds import KIND_SENATE, SINGLE_HOLDER_KINDS
-from clearinghouse_domain_legislative.tenure_spans import biennium_end_date
-from clearinghouse_domain_legislative.terms import biennium_for_date, biennium_start_date
+from clearinghouse_domain_legislative.terms import biennium_for_date
+from usa_wa_common.legislative_calendar import WA_TERMS
 from usa_wa_common.names import strip_tenure_notes
 
 #: The seat kind's own rule: one per Senate seat or House Position, no limit for a
@@ -100,9 +100,7 @@ def _periods(roster: list[dict[str, Any]]) -> dict[tuple[str, str], list[Capacit
         periods = []
         for year, count in sorted(years.items()):
             biennium = biennium_for_date(date(year, 1, 1))
-            periods.append(
-                CapacityPeriod(biennium_start_date(biennium), biennium_end_date(biennium), count)
-            )
+            periods.append(CapacityPeriod(WA_TERMS.start(biennium), WA_TERMS.end(biennium), count))
         out[(KIND_SENATE, str(district))] = periods
     return out
 
@@ -139,7 +137,9 @@ def role_period_rows(
     multi = _periods(roster)
     out: list[dict[str, Any]] = []
     for role_key in sorted(first):
-        floor = biennium_start_date(biennium_for_date(first[role_key]))
+        # The term holding the first tenure's start (#598): a pre-term January seating is
+        # still inside a period, so `role_periods_tiled` never sees it uncovered.
+        floor = WA_TERMS.start(WA_TERMS.biennium_on(first[role_key]))
         kind, discriminator = seat[role_key]
         if kind not in SINGLE_HOLDER_KINDS:
             out.append(_row(role_key, floor, None, None, MAX_HOLDERS_KIND))

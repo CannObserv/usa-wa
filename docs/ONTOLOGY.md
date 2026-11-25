@@ -163,9 +163,15 @@ biennium)`. The resolution of the whole model is therefore **one biennium**:
   existence, because a span models a *served-this-biennium* fact). A return inside contiguous
   biennia has no gap to split on, so a source that sees the interlude flags the return's first
   observation `opens_tenure` and the span splits there too (#517: the roster's listing order);
-- a span reaching the current biennium is open — `valid_to=None`, `is_active=True`; otherwise it
-  closes at Dec 31 of its last biennium's even year;
-- `valid_from` is Jan 1 of the start biennium's odd year.
+- a span reaching the current biennium (the **term** clock) is open, `valid_to=None`,
+  `is_active=True`. Otherwise it closes on the last day of its last biennium's term;
+- `valid_from` is the first day of the start biennium's term.
+
+**Edges are term days** (#598, `TermCalendar`; `legislative_calendar.WA_TERMS`). From 1981 a
+term opens on the second Monday in January and closes the day before the next one opens
+(RCW 44.04.021), so 2025-26 runs 2025-01-13 → 2027-01-10. Before the 1981 floor terms are
+calendar years (#604). Every dated event is bucketed into a biennium on the same calendar,
+so a seating dated before its term's start belongs to the term still running.
 
 Quantization is what **motivates operator events** (§3). A mid-biennium succession is invisible to
 every wire signal: a member who died in April stays named in the cumulative roster all biennium,
@@ -293,10 +299,11 @@ supply?** → an **operator event**. Ask whether it closes everything (`departed
 (`vacated`), or opens one (`seated`). If it fits none of those three, do not add a fourth kind
 reflexively — first check whether it is really a *reason* (evidence classification within an
 existing kind, which is a one-tuple change) rather than a new behaviour. A new kind is warranted
-only when the *effect on spans* differs from all three. A holder who **never sat** is not an event
-either — an event is dated, and most such rows carry no date: the row's spans are removed by the
-curated `conformed.never_seated` table (#546), the `SUBSTITUTE_TENURES` idiom, until a fourth case
-or a source makes it an attestation.
+only when the *effect on spans* differs from all three. That happened once: a holder who **never
+sat** a term is the fourth kind, `never_seated` (#598 spec § 1.5). It removes the term's spans
+rather than closing or opening one, and it is dated by the term's first day, because most such
+rows carry no date of their own. It replaced #546's curated table when the fourth case (Lovick,
+2007-08) appeared.
 
 **2. Is it a typed relationship between two organizations?** → a **link-shaped event**. If the
 relation is lineage, it is a `committee_succession_events` slug. A new slug is a contract change:

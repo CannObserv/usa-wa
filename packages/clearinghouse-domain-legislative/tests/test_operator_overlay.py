@@ -1,7 +1,7 @@
 """Operator-succession overlay (#107) — pure, the LD5 Ramos/Hunt golden cases."""
 
 from dataclasses import replace
-from datetime import date
+from datetime import date, timedelta
 
 from clearinghouse_domain_legislative.operator_overlay import (
     SuccessionEvent,
@@ -1247,3 +1247,225 @@ def test_a_same_seat_return_is_never_the_re_entry_of_its_own_head():
         ("1941-42", date(1941, 1, 1), date(1944, 2, 19)),
         ("1945-46", date(1944, 10, 15), date(1948, 12, 31)),
     ]
+
+
+# ---- #598: the overlay buckets events on the term calendar its spans were built on ----
+
+
+class _SecondMondayTerms:
+    """A statutory term calendar: 2023-24 runs 2023-01-09 → 2025-01-12, 2025-26 from
+    2025-01-13. A date in early January belongs to the term still running."""
+
+    _STARTS = {
+        "2021-22": date(2021, 1, 11),
+        "2023-24": date(2023, 1, 9),
+        "2025-26": date(2025, 1, 13),
+        "2027-28": date(2027, 1, 11),
+    }
+
+    def start(self, label):
+        return self._STARTS[label]
+
+    def end(self, label):
+        start = int(label[:4]) + 2
+        return self._STARTS[f"{start}-{(start + 1) % 100:02d}"] - timedelta(days=1)
+
+    def biennium_on(self, day):
+        return max((b for b, s in self._STARTS.items() if s <= day), key=lambda b: b)
+
+
+TERMS = _SecondMondayTerms()
+
+
+def _term_span(member, kind, disc, *, start="2025-26", to=None):
+    """A span the builder made on ``TERMS``: it opens on the term's first day."""
+    return TenureSpan(
+        member_id=member,
+        kind=kind,
+        discriminator=disc,
+        start_biennium=start,
+        end_biennium="2025-26",
+        valid_from=TERMS.start(start),
+        valid_to=to,
+        is_active=to is None,
+        terms=TERMS,
+    )
+
+
+def test_a_pre_term_january_seating_dates_the_term_it_precedes():
+    """#598: a seating dated 2025-01-07, before the 2025-01-13 term start, belongs to the
+    2023-24 term still running. So it is the #282 lookback onto the span opening at
+    2025-01-13, not an inert date before a calendar-year span."""
+    spans = [_term_span("48001", "chamber-house", "ld-48-position-1")]
+    events = [
+        SuccessionEvent("48001", "seated", date(2025, 1, 7), "chamber-house", "ld-48-position-1")
+    ]
+    [out] = apply_operator_events(
+        spans, events, current_biennium=CURRENT, owned_kinds={"chamber-house"}, terms=TERMS
+    )
+    assert out.valid_from == date(2025, 1, 7)
+    assert out.start_basis == "dated"
+
+
+def test_synthesis_and_split_keys_follow_the_term_calendar():
+    """A seating with no built span mints its tenure in the term holding the date, and a
+    re-entry splits onto the term the return falls in."""
+    events = [
+        SuccessionEvent("50001", "seated", date(2025, 2, 1), "chamber-senate", "9"),
+    ]
+    [minted] = apply_operator_events(
+        [], events, current_biennium=CURRENT, owned_kinds={"chamber-senate"}, terms=TERMS
+    )
+    assert minted.terms is TERMS
+    assert minted.valid_from_latest == date(2025, 2, 1)
+    assert latest_event_biennium_by_member(
+        [SuccessionEvent("50001", "departed", date(2025, 1, 10))], terms=TERMS
+    ) == {"50001": "2023-24"}
+
+
+def test_a_movers_synthesized_tenure_opens_on_its_terms_first_day():
+    events = [
+        SuccessionEvent("60001", "vacated", date(2025, 6, 1), "chamber-house", "ld-5-position-1")
+    ]
+    [minted] = apply_operator_events(
+        [],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-house"},
+        movers_by_biennium={"2025-26": {"60001"}},
+        terms=TERMS,
+    )
+    assert minted.valid_from == date(2025, 1, 13)
+    assert minted.valid_to == date(2025, 6, 1)
+
+
+# ---- #598 § 1.5: never_seated, the operator attestation that retires #546's table ----
+
+
+def test_never_seated_removes_the_terms_listing_and_keeps_the_rest(caplog):
+    """The Lovick shape: listed for a term (2025-26 here) he resigned before it opened. The
+    attestation names the term by its first day; spans that start AND end in it go, a merged
+    span from an earlier term and a later listing that runs past it stay."""
+    listed_only = _term_span("44001", "committee", "12171", start="2025-26")
+    merged = replace(
+        _term_span("44001", "committee", "1300", start="2023-24"), end_biennium="2025-26"
+    )
+    outgrown = replace(
+        _term_span("44001", "committee", "900", start="2025-26"), end_biennium="2027-28"
+    )
+    events = [SuccessionEvent("44001", "never_seated", date(2025, 1, 13))]
+    with caplog.at_level("INFO"):
+        out = apply_operator_events(
+            [listed_only, merged, outgrown],
+            events,
+            current_biennium=CURRENT,
+            owned_kinds={"committee"},
+            terms=TERMS,
+        )
+    assert sorted(s.discriminator for s in out) == ["1300", "900"]
+    assert "operator_never_seated_removed" in [r.getMessage() for r in caplog.records]
+
+
+def test_a_departure_after_never_seated_finds_no_return():
+    """Lovick in full: departed 2025-01-10 from the running term, and never seated in the
+    next. The merged committee span closes at the departure; the next term's listing is
+    gone before the departure looks for a return, so nothing is split off."""
+    merged = replace(
+        _term_span("44001", "committee", "1300", start="2023-24"), end_biennium="2025-26"
+    )
+    listed_only = _term_span("44001", "committee", "12171", start="2025-26")
+    events = [
+        SuccessionEvent("44001", "departed", date(2025, 1, 10)),
+        SuccessionEvent("44001", "never_seated", date(2025, 1, 13)),
+    ]
+    out = apply_operator_events(
+        [merged, listed_only],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"committee"},
+        terms=TERMS,
+    )
+    assert [(s.discriminator, s.valid_to, s.end_basis) for s in out] == [
+        ("1300", date(2025, 1, 10), "dated")
+    ]
+
+
+def test_an_unapplied_never_seated_is_its_overlays_miss_or_its_callers(caplog):
+    """With no collector the overlay is the whole corpus and logs the miss; with one, the
+    caller decides, because the attestation may be another family's (a roster key)."""
+    events = [SuccessionEvent("44009", "never_seated", date(2025, 1, 13))]
+    with caplog.at_level("INFO"):
+        apply_operator_events(
+            [], events, current_biennium=CURRENT, owned_kinds={"committee"}, terms=TERMS
+        )
+    assert "operator_never_seated_no_span" in [r.getMessage() for r in caplog.records]
+    caplog.clear()
+    applied: set = set()
+    listed = _term_span("44001", "committee", "12171", start="2025-26")
+    hit = SuccessionEvent("44001", "never_seated", date(2025, 1, 13))
+    with caplog.at_level("INFO"):
+        apply_operator_events(
+            [listed],
+            [*events, hit],
+            current_biennium=CURRENT,
+            owned_kinds={"committee"},
+            terms=TERMS,
+            applied_never_seated=applied,
+        )
+    assert applied == {hit}
+    assert "operator_never_seated_no_span" not in [r.getMessage() for r in caplog.records]
+
+
+def test_events_may_arrive_as_a_generator():
+    """The overlay reads its events twice (the never-seated pass, then the rest), so a
+    one-shot iterable must still reach the second read."""
+    listed_only = _term_span("44001", "committee", "12171", start="2025-26")
+    events = (
+        e
+        for e in [
+            SuccessionEvent("44001", "never_seated", date(2025, 1, 13)),
+            SuccessionEvent("44002", "departed", date(2025, 4, 1)),
+        ]
+    )
+    other = _term_span("44002", "committee", "500", start="2025-26")
+    out = apply_operator_events(
+        [listed_only, other],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"committee"},
+        terms=TERMS,
+    )
+    assert [(s.member_id, s.valid_to) for s in out] == [("44002", date(2025, 4, 1))]
+
+
+def test_a_never_seated_senators_term_is_four_years():
+    """Couplin (#546): elected to the Senate in 1920, resigned without serving. A senator's
+    term spans two bienniums, so his seat and party spans run 1921-22 → 1923-24; both go.
+    A House member's term is one biennium, so the same rule removes only that one."""
+    seat = TenureSpan(
+        member_id="cacouplin:1921",
+        kind="chamber-senate",
+        discriminator="9",
+        start_biennium="1921-22",
+        end_biennium="1923-24",
+        valid_from=date(1921, 1, 1),
+        valid_to=date(1924, 12, 31),
+        is_active=False,
+    )
+    party = replace(seat, kind="party", discriminator="republican")
+    later = replace(
+        party,
+        member_id="cacouplin:1921",
+        start_biennium="1921-22",
+        end_biennium="1925-26",
+        valid_to=date(1926, 12, 31),
+        discriminator="democratic",
+    )
+    events = [SuccessionEvent("cacouplin:1921", "never_seated", date(1921, 1, 1))]
+    out = apply_operator_events(
+        [seat, party, later],
+        events,
+        current_biennium=CURRENT,
+        owned_kinds={"chamber-senate", "party"},
+    )
+    assert [(s.kind, s.discriminator) for s in out] == [("party", "democratic")]

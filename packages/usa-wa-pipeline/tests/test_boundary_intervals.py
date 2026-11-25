@@ -6,6 +6,8 @@ from pathlib import Path
 import duckdb
 import pytest
 
+from usa_wa_common.legislative_calendar import STATUTORY_TERM_FLOOR
+
 TEST_SQL = (
     Path(__file__).resolve().parents[1] / "dbt" / "tests" / "assignments_boundary_intervals.sql"
 )
@@ -191,3 +193,47 @@ def test_a_substitute_outliving_its_principal_fails() -> None:
 
 def test_an_undated_substitute_fails() -> None:
     assert _failures([BENSON, {**WYSS, "start_basis": "observed"}], SUBSTITUTES_SQL)
+
+
+def _term_row(**over) -> dict:
+    """An observed 2021-24 tenure on statutory term edges (#598): the 2021-22 term opens
+    2021-01-11 and 2023-24's closes 2025-01-12, the day before 2025-26 opens."""
+    row = _row(
+        span_start_biennium="2021-22",
+        span_end_biennium="2023-24",
+        valid_from="2021-01-11",
+        valid_to="2025-01-12",
+        valid_from_latest="2023-01-08",  # 2021-22's last day
+        valid_to_earliest="2023-01-09",  # 2023-24's first day
+    )
+    row.update(over)
+    return row
+
+
+def test_a_statutory_observed_tenure_passes():
+    assert _failures([_term_row()]) == []
+
+
+def test_a_calendar_year_edge_after_1981_is_off_edge():
+    """#598: from 1981 an observed edge is the term's day, not Jan 1 / Dec 31."""
+    failures = _failures([_term_row(valid_from="2021-01-01", valid_from_latest="2023-01-08")])
+    assert ("k", "off_edge") in failures
+
+
+def test_the_1979_80_seam_ends_on_the_day_before_the_first_statutory_term():
+    """1979-80 is before the floor, but its successor's term began 1981-01-12."""
+    row = _row(
+        span_start_biennium="1979-80",
+        span_end_biennium="1979-80",
+        valid_from="1979-01-01",
+        valid_to="1981-01-11",
+        valid_from_latest="1981-01-11",
+        valid_to_earliest="1979-01-01",
+    )
+    assert _failures([row]) == []
+
+
+def test_the_gates_term_floor_is_the_calendars():
+    """The SQL restates the statute's floor; #604 lowering it must move both."""
+    floors = set(re.findall(r"< (\d{4}) then make_date", TEST_SQL.read_text()))
+    assert floors == {str(STATUTORY_TERM_FLOOR)}

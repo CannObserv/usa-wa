@@ -120,7 +120,8 @@ biennium as `last_biennium` (with `active` unchanged), and persons and committee
 cite the next biennium's wires. No assignment changes. The exclusion line is INFO.
 The rollover itself needs no switch:
 on the term flip (`current_biennium()` is the TERM clock, `legislative_calendar.term_biennium_on`,
-#597: Jan 1 until #598, never the 12-07 filing window the harvests follow) the clock flips, every 2025-26 span closes at 2026-12-31 (the
+#597/#598: the second Monday in January, 2027-01-11, never the 12-07 filing window the harvests
+follow) the clock flips, every 2025-26 span closes at 2027-01-10, the term's last day (the
 `assignments_chamber_vacancy` warning), and the new roster reopens them.
 
 **A committee seat is a legislator's** (#469). `build_families` then drops a

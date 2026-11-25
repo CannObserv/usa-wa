@@ -1,5 +1,5 @@
 -- Each boundary's basis and interval agree (#501 D6; #369 + #360 increment 2).
--- One row per broken invariant, named. `F(b)`/`C(b)` are a biennium's first and
+-- One row per broken invariant, named. `F(b)`/`C(b)` are a biennium's TERM first and
 -- last days; the basis says WHERE a date came from, the interval HOW PRECISELY:
 --
 --   open_end       1. `end_basis = open` ⇔ `valid_to` null ⇔ `valid_to_earliest`
@@ -21,17 +21,38 @@
 --
 -- The reverse of 4 is not asserted: a dated edge may land on a biennium edge
 -- (Woodall's 1957-01-01 seating), which is why the basis is carried, not read.
+--
+-- `F`/`C` are TERM days (#598, `usa_wa_common.legislative_calendar`): a term opens on the
+-- second Monday in January from 1981 (RCW 44.04.021; Jan 1 before the floor, #604) and
+-- closes the day before the next one opens. `ts(y)` below is that start, for a biennium
+-- starting in year y; keep its floor in step with `STATUTORY_TERM_FLOOR`.
 {{ config(severity='error') }}
-with a as (
+with y as (
     select
         *,
-        make_date(cast(split_part(span_start_biennium, '-', 1) as integer), 1, 1) as start_floor,
-        make_date(cast(split_part(span_start_biennium, '-', 1) as integer) + 1, 12, 31)
-            as start_ceiling,
-        make_date(cast(split_part(span_end_biennium, '-', 1) as integer), 1, 1) as end_floor,
-        make_date(cast(split_part(span_end_biennium, '-', 1) as integer) + 1, 12, 31)
-            as end_ceiling
+        cast(split_part(span_start_biennium, '-', 1) as integer) as sy,
+        cast(split_part(span_end_biennium, '-', 1) as integer) as ey
     from {{ ref('assignments') }}
+),
+a as (
+    select
+        *,
+        -- ts(y): Jan 1 before 1981; else Jan 1 + days to the first Monday + 7
+        case when sy < 1981 then make_date(sy, 1, 1)
+             else make_date(sy, 1, 1) + cast((8 - isodow(make_date(sy, 1, 1))) % 7 + 7 as integer)
+        end as start_floor,
+        case when sy + 2 < 1981 then make_date(sy + 2, 1, 1)
+             else make_date(sy + 2, 1, 1)
+                 + cast((8 - isodow(make_date(sy + 2, 1, 1))) % 7 + 7 as integer)
+        end - 1 as start_ceiling,
+        case when ey < 1981 then make_date(ey, 1, 1)
+             else make_date(ey, 1, 1) + cast((8 - isodow(make_date(ey, 1, 1))) % 7 + 7 as integer)
+        end as end_floor,
+        case when ey + 2 < 1981 then make_date(ey + 2, 1, 1)
+             else make_date(ey + 2, 1, 1)
+                 + cast((8 - isodow(make_date(ey + 2, 1, 1))) % 7 + 7 as integer)
+        end - 1 as end_ceiling
+    from y
 )
 select span_key, 'open_end' as defect
 from a

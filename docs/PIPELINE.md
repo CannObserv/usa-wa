@@ -262,7 +262,7 @@ carries its reasoning.
 | Test | Replaces | Severity |
 |---|---|---|
 | `assignments_chamber_excess` | `succession-invariants` chamber count, high side | error: more than 49 / 98 open is a ghost-open predecessor |
-| `assignments_chamber_vacancy` | the same count, low side | **warn**: a vacancy is a real state (a death, the 2027-01-01 rollover), and an `error` would stop publishing until the seat filled. The rollover window is accepted (#452, RUNBOOK-ROLLOVER) |
+| `assignments_chamber_vacancy` | the same count, low side | **warn**: a vacancy is a real state (a death, the 2027-01-11 term flip), and an `error` would stop publishing until the seat filled. The rollover window is accepted (#452, RUNBOOK-ROLLOVER) |
 | `assignments_one_seat_per_member` | `succession-invariants` member duplicates | error, over **all history** and **across chambers** (the #145 mover), not only the open cohort of one chamber |
 | `assignments_start_in_key_biennium` | `succession-invariants` #272 misdating | error |
 | `assignments_odd_year_winners_seated` | `house-corroboration`, `senate-corroboration` | error, over **every archived odd year**, probed at December 31 of the election year |
@@ -281,7 +281,7 @@ INV1 rides on `organizations.active` (#428, `organizations` 1.1.0): a committee
 is active when the current biennium's roster wire attests it, a Joint/Other body
 when it met this biennium, a structural org by its declared `STRUCTURAL_ORGS`
 flag. `active` and the open spans both read `spans.current_biennium()`, so the
-2027-01-01 rollover retires the old committees and closes their spans in the
+term flip (2027-01-11, #598) retires the old committees and closes their spans in the
 same build. INV2 (a succeeded or merged predecessor is inactive; `split_from`
 exempt) is **derived** since #447: `org_lineage` publishes the attested links from
 `registry.committee_succession_events`, and `organizations` reads them, so Civic

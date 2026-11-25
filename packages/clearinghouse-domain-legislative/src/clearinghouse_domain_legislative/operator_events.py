@@ -9,7 +9,8 @@ these facts (news-first) and interject them here.
 
 An :class:`OperatorEvent` is **event-shaped** — the operator states what happened
 (``departed`` / ``vacated`` / ``seated`` on a date), and the span builders derive the
-effects. Three kinds, split by scope so a chamber move never touches the party span:
+effects. Three dated kinds, split by scope so a chamber move never touches the party span,
+and one term-scoped kind:
 
 - ``departed`` (no seat) — **person-scoped** terminal end: the member stops serving
   entirely, so *every* open span (seat + party + committee) closes at the date. Death,
@@ -18,7 +19,11 @@ effects. Three kinds, split by scope so a chamber move never touches the party s
   party + committees untouched. A chamber move or a single-seat resignation. [Hunt: her
   House seat ends 2025-06-03 while her party continues]
 - ``seated`` (seat) — **seat-scoped** start: one named seat's span opens at the date
-  (instead of the biennium floor). Appointment, swearing-in. [Hunt: Senate from 2025-06-03]
+  (instead of the term's first day). Appointment, swearing-in. [Hunt: Senate from 2025-06-03]
+- ``never_seated`` (no seat; #598 spec § 1.5) — **person- and term-scoped**: listed for a
+  term and never served it. ``effective_date`` is the term's first day; the member's spans
+  that start and end in it are removed before any other event applies. [Lovick: resigned
+  2007-01-05, before the 2007-08 term opened]
 
 A chamber move is thus modeled exactly as ``vacated`` (old seat) + ``seated`` (new seat)
 on the same member, each applied by the builder that owns that seat kind. It is archived
@@ -74,7 +79,12 @@ OPERATOR_SOURCE_SLUG = "usa_wa_operator"
 KIND_DEPARTED = "departed"
 KIND_VACATED = "vacated"
 KIND_SEATED = "seated"
-KINDS = (KIND_DEPARTED, KIND_VACATED, KIND_SEATED)
+#: Person- and TERM-scoped (#598 spec § 1.5): the member was listed for a term and never
+#: served it. ``effective_date`` is that term's first day. It removes the member's spans
+#: that start and end in the term, before any other event applies. It replaced #546's
+#: curated table when a fourth case (Lovick, 2007-08) appeared.
+KIND_NEVER_SEATED = "never_seated"
+KINDS = (KIND_DEPARTED, KIND_VACATED, KIND_SEATED, KIND_NEVER_SEATED)
 
 #: The seat-scoped kinds carry a ``(seat_kind, seat_discriminator)``; ``departed`` does not.
 SEAT_SCOPED_KINDS = (KIND_VACATED, KIND_SEATED)
@@ -107,7 +117,12 @@ ENDING_KINDS = frozenset({KIND_DEPARTED, KIND_VACATED})
 DEPARTED_REASONS = ("died", "resigned", "expelled")
 VACATED_REASONS = ("moved", "resigned", "defeated")
 SEATED_REASONS = ("appointed", "sworn_in")
-REASONS = tuple(dict.fromkeys(DEPARTED_REASONS + VACATED_REASONS + SEATED_REASONS))
+#: ``resigned`` before the term opened (Lovick 2007; Mulligan 1943); ``refused`` — the
+#: chamber refused the seat; ``declined`` — appointed or elected, and never took it.
+NEVER_SEATED_REASONS = ("resigned", "refused", "declined")
+REASONS = tuple(
+    dict.fromkeys(DEPARTED_REASONS + VACATED_REASONS + SEATED_REASONS + NEVER_SEATED_REASONS)
+)
 
 
 def event_source_id(
@@ -142,14 +157,16 @@ class OperatorEvent(Base, TimestampMixin):
     __table_args__ = (
         UniqueConstraint("source", "source_id", name="uq_operator_events_natural_key"),
         CheckConstraint(
-            f"kind IN ('{KIND_DEPARTED}', '{KIND_VACATED}', '{KIND_SEATED}')",
+            f"kind IN ('{KIND_DEPARTED}', '{KIND_VACATED}', '{KIND_SEATED}',"
+            f" '{KIND_NEVER_SEATED}')",
             name="ck_operator_events_kind",
         ),
         CheckConstraint(
             # A seat-scoped event (seated/vacated) names a seat; departed must not.
             f"(kind IN ('{KIND_SEATED}', '{KIND_VACATED}')"
             " AND seat_kind IS NOT NULL AND seat_discriminator IS NOT NULL)"
-            f" OR (kind = '{KIND_DEPARTED}' AND seat_kind IS NULL AND seat_discriminator IS NULL)",
+            f" OR (kind IN ('{KIND_DEPARTED}', '{KIND_NEVER_SEATED}')"
+            " AND seat_kind IS NULL AND seat_discriminator IS NULL)",
             name="ck_operator_events_seat_shape",
         ),
         CheckConstraint(

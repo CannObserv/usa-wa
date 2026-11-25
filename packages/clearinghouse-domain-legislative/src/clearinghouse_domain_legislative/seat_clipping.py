@@ -76,7 +76,6 @@ from clearinghouse_domain_legislative.boundary_basis import (
 from clearinghouse_domain_legislative.membership_types import MEMBERSHIP_PRINCIPAL
 from clearinghouse_domain_legislative.span_kinds import SINGLE_HOLDER_KINDS
 from clearinghouse_domain_legislative.tenure_spans import TenureSpan
-from clearinghouse_domain_legislative.terms import parse_biennium
 
 #: Why an overlap was left standing. Each is a *reported* residue, never a
 #: silent one — the conformed gate lists the rows these correspond to.
@@ -220,11 +219,10 @@ def _tenure_order(span: TenureSpan) -> tuple[date, date]:
     return (span.valid_from, span.valid_to or _OPEN)
 
 
-def _in_biennium(day: date, biennium: str) -> bool:
-    """``day`` falls in ``biennium``'s two calendar years — the bound a clipped
-    ``valid_from`` must respect, since ``source_id`` is keyed on the biennium."""
-    start, end = parse_biennium(biennium)
-    return start <= day.year <= end
+def _in_start_term(day: date, span: TenureSpan) -> bool:
+    """``day`` falls in the term of ``span``'s start biennium (#598: ``span.terms``) — the
+    bound a clipped ``valid_from`` must respect, since ``source_id`` is keyed on it."""
+    return span.terms.start(span.start_biennium) <= day <= span.terms.end(span.start_biennium)
 
 
 def _multi_holder(capacity: Capacity, a: TenureSpan, b: TenureSpan) -> bool:
@@ -379,7 +377,7 @@ def _resolve_pair(work: list[TenureSpan], i: int, j: int, capacity: Capacity) ->
     if pred_exit is not None:
         # never earlier than the successor already starts: the clip only raises it
         boundary = max(pred_exit, succ.valid_from)
-        if not _in_biennium(boundary, succ.start_biennium):
+        if not _in_start_term(boundary, succ):
             # The roster listed the successor biennia before the predecessor's
             # dated exit. That is the sources contradicting each other, not a
             # quantization artifact, and moving the start would put it outside

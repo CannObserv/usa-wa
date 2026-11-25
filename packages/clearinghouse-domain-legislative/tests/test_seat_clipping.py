@@ -905,3 +905,50 @@ class TestWindowedEdges:
         succ = replace(succ, start_window_end=date(1977, 6, 30))
         result = clip_seat_counterparts([pred, succ])
         assert [u.reason for u in result.unclipped] == ["both_dated"]
+
+
+class _Terms2025:
+    """A statutory calendar for the one term these cases need (#598): 2025-26 runs
+    2025-01-13 → 2027-01-10."""
+
+    def start(self, label):
+        return {"2025-26": date(2025, 1, 13), "2027-28": date(2027, 1, 11)}[label]
+
+    def end(self, label):
+        return {"2025-26": date(2027, 1, 10), "2027-28": date(2029, 1, 7)}[label]
+
+    def biennium_on(self, day):
+        return "2025-26" if day < date(2027, 1, 11) else "2027-28"
+
+
+def test_a_clip_inside_the_term_but_past_its_calendar_years_still_applies():
+    """#598: the bound on a clipped start is the successor's TERM, not its calendar years.
+    A dated exit on 2027-01-05 falls inside 2025-26's term (it runs to 2027-01-10), so the
+    successor keyed 2025-26 opens there instead of being refused as leaving its biennium."""
+    terms = _Terms2025()
+    pred = replace(
+        _span(
+            "pred",
+            start="2025-26",
+            end="2025-26",
+            frm=date(2025, 1, 13),
+            to=date(2027, 1, 5),
+            start_basis="observed",
+            end_basis="dated",
+        ),
+        terms=terms,
+    )
+    succ = replace(
+        _span(
+            "succ",
+            start="2025-26",
+            end="2025-26",
+            frm=date(2025, 1, 13),
+            to=date(2027, 1, 10),
+            start_basis="observed",
+            end_basis="observed",
+        ),
+        terms=terms,
+    )
+    out = _by_member(clip_seat_counterparts([pred, succ]))
+    assert out["succ"].valid_from == date(2027, 1, 5)

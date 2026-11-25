@@ -64,6 +64,7 @@ from usa_wa_adapter_legislature.roster_pdf.party_changes import (
     parse_party_change,
 )
 from usa_wa_adapter_legislature.roster_pdf.succession import parse_annotation, start_clause
+from usa_wa_common.legislative_calendar import WA_TERMS
 from usa_wa_common.parties import resolve_party_token
 
 
@@ -188,18 +189,17 @@ def _covered_years(
     started = _start_date(record.annotation)
     if started is not None and started.year > start_year:
         # Service opening mid-biennium covers that biennium.
-        start_year = biennium_start_year(biennium_for_date(started))
+        start_year = biennium_start_year(WA_TERMS.biennium_on(started))
     ended = _end_date(record.annotation)
     if ended is not None:
-        end = min(end, biennium_start_year(biennium_for_date(ended)) + 2)
+        end = min(end, biennium_start_year(WA_TERMS.biennium_on(ended)) + 2)
 
     years = [y for y in range(start_year, end, 2)]
     if years:
         return years, None
-    # Jan 1 approximates the mid-January session start: a death in the first days of the
-    # term year would read as ``empty_horizon`` instead. All measured cases fall in the
-    # prior year, and the coverage arithmetic is identical either way (CR #83).
-    if ended is not None and ended < date(record.year, 1, 1):
+    # The term's own start (#598: the second Monday in January from 1981, Jan 1 before):
+    # an end before it means the member never served this listing's term.
+    if ended is not None and ended < WA_TERMS.start(_biennium(record.year)):
         return [], "ended_before_term"
     if start_year >= ROSTER_IDENTITY_FLOOR:
         return [], "starts_at_floor"

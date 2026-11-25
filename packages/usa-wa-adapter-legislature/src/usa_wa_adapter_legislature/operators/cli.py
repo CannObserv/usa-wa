@@ -51,9 +51,11 @@ from clearinghouse_domain_legislative.operator_events import (
     DEPARTED_REASONS,
     ENDING_KINDS,
     KIND_DEPARTED,
+    KIND_NEVER_SEATED,
     KIND_SEATED,
     KIND_VACATED,
     KINDS,
+    NEVER_SEATED_REASONS,
     SEAT_KINDS,
     SEAT_SCOPED_KINDS,
     SEATED_REASONS,
@@ -71,6 +73,7 @@ from usa_wa_adapter_legislature.operators.store import (
     supersede_event,
 )
 from usa_wa_adapter_legislature.roster_pdf.coverage import ROSTER_SOURCE_SLUG
+from usa_wa_common.legislative_calendar import WA_TERMS
 
 logger = get_logger(__name__)
 
@@ -81,6 +84,7 @@ _REASONS_BY_KIND = {
     KIND_DEPARTED: set(DEPARTED_REASONS),
     KIND_VACATED: set(VACATED_REASONS),
     KIND_SEATED: set(SEATED_REASONS),
+    KIND_NEVER_SEATED: set(NEVER_SEATED_REASONS),
 }
 
 
@@ -119,6 +123,13 @@ def _validate(spec: EventSpec) -> None:
         )
     if not seat_scoped and (spec.seat_kind is not None or spec.seat_discriminator is not None):
         raise OperatorEventError(f"kind {spec.kind!r} must not carry a seat")
+    if spec.kind == KIND_NEVER_SEATED:
+        term = WA_TERMS.biennium_on(spec.effective_date)
+        if spec.effective_date != WA_TERMS.start(term):
+            raise OperatorEventError(
+                f"never_seated's date is the first day of the term never served "
+                f"(use --biennium); {spec.effective_date} is not a term's first day"
+            )
     if seat_scoped and spec.seat_kind not in SEAT_KINDS:
         # A seat_kind no builder owns would record an event the overlay silently no-ops
         # everywhere (the member-id-typo failure mode, for the seat).
@@ -304,7 +315,9 @@ def load_specs(payload: object) -> list[EventSpec]:
                     member_id=str(row["member_id"]),
                     kind=str(row["kind"]),
                     reason=str(row["reason"]),
-                    effective_date=date.fromisoformat(str(row["effective_date"])),
+                    effective_date=_effective_date(
+                        row.get("effective_date"), row.get("biennium"), str(row["kind"])
+                    ),
                     evidence_url=str(row["evidence_url"]),
                     seat_kind=row.get("seat_kind"),
                     seat_discriminator=(
@@ -320,16 +333,40 @@ def load_specs(payload: object) -> list[EventSpec]:
     return specs
 
 
+def _effective_date(effective_date: object, biennium: object, kind: str) -> date:
+    """An event's date: stated, or (``never_seated``, #598 spec § 1.5) the first day of the
+    named biennium's term. Any other kind refuses a biennium: it would date the boundary to
+    a term's first day without saying so (CR 1)."""
+    if biennium is not None:
+        if kind != KIND_NEVER_SEATED:
+            raise OperatorEventError(f"--biennium is for never_seated only, not {kind!r}")
+        if effective_date is not None:
+            raise OperatorEventError("give --effective-date or --biennium, not both")
+        try:
+            return WA_TERMS.start(str(biennium))
+        except ValueError as exc:
+            raise OperatorEventError(f"--biennium: {exc}") from exc
+    if effective_date is None:
+        raise KeyError("effective_date")
+    # The job maps only OperatorEventError onto exit 2; a bare ValueError is a traceback.
+    try:
+        return date.fromisoformat(str(effective_date))
+    except ValueError as exc:
+        raise OperatorEventError(f"--effective-date: {exc}") from exc
+
+
 def _spec_from_args(args: argparse.Namespace) -> EventSpec:
-    if not all([args.member_id, args.kind, args.reason, args.effective_date, args.evidence_url]):
+    dated = args.effective_date or args.biennium
+    if not all([args.member_id, args.kind, args.reason, dated, args.evidence_url]):
         raise OperatorEventError(
-            "a single event needs --member-id --kind --reason --effective-date --evidence-url"
+            "a single event needs --member-id --kind --reason --effective-date (or, for "
+            "never_seated, --biennium) --evidence-url"
         )
     return EventSpec(
         member_id=args.member_id,
         kind=args.kind,
         reason=args.reason,
-        effective_date=date.fromisoformat(args.effective_date),
+        effective_date=_effective_date(args.effective_date, args.biennium, args.kind),
         evidence_url=args.evidence_url,
         seat_kind=args.seat_kind,
         seat_discriminator=args.seat_discriminator,
@@ -402,15 +439,23 @@ def _add_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--member-id", help="the WSL member Id, or a pre-1991 roster key (<fold>:<year>)"
     )
-    parser.add_argument("--kind", choices=sorted(KINDS), help="departed | vacated | seated")
     parser.add_argument(
-        "--reason", help="died|resigned|expelled | moved|resigned|defeated | appointed|sworn_in"
+        "--kind", choices=sorted(KINDS), help="departed | vacated | seated | never_seated"
+    )
+    parser.add_argument(
+        "--reason",
+        help="died|resigned|expelled | moved|resigned|defeated | appointed|sworn_in | "
+        "resigned|refused|declined (never_seated)",
     )
     parser.add_argument(
         "--seat-kind", help="chamber-senate | chamber-house | committee (seat-scoped)"
     )
     parser.add_argument("--seat-discriminator", help="LD | ld-{n}-position-{p} | committee id")
     parser.add_argument("--effective-date", help="YYYY-MM-DD, the succession boundary")
+    parser.add_argument(
+        "--biennium",
+        help="YYYY-YY, never_seated only: the term never served (dated to its first day)",
+    )
     parser.add_argument("--evidence-url", help="operator-cited source (news/official)")
     parser.add_argument(
         "--supersede",

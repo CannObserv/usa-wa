@@ -214,11 +214,20 @@ def test_every_field_of_the_release_is_described(name: str) -> None:
 
 
 def test_the_release_versions() -> None:
-    """The 2.1.0 release, per dataset (#501 Q2): `roles` does not move."""
+    """The 2.1.0 release (#501 Q2) moved persons and assignments and added role_periods.
+    The 2027 rollover release (#598, owner Q2: a minor) moves assignments and role_periods
+    once more, on semantics alone: observed edges are statutory term days."""
     versions = {d.name: d.schema_version for d in PUBLISHED_DATASETS}
     assert (versions["persons"], versions["assignments"], versions["role_periods"]) == (
         "2.1.0",
-        "1.8.0",
-        "1.0.0",
+        "1.9.0",
+        "1.1.0",
     )
     assert versions["roles"] == "1.3.0"
+
+
+def test_the_term_release_moves_no_field() -> None:
+    """#598 is semantics only: the columns are 1.8.0's / 1.0.0's, so the hash holds."""
+    for name in ("assignments", "role_periods"):
+        dataset = _dataset(name)
+        assert dataset.releases[-1].columns == dataset.releases[-2].columns

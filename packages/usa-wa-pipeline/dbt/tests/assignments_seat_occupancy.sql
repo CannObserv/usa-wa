@@ -18,8 +18,8 @@
 -- operator event dates. Four categories retired with their last rows:
 -- `substitute` (now `membership_type`) and `basis_inferred` (now an explicit
 -- boundary basis) in #501, `merged_tenure` in #517 (a return to the seat now
--- opens its own span), and `never_served` in #546 (a curated never-seated row
--- publishes no span, `conformed/never_seated.py`). The categories:
+-- opens its own span), and `never_served` in #546 (a never-seated row publishes no
+-- span: a `never_seated` operator event since #598 § 1.5). The categories:
 --
 --   election_only    the successor is dated only by an election, which is not
 --                    a seating (#226: the ballot date would open the span early)

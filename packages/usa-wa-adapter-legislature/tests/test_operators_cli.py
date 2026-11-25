@@ -631,3 +631,90 @@ def test_main_a_failed_archive_is_degraded_not_failed(monkeypatch, tmp_path, cap
 
     assert recording.committed == 1
     assert "record the event again as it now stands" in capsys.readouterr().err
+
+
+# ---- #598 spec § 1.5: never_seated ----
+
+
+def _never_seated(d=date(2007, 1, 8), **over):
+    fields = dict(
+        member_id="3476",
+        kind="never_seated",
+        reason="resigned",
+        effective_date=d,
+        evidence_url="https://leg.wa.gov/roster.pdf",
+    )
+    fields.update(over)
+    return EventSpec(**fields)
+
+
+def test_never_seated_dates_the_term_it_never_served():
+    """Its date is the first day of that term: 2007-08 opened 2007-01-08 (RCW 44.04.021)."""
+    cli._validate(_never_seated())
+
+
+def test_never_seated_refuses_a_date_that_is_not_a_term_start():
+    """Lovick resigned 2007-01-05, but the attestation is about the TERM, not the
+    resignation, which a ``departed`` records."""
+    with pytest.raises(OperatorEventError, match="first day of the term"):
+        cli._validate(_never_seated(d=date(2007, 1, 5)))
+
+
+def test_never_seated_carries_no_seat():
+    with pytest.raises(OperatorEventError, match="must not carry a seat"):
+        cli._validate(
+            _never_seated(seat_kind="chamber-house", seat_discriminator="ld-44-position-2")
+        )
+
+
+def test_never_seated_takes_a_biennium_instead_of_a_date():
+    [spec] = load_specs(
+        [
+            {
+                "member_id": "3476",
+                "kind": "never_seated",
+                "reason": "resigned",
+                "biennium": "2007-08",
+                "evidence_url": "https://a",
+            }
+        ]
+    )
+    assert spec.effective_date == date(2007, 1, 8)
+    [early] = load_specs(
+        [
+            {
+                "member_id": "x:1943",
+                "kind": "never_seated",
+                "reason": "declined",
+                "biennium": "1943-44",
+                "evidence_url": "https://a",
+            }
+        ]
+    )
+    assert early.effective_date == date(1943, 1, 1)  # before the 1981 floor
+
+
+def _row(**over):
+    return {
+        "member_id": "3476",
+        "kind": "never_seated",
+        "reason": "resigned",
+        "evidence_url": "https://a",
+        **over,
+    }
+
+
+def test_biennium_dates_only_a_never_seated():
+    """``--biennium`` would silently date a death to a term's first day (CR 1)."""
+    with pytest.raises(OperatorEventError, match="never_seated only"):
+        load_specs([_row(kind="departed", reason="died", biennium="2025-26")])
+
+
+@pytest.mark.parametrize(
+    "over",
+    [{"biennium": "2007"}, {"kind": "departed", "reason": "died", "effective_date": "2025-4-19x"}],
+)
+def test_a_malformed_date_is_a_validation_error_not_a_traceback(over):
+    """The job maps only ``OperatorEventError`` onto exit 2 (CR 2)."""
+    with pytest.raises(OperatorEventError):
+        load_specs([_row(**over)])

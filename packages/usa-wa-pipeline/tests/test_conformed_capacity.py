@@ -124,7 +124,8 @@ def test_a_period_starts_on_the_floor_of_the_earliest_start_not_of_its_key() -> 
         ],
         [],
     )
-    assert (row["valid_from"], row["valid_to"], row["max_holders"]) == (date(2013, 1, 1), None, 1)
+    # #598: the 2013-14 term starts on its second Monday in January, 2013-01-14.
+    assert (row["valid_from"], row["valid_to"], row["max_holders"]) == (date(2013, 1, 14), None, 1)
 
 
 def test_party_and_committee_roles_have_no_limit() -> None:

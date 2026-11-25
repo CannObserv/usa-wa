@@ -14,11 +14,14 @@ import pytest
 
 from usa_wa_common.legislative_calendar import (
     SITE_TZ,
+    WA_TERMS,
     filing_biennium,
     filing_biennium_on,
     filing_window,
     harvest_biennium,
     term_biennium_on,
+    term_end,
+    term_start,
 )
 
 
@@ -78,14 +81,56 @@ def test_a_label_that_is_not_a_biennium_is_refused(label):
 
 
 @pytest.mark.parametrize(
+    "label,start",
+    [
+        ("2025-26", date(2025, 1, 13)),
+        ("2027-28", date(2027, 1, 11)),
+        ("2029-30", date(2029, 1, 8)),
+        ("1981-82", date(1981, 1, 12)),  # the statute's own year (1981 c 288): the floor
+        ("1979-80", date(1979, 1, 1)),  # before the floor: the calendar year (#604)
+        ("1889-90", date(1889, 1, 1)),
+    ],
+)
+def test_a_term_starts_on_the_second_monday_in_january_from_1981(label, start):
+    """#598: RCW 44.04.021, "The regular term of office of each senator and representative
+    shall commence on the second Monday in January following the date of election." Owner
+    decision Q1 (2026-11-24): from 1981, the statute's date; calendar years before, until
+    #604 reads the older session laws."""
+    assert term_start(label) == start
+
+
+@pytest.mark.parametrize(
+    "label,end",
+    [
+        ("2025-26", date(2027, 1, 10)),  # the day before 2027-28's term starts
+        ("2027-28", date(2029, 1, 7)),
+        ("1979-80", date(1981, 1, 11)),  # the seam: its successor's term began 1981-01-12
+        ("1977-78", date(1978, 12, 31)),  # before the floor: the calendar year
+    ],
+)
+def test_a_term_ends_the_day_before_the_next_one_starts(label, end):
+    assert term_end(label) == end
+
+
+def test_consecutive_terms_meet_with_no_gap():
+    for label, after in (("2023-24", "2025-26"), ("1979-80", "1981-82"), ("1977-78", "1979-80")):
+        assert (term_start(after) - term_end(label)).days == 1
+
+
+@pytest.mark.parametrize(
     "day,expected",
     [
         (date(2026, 12, 7), "2025-26"),  # filing has turned; the term has not
-        (date(2026, 12, 31), "2025-26"),
-        (date(2027, 1, 1), "2027-28"),  # calendar-year terms until #598
+        (date(2027, 1, 1), "2025-26"),  # #598: the calendar year no longer flips the term
+        (date(2027, 1, 10), "2025-26"),
+        (date(2027, 1, 11), "2027-28"),  # the second Monday in January
+        (date(1981, 1, 11), "1979-80"),
+        (date(1981, 1, 12), "1981-82"),
+        (date(1979, 1, 1), "1979-80"),  # before the floor: calendar years
+        (date(1978, 12, 31), "1977-78"),
     ],
 )
-def test_the_term_clock_lags_the_filing_clock(day, expected):
+def test_the_term_clock_follows_the_statute(day, expected):
     assert term_biennium_on(day) == expected
 
 
@@ -98,3 +143,18 @@ def test_the_harvest_target_is_the_filing_biennium(monkeypatch):
     assert harvest_biennium(None) == filing_biennium(datetime.now(UTC))
     monkeypatch.setenv("USA_WA_BIENNIUM", "2019-20")
     assert harvest_biennium(date(2026, 12, 7)) == "2019-20"
+
+
+def test_wa_terms_is_the_engine_calendar_for_the_statute():
+    """#598: the span engine takes a ``TermCalendar``; WA's is the statute's."""
+    assert WA_TERMS.start("2027-28") == date(2027, 1, 11)
+    assert WA_TERMS.end("2025-26") == date(2027, 1, 10)
+    assert WA_TERMS.biennium_on(date(2027, 1, 10)) == "2025-26"
+    assert WA_TERMS.start("1979-80") == date(1979, 1, 1)
+
+
+def test_the_term_clock_takes_a_datetime_as_its_day():
+    """dbt hands Python models pandas Timestamps (a datetime subclass): the term clock reads
+    the day, never comparing a timestamp with a date (role_periods, 2026-11-24)."""
+    assert term_biennium_on(datetime(2027, 1, 10, 23, 0)) == "2025-26"
+    assert term_biennium_on(datetime(2027, 1, 11, 0, 0)) == "2027-28"

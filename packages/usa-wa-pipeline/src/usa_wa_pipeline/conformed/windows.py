@@ -47,8 +47,8 @@ from clearinghouse_domain_legislative.boundary_basis import (
     BASIS_OBSERVED,
 )
 from clearinghouse_domain_legislative.span_kinds import KIND_SENATE
-from clearinghouse_domain_legislative.tenure_spans import TenureSpan, biennium_end_date
-from clearinghouse_domain_legislative.terms import biennium_for_date, previous_biennium
+from clearinghouse_domain_legislative.tenure_spans import TenureSpan
+from clearinghouse_domain_legislative.terms import previous_biennium
 from usa_wa_adapter_legislature.roster_pdf.normalize import RosterRecord
 from usa_wa_adapter_legislature.roster_pdf.succession import (
     END_VERBS,
@@ -127,13 +127,13 @@ def _on_seat(span: TenureSpan, window: EdgeWindow) -> bool:
 
 def _starts_with(span: TenureSpan, window: EdgeWindow) -> bool:
     """The span whose start this window dates: keyed in the window's biennium."""
-    return span.start_biennium == biennium_for_date(window.window[0])
+    return span.start_biennium == span.terms.biennium_on(window.window[0])
 
 
 def _starts_after(span: TenureSpan, window: EdgeWindow) -> bool:
     """An appointment only: the span keyed the biennium AFTER the window's
     (``_opens_after_seating``)."""
-    biennium = biennium_for_date(window.window[0])
+    biennium = span.terms.biennium_on(window.window[0])
     return not window.election and previous_biennium(span.start_biennium) == biennium
 
 
@@ -162,7 +162,7 @@ def _date_start(span: TenureSpan, window: EdgeWindow, counts: Counter) -> Tenure
         if first <= span.valid_from:
             counts["election_not_later"] += 1
             return span
-        last = min(biennium_end_date(span.start_biennium), end)
+        last = min(span.terms.end(span.start_biennium), end)
     else:
         last = min(last, end)
     if first > end:
