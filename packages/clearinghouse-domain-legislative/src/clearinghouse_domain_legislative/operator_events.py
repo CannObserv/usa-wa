@@ -9,7 +9,8 @@ these facts (news-first) and interject them here.
 
 An :class:`OperatorEvent` is **event-shaped** — the operator states what happened
 (``departed`` / ``vacated`` / ``seated`` on a date), and the span builders derive the
-effects. Three kinds, split by scope so a chamber move never touches the party span:
+effects. Three dated kinds, split by scope so a chamber move never touches the party span,
+and one term-scoped kind:
 
 - ``departed`` (no seat) — **person-scoped** terminal end: the member stops serving
   entirely, so *every* open span (seat + party + committee) closes at the date. Death,
@@ -18,7 +19,11 @@ effects. Three kinds, split by scope so a chamber move never touches the party s
   party + committees untouched. A chamber move or a single-seat resignation. [Hunt: her
   House seat ends 2025-06-03 while her party continues]
 - ``seated`` (seat) — **seat-scoped** start: one named seat's span opens at the date
-  (instead of the biennium floor). Appointment, swearing-in. [Hunt: Senate from 2025-06-03]
+  (instead of the term's first day). Appointment, swearing-in. [Hunt: Senate from 2025-06-03]
+- ``never_seated`` (no seat; #598 spec § 1.5) — **person- and term-scoped**: listed for a
+  term and never served it. ``effective_date`` is the term's first day; the member's spans
+  that start and end in it are removed before any other event applies. [Lovick: resigned
+  2007-01-05, before the 2007-08 term opened]
 
 A chamber move is thus modeled exactly as ``vacated`` (old seat) + ``seated`` (new seat)
 on the same member, each applied by the builder that owns that seat kind. It is archived
