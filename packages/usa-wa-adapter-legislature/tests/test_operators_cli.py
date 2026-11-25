@@ -692,3 +692,19 @@ def test_never_seated_takes_a_biennium_instead_of_a_date():
         ]
     )
     assert early.effective_date == date(1943, 1, 1)  # before the 1981 floor
+
+
+def _row(**over):
+    return {
+        "member_id": "3476",
+        "kind": "never_seated",
+        "reason": "resigned",
+        "evidence_url": "https://a",
+        **over,
+    }
+
+
+def test_biennium_dates_only_a_never_seated():
+    """``--biennium`` would silently date a death to a term's first day (CR 1)."""
+    with pytest.raises(OperatorEventError, match="never_seated only"):
+        load_specs([_row(kind="departed", reason="died", biennium="2025-26")])

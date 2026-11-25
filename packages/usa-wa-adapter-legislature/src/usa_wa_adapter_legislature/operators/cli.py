@@ -315,7 +315,9 @@ def load_specs(payload: object) -> list[EventSpec]:
                     member_id=str(row["member_id"]),
                     kind=str(row["kind"]),
                     reason=str(row["reason"]),
-                    effective_date=_effective_date(row.get("effective_date"), row.get("biennium")),
+                    effective_date=_effective_date(
+                        row.get("effective_date"), row.get("biennium"), str(row["kind"])
+                    ),
                     evidence_url=str(row["evidence_url"]),
                     seat_kind=row.get("seat_kind"),
                     seat_discriminator=(
@@ -331,10 +333,13 @@ def load_specs(payload: object) -> list[EventSpec]:
     return specs
 
 
-def _effective_date(effective_date: object, biennium: object) -> date:
+def _effective_date(effective_date: object, biennium: object, kind: str) -> date:
     """An event's date: stated, or (``never_seated``, #598 spec § 1.5) the first day of the
-    named biennium's term."""
+    named biennium's term. Any other kind refuses a biennium: it would date the boundary to
+    a term's first day without saying so (CR 1)."""
     if biennium is not None:
+        if kind != KIND_NEVER_SEATED:
+            raise OperatorEventError(f"--biennium is for never_seated only, not {kind!r}")
         if effective_date is not None:
             raise OperatorEventError("give --effective-date or --biennium, not both")
         return WA_TERMS.start(str(biennium))
@@ -354,7 +359,7 @@ def _spec_from_args(args: argparse.Namespace) -> EventSpec:
         member_id=args.member_id,
         kind=args.kind,
         reason=args.reason,
-        effective_date=_effective_date(args.effective_date, args.biennium),
+        effective_date=_effective_date(args.effective_date, args.biennium, args.kind),
         evidence_url=args.evidence_url,
         seat_kind=args.seat_kind,
         seat_discriminator=args.seat_discriminator,
