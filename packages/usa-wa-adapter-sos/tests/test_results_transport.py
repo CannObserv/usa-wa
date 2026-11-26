@@ -7,6 +7,7 @@ and the two distinct failure modes the harvest keys on (no-Legislative-link vs a
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -170,6 +171,8 @@ async def test_an_old_site_404_falls_back_to_the_platform_workbook() -> None:
     assert fetch.url == _platform_api(d)  # the traversal's real entry point, not the old index
     assert fetch.records[0]["Race"].startswith("Legislative District 1 - ")
     assert parse_legislative_results(fetch.wire) == fetch.records  # #56 offline re-parse
+    # #600: the election JSON it read is kept, byte for byte: isOfficialResults certifies
+    assert json.loads(fetch.election)["electionDate"] == "2026-11-03"
 
 
 @pytest.mark.asyncio
@@ -209,7 +212,9 @@ async def test_an_old_site_fetch_reports_no_url_of_its_own() -> None:
         return_value=httpx.Response(200, content=_CSV)
     )
     # The harvest's export.html URL stays the recorded one, so past provenance doesn't move.
-    assert (await SOSResultsClient().fetch_legislative_results(2024)).url is None
+    fetch = await SOSResultsClient().fetch_legislative_results(2024)
+    assert fetch.url is None
+    assert fetch.election is None  # the 2008-2025 CSV path has no election JSON (#600)
 
 
 @pytest.mark.asyncio

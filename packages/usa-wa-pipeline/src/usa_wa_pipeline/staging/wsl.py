@@ -25,7 +25,7 @@ from usa_wa_adapter_legislature.resources import (
     SPONSORS_RESOURCE_PREFIX,
     parse_committee_members_hist_resource_id,
 )
-from usa_wa_pipeline.staging.common import PROVENANCE_SCHEMA
+from usa_wa_pipeline.staging.common import PROVENANCE_SCHEMA, first_fetches
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
 from usa_wa_pipeline.staging.common import provenance as _provenance
 from usa_wa_pipeline.staging.common import text as _text
@@ -86,6 +86,18 @@ MEETING_SCHEMA = {
     **PROVENANCE_SCHEMA,
 }
 MEETING_COLUMNS = list(MEETING_SCHEMA)
+#: #600: when the ARCHIVE first held each member's listing for a biennium: ``fetched_at`` of
+#: the earliest ok ``sponsors:<biennium>`` wire carrying them, and that wire's digest. Not when
+#: WSL published it: for a biennium archived after the fact (all before 2027-28) it is just
+#: the archive's start, so it is evidence only for one captured ahead of its term (#599).
+FIRST_SEEN_SCHEMA = {
+    "biennium": "VARCHAR",
+    "member_id": "VARCHAR",
+    "first_seen_at": "VARCHAR",
+    "first_sha256": "VARCHAR",
+    **PROVENANCE_SCHEMA,
+}
+FIRST_SEEN_COLUMNS = list(FIRST_SEEN_SCHEMA)
 
 
 def committee_rows(
@@ -200,3 +212,36 @@ def meeting_rows(
                     }
                 )
     return rows
+
+
+def first_seen_rows(
+    store: RawStore, *, parse: Parser = parsing.parse_sponsors
+) -> list[dict[str, Any]]:
+    """Every ``sponsors:<biennium>`` wire ever archived → each member's first ARCHIVED listing
+    (#600) — an upper bound on when WSL listed them, never a lower one.
+
+    Staging reads only the newest wire per resource; a member-elect's start is evidenced
+    by the earliest, so this walks every run manifest. The nightly refetches an unchanged
+    wire and records it again, so each distinct digest is parsed once, at its earliest
+    fetch."""
+    earliest = first_fetches(store, SPONSORS_RESOURCE_PREFIX)
+    first: dict[tuple[str, str], tuple[str, str]] = {}  # (resource, member) → (at, sha)
+    for (resource_id, sha), fetched_at in sorted(earliest.items()):
+        wire = store.object_path(sha).read_bytes()
+        for record in parse(wire):
+            member = _text(record.get("Id"))
+            if member is None:
+                continue
+            key = (resource_id, member)
+            if key not in first or fetched_at < first[key][0]:
+                first[key] = (fetched_at, sha)
+    return [
+        {
+            "biennium": resource_id.removeprefix(SPONSORS_RESOURCE_PREFIX),
+            "member_id": member,
+            "first_seen_at": fetched_at,
+            "first_sha256": sha,
+            **_provenance(store, resource_id),
+        }
+        for (resource_id, member), (fetched_at, sha) in sorted(first.items())
+    ]

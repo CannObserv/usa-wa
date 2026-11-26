@@ -5,6 +5,8 @@ adapters over these). Parsers are injected; the real offline SOAP parse is the
 adapter's contract, cassette-tested there.
 """
 
+from datetime import datetime
+
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_pipeline.staging import wsl
 
@@ -130,3 +132,47 @@ def test_meeting_rows_flatten_committee_refs(tmp_path) -> None:
         ("6", "House"),
     }
     assert all(r["meeting_window"] == "2025-01-01:2026-12-31" for r in rows)
+
+
+def _run(store: RawStore, when: str, resources: dict[str, bytes | None]) -> None:
+    run = store.open_run(run_id=when)
+    for resource_id, body in resources.items():
+        run.record(
+            resource_id,
+            body,
+            url="u",
+            status="ok" if body is not None else "err",
+            fetched_at=datetime.fromisoformat(when),
+        )
+    run.close()
+
+
+def test_first_seen_keeps_each_members_earliest_listing_across_runs(tmp_path) -> None:
+    """#600: the first-evidence date of a member-elect. Staging is latest-wire only,
+    so this walks every manifest; an identical refetch never moves a date, and each
+    distinct wire is parsed once."""
+    store = RawStore(tmp_path, "usa_wa_legislature")
+    _run(store, "2026-11-25T08:04:00+00:00", {"sponsors:2027-28": b"one"})
+    _run(store, "2026-11-26T08:04:00+00:00", {"sponsors:2027-28": b"one"})  # unchanged
+    _run(
+        store,
+        "2026-11-27T08:04:00+00:00",
+        {"sponsors:2027-28": b"two", "committees-roster:2027-28": b"ignored"},
+    )
+    _run(store, "2026-11-28T08:04:00+00:00", {"sponsors:2027-28": None})  # an error
+    parsed: list[bytes] = []
+
+    def parse(wire: bytes):
+        parsed.append(wire)
+        return {b"one": [{"Id": 1}], b"two": [{"Id": 1}, {"Id": 35476}]}[wire]
+
+    rows = wsl.first_seen_rows(store, parse=parse)
+    assert sorted(parsed) == [b"one", b"two"]
+    by_member = {r["member_id"]: r for r in rows}
+    assert by_member["1"]["first_seen_at"] == "2026-11-25T08:04:00.000000Z"
+    assert by_member["35476"]["first_seen_at"] == "2026-11-27T08:04:00.000000Z"
+    assert by_member["35476"]["biennium"] == "2027-28"
+    assert by_member["35476"]["first_sha256"] == store.put_object(b"two")[0]
+    assert by_member["35476"]["resource_id"] == "sponsors:2027-28"
+    assert by_member["35476"]["source"] == "usa_wa_legislature"
+    assert set(rows[0]) == set(wsl.FIRST_SEEN_SCHEMA)

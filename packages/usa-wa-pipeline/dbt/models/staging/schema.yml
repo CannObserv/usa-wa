@@ -20,6 +20,15 @@ models:
         data_tests: [not_null]
       - name: member_id
         data_tests: [not_null]
+  - name: stg_wsl_first_seen
+    description: One row per (biennium, member) — the earliest ARCHIVED ok sponsors wire listing them, across every run manifest (#600). An upper bound on WSL's listing date; evidence only for a biennium captured ahead of its term (2027-28 on, #599) — for earlier ones it is the archive's start.
+    columns:
+      - name: biennium
+        data_tests: [not_null]
+      - name: member_id
+        data_tests: [not_null]
+      - name: first_seen_at
+        data_tests: [not_null]
   - name: stg_wsl_committee_members
     description: One row per (biennium, committee, member, honorific) — chamber movers list twice (see tests/); committee key rides the resource id (#82).
     columns:
@@ -63,6 +72,15 @@ models:
       - name: election_year
         data_tests: [not_null]
       - name: filer_id
+        data_tests: [not_null]
+  - name: stg_sos_election
+    description: One row per distinct platform election JSON at its first fetch (#600); the first with is_official_results true dates certification.
+    columns:
+      - name: election_date
+        data_tests: [not_null]
+      - name: fetched_at
+        data_tests: [not_null]
+      - name: sha256
         data_tests: [not_null]
   - name: stg_sos_results
     description: One row per (election, race, candidate) from the archived results exports (#307).

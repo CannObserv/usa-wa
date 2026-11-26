@@ -99,11 +99,13 @@ live, MODULES-LEGISLATURE.md § Vendored WSDLs):
 |---|---|---|
 | `stg_wsl_committees` | (biennium, committee_id) | newest `committees-roster:*` wire per biennium |
 | `stg_wsl_sponsors` | (biennium, member_id, agency) | a chamber move lists both agencies |
+| `stg_wsl_first_seen` | (biennium, member_id) | #600; the EARLIEST archived ok `sponsors:*` wire listing each member, across every run manifest (staging is otherwise newest-wire only): a member-elect's first evidence. When the archive first held it, not when WSL published it — evidence only for a biennium captured ahead of its term (2027-28 on, #599); before that it is the archive's start |
 | `stg_wsl_committee_members` | (biennium, committee_id, member_id, long_name) | chamber movers list twice; committee key rides the resource id (#82) |
 | `stg_wsl_meetings` | none (raw refs) | all agencies kept; Joint/`Other` filter is downstream policy |
 | `stg_roster_members` | (year, chamber, district, order, name) | order is seat-lineage order (#229): a successor inherits it |
 | `stg_pdc_winners` | (chamber, election_year, filer_id) | #307; `person_id` is the `wa_pdc` link value |
-| `stg_sos_results` | (election_date, race, candidate) | #307. **Provisional rows (#135):** the early capture stages the next biennium's seating election from the day after it is held, so from election night until SOS certifies (~30 days) that election's votes change nightly — each export replaces the last under the same `resource_id`. No column marks it yet |
+| `stg_sos_results` | (election_date, race, candidate) | #307. **Provisional rows (#135):** the early capture stages the next biennium's seating election from the day after it is held, so from election night until SOS certifies (~30 days) that election's votes change nightly — each export replaces the last under the same `resource_id`. No column here marks it: `stg_sos_election` (#600, 2026+) dates certification, the first wire whose `is_official_results` is true |
+| `stg_sos_election` | (election_date, sha256) | #600; every distinct platform election JSON (`sos-election:<date>`, 2026+) at its first fetch — the first with `is_official_results` true dates certification |
 | `stg_sos_filings` | — | #307; store empty until the raw harvest runs (no archived filings payloads existed to export) |
 | `stg_raw_fetches` | (source, resource_id) | #313; the attestation dimension — sources DISCOVERED from the raw root, never configured |
 

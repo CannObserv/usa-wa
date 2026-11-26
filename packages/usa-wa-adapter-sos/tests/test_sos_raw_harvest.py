@@ -17,7 +17,7 @@ from usa_wa_adapter_sos.raw_harvest import (
     harvest_raw,
     job_outcome,
 )
-from usa_wa_adapter_sos.results.resources import legresults_resource_id
+from usa_wa_adapter_sos.results.resources import election_resource_id, legresults_resource_id
 from usa_wa_common.elections import election_years_for_biennium
 
 BIENNIUM = "2025-26"
@@ -229,6 +229,42 @@ async def test_a_platform_fetch_records_the_url_it_came_from(tmp_path) -> None:
     urls = {e["resource_id"]: e["url"] for e in results["entries"]}
     assert urls[legresults_resource_id(2025)] == platform
     assert urls[legresults_resource_id(2024)].endswith("/export.html")
+
+
+async def test_a_platform_fetch_archives_its_election_json_beside_the_results(tmp_path) -> None:
+    """#600: the election JSON carries isOfficialResults, the certification evidence. It is
+    archived under its own id, from the platform URL; the results counters don't count it."""
+    platform = "https://results.votewa.gov/results/public/api/elections/washington/20251104"
+
+    @dataclass
+    class _PlatformWire(_Wire):
+        url: str | None = None
+        election: bytes | None = None
+
+    class PlatformForOneYear(FakeResultsClient):
+        async def fetch_legislative_results(self, election_year: int) -> _Wire:
+            wire = f"results-{election_year}".encode()
+            if election_year != 2025:
+                return _Wire(wire=wire)
+            return _PlatformWire(wire=wire, url=platform, election=b'{"isOfficialResults":true}')
+
+    summary = await harvest_raw(
+        tmp_path,
+        biennium=BIENNIUM,
+        today=TODAY,
+        filings_client=FakeFilingsClient(),
+        results_client=PlatformForOneYear(),
+    )
+    store = RawStore(tmp_path, "usa_wa_sos_results")
+    entries = {
+        e["resource_id"]: e for e in json.loads(store.manifest_paths()[0].read_text())["entries"]
+    }
+    election = entries[election_resource_id(2025)]
+    assert election["url"] == platform
+    assert election["content_type"] == "application/json"
+    assert store.object_path(election["sha256"]).read_bytes() == b'{"isOfficialResults":true}'
+    assert election_resource_id(2024) not in entries  # the CSV path has none
+    assert summary["results"]["fetched"] == 2
 
 
 HEALTHY = {"fetched": 2, "unchanged": 0, "skipped_fresh": 0, "errors": 0}

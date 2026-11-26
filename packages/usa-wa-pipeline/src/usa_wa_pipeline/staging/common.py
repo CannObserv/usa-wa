@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from typing import Any
 
@@ -34,3 +35,30 @@ def latest_wires(store: RawStore, prefix: str) -> Iterator[tuple[str, bytes]]:
 def text(value: Any) -> str | None:
     """Source ids as text, uniformly — sources render ints, resource ids carry strings."""
     return None if value is None else str(value)
+
+
+def first_fetches(store: RawStore, prefix: str) -> dict[tuple[str, str], str]:
+    """Every distinct wire ever archived under ``prefix`` → its EARLIEST ok fetch (#600).
+
+    ``(resource_id, sha256) → fetched_at``, walking every run manifest: staging otherwise
+    reads only the newest wire, and the nightly records an unchanged refetch again, so this
+    is how a builder learns when a wire's content first appeared. Manifest timestamps share
+    one format, so they order as text. A half-written manifest contributes nothing."""
+    earliest: dict[tuple[str, str], str] = {}
+    for path in store.manifest_paths():
+        try:
+            manifest = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        for entry in manifest.get("entries", []):
+            resource_id = entry.get("resource_id") or ""
+            sha, fetched_at = entry.get("sha256"), entry.get("fetched_at")
+            if (
+                resource_id.startswith(prefix)
+                and entry.get("status") == "ok"
+                and sha
+                and fetched_at
+            ):
+                key = (resource_id, sha)
+                earliest[key] = min(fetched_at, earliest.get(key, fetched_at))
+    return earliest

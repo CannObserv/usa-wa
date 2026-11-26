@@ -436,6 +436,20 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
         min_rows=2650,
     ),
     PublishedDataset(
+        "stg_wsl_first_seen",
+        "staging",
+        (
+            ContractRelease(
+                "1.0.0",
+                ("biennium", "member_id", "first_seen_at", "first_sha256", "source", "resource_id"),
+                "#600: first release — each member's earliest ARCHIVED listing per biennium "
+                "across every sponsors wire; a member-elect's first evidence. An upper bound on "
+                "WSL's own date, meaningful only from 2027-28 (captured ahead of its term)",
+            ),
+        ),
+        min_rows=2650,
+    ),
+    PublishedDataset(
         "stg_wsl_committee_members",
         "staging",
         (
@@ -551,6 +565,28 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
             ),
         ),
         min_rows=2300,
+    ),
+    PublishedDataset(
+        "stg_sos_election",
+        "staging",
+        (
+            ContractRelease(
+                "1.0.0",
+                (
+                    "election_date",
+                    "fetched_at",
+                    "sha256",
+                    "is_official_results",
+                    "last_updated",
+                    "source",
+                    "resource_id",
+                ),
+                "#600: first release — every distinct platform election JSON at its first "
+                "fetch; the first with is_official_results true dates certification",
+            ),
+        ),
+        # Empty until the first nightly on #600 archives an election JSON (2026+ only).
+        min_rows=0,
     ),
     PublishedDataset(
         "stg_sos_filings",

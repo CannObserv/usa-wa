@@ -25,10 +25,11 @@ from usa_wa_pipeline.registry_read import CROSSWALK_SCHEMA
 from usa_wa_pipeline.staging.fetches import FETCH_SCHEMA
 from usa_wa_pipeline.staging.pdc import WINNER_SCHEMA
 from usa_wa_pipeline.staging.roster import ROSTER_SCHEMA
-from usa_wa_pipeline.staging.sos import FILING_SCHEMA, RESULT_SCHEMA
+from usa_wa_pipeline.staging.sos import ELECTION_SCHEMA, FILING_SCHEMA, RESULT_SCHEMA
 from usa_wa_pipeline.staging.wsl import (
     COMMITTEE_MEMBER_SCHEMA,
     COMMITTEE_SCHEMA,
+    FIRST_SEEN_SCHEMA,
     MEETING_SCHEMA,
     SPONSOR_SCHEMA,
 )
@@ -37,10 +38,12 @@ MODEL_SCHEMAS = {
     "stg_pdc_winners": WINNER_SCHEMA,
     "stg_raw_fetches": FETCH_SCHEMA,
     "stg_roster_members": ROSTER_SCHEMA,
+    "stg_sos_election": ELECTION_SCHEMA,
     "stg_sos_filings": FILING_SCHEMA,
     "stg_sos_results": RESULT_SCHEMA,
     "stg_wsl_committee_members": COMMITTEE_MEMBER_SCHEMA,
     "stg_wsl_committees": COMMITTEE_SCHEMA,
+    "stg_wsl_first_seen": FIRST_SEEN_SCHEMA,
     "stg_wsl_meetings": MEETING_SCHEMA,
     "stg_wsl_sponsors": SPONSOR_SCHEMA,
     "match_roster_wsl": LINK_SCHEMA,
