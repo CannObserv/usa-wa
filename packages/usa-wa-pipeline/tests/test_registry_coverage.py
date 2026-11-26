@@ -31,8 +31,8 @@ from usa_wa_pipeline.registry_coverage import (
     run_coverage,
 )
 from usa_wa_pipeline.staging.roster import ROSTER_SCHEMA
-from usa_wa_pipeline.staging.sos import RESULT_SCHEMA
-from usa_wa_pipeline.staging.wsl import COMMITTEE_MEMBER_SCHEMA, SPONSOR_SCHEMA
+from usa_wa_pipeline.staging.sos import ELECTION_SCHEMA, RESULT_SCHEMA
+from usa_wa_pipeline.staging.wsl import COMMITTEE_MEMBER_SCHEMA, FIRST_SEEN_SCHEMA, SPONSOR_SCHEMA
 
 CURRENT = "2025-26"
 
@@ -176,7 +176,7 @@ def _ballot_row() -> dict:
 
 
 def _pipeline_db(tmp_path, *, sponsors=(), roster=(), sos=()) -> str:
-    """A built-looking duckdb holding only the four staging tables the span build reads."""
+    """A built-looking duckdb holding only the six staging tables the span build reads."""
     db_path = str(tmp_path / "pipeline.duckdb")
     con = duckdb.connect(db_path)
     for table, schema, rows in (
@@ -184,6 +184,8 @@ def _pipeline_db(tmp_path, *, sponsors=(), roster=(), sos=()) -> str:
         ("stg_wsl_committee_members", COMMITTEE_MEMBER_SCHEMA, ()),
         ("stg_roster_members", ROSTER_SCHEMA, roster),
         ("stg_sos_results", RESULT_SCHEMA, sos),
+        ("stg_wsl_first_seen", FIRST_SEEN_SCHEMA, ()),
+        ("stg_sos_election", ELECTION_SCHEMA, ()),
     ):
         columns = ", ".join(f'"{name}" {type_}' for name, type_ in schema.items())
         con.execute(f"create table {table} ({columns})")

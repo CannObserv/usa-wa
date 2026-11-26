@@ -81,6 +81,8 @@ STAGING_INPUTS = {
     "committee_members": "stg_wsl_committee_members",
     "roster": "stg_roster_members",
     "sos_results": "stg_sos_results",
+    "first_seen": "stg_wsl_first_seen",
+    "elections": "stg_sos_election",
 }
 
 #: How many unbound keys of each kind a report names.
@@ -186,10 +188,12 @@ def run_coverage(
         return JobResult.degraded({"empty_sos_rows": True})
 
     window_counts: Counter = Counter()
+    elect_counts: Counter = Counter()
     families = build_families(
         SpanInputs(**staging, events=events),
         current_biennium=current_biennium,
         window_counts=window_counts,
+        elect_counts=elect_counts,
     )
     counters = coverage_counters(
         families,
@@ -202,6 +206,9 @@ def run_coverage(
     # the roster's annotation windows (#501 D6a): `contradicted` is an operator event
     # that disagrees with its own roster clause — reported, never gated (CR 7)
     counters["annotation_windows"] = dict(window_counts)
+    # #600: WSL lists winners for weeks after the general, so an unlisted one is a count
+    # here, never a gate; `ambiguous` and `no_evidence` are the never-guessed seats
+    counters["member_elects"] = dict(elect_counts)
     counters["integrity_failures"] = [name for name in GATED_COUNTERS if counters[name]]
     clean = not counters["integrity_failures"]
     (logger.info if clean else logger.error)(

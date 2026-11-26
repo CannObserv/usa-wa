@@ -35,13 +35,17 @@ from datetime import date, timedelta
 from typing import Any
 
 from clearinghouse_domain_legislative.seat_clipping import Capacity, CapacityPeriod
-from clearinghouse_domain_legislative.span_kinds import KIND_SENATE, SINGLE_HOLDER_KINDS
+from clearinghouse_domain_legislative.span_kinds import (
+    ELECT_KINDS,
+    KIND_SENATE,
+    SINGLE_HOLDER_KINDS,
+)
 from clearinghouse_domain_legislative.terms import biennium_for_date
 from usa_wa_common.legislative_calendar import WA_TERMS
 from usa_wa_common.names import strip_tenure_notes
 
-#: The seat kind's own rule: one per Senate seat or House Position, no limit for a
-#: party or committee.
+#: The seat kind's own rule: one per Senate seat or House Position, one member-elect per
+#: seat-elect role (#600), no limit for a party or committee.
 MAX_HOLDERS_KIND = "kind"
 
 #: Counted from the roster's bare multi-row listing (the 1889 Senate).
@@ -141,6 +145,10 @@ def role_period_rows(
         # still inside a period, so `role_periods_tiled` never sees it uncovered.
         floor = WA_TERMS.start(WA_TERMS.biennium_on(first[role_key]))
         kind, discriminator = seat[role_key]
+        if kind in ELECT_KINDS:
+            # #600: from the first election day, which lies before the term it is won for
+            out.append(_row(role_key, first[role_key], None, 1, MAX_HOLDERS_KIND))
+            continue
         if kind not in SINGLE_HOLDER_KINDS:
             out.append(_row(role_key, floor, None, None, MAX_HOLDERS_KIND))
             continue

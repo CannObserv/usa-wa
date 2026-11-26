@@ -95,6 +95,7 @@ from usa_wa_adapter_legislature.sponsors.roster_hygiene import (
 from usa_wa_common.legislative_calendar import WA_TERMS, term_biennium_on
 from usa_wa_common.seats import district_number
 from usa_wa_pipeline.conformed.crosswalk import merge_map, resolve_merged
+from usa_wa_pipeline.conformed.elect import build_elect_spans
 from usa_wa_pipeline.conformed.house import build_house_spans
 from usa_wa_pipeline.conformed.memberships import apply_memberships
 from usa_wa_pipeline.conformed.movers import (
@@ -169,6 +170,11 @@ class SpanInputs:
     #: SOS legislative-results rows — the ballot that positions a House seat
     #: (#101). Refused empty under a live sponsor corpus for the same reason.
     sos_results: list[dict[str, Any]] = field(default_factory=list)
+    #: #600's first evidence for a member-elect: each member's first archived WSL listing
+    #: (``stg_wsl_first_seen``) and the archived election JSON (``stg_sos_election``).
+    #: Empty builds no member-elect, never a guessed window.
+    first_seen: list[dict[str, Any]] = field(default_factory=list)
+    elections: list[dict[str, Any]] = field(default_factory=list)
 
 
 def seatings_from_sponsors(rows: list[dict[str, Any]]) -> list[Seating]:
@@ -587,9 +593,13 @@ def without_future_bienniums(inputs: SpanInputs, *, current_biennium: str) -> Sp
     - ``organizations`` (the committee rosters): ``last_biennium`` reads the next biennium for
       every committee it lists, while ``active`` (equality with the current biennium) is
       unchanged;
-    - ``citations``: persons and committees gain the next biennium's wires as attestations, and
-      no assignment cites one (an open span carries the current biennium as its
-      ``span_end_biennium``, so ``newest_biennium`` never extends it).
+    - ``citations``: persons and committees gain the next biennium's wires as attestations.
+      Of the assignments only a member-elect (#600) cites one, its own biennium's sponsor
+      wire: an open span carries the current biennium as its ``span_end_biennium``, so
+      ``newest_biennium`` never extends it.
+
+    The member-elect builder (``conformed.elect``) reads the inputs before this guard: the
+    listing that names a member-elect IS the next biennium's.
 
     Logged at INFO: from the night WSL publishes until the rollover the exclusion is routine.
     The ``assignments`` model's log reaches nobody (see there); ``registry_coverage`` runs this
@@ -677,6 +687,7 @@ def build_families(
     current_biennium: str,
     window_counts: Counter | None = None,
     never_seated_stale: list[SuccessionEvent] | None = None,
+    elect_counts: Counter | None = None,
 ) -> dict[str, list[TenureSpan]]:
     """Both span families, keyed by source — the one sequence every caller runs.
 
@@ -699,7 +710,20 @@ def build_families(
     curated table) — spans, never rows: the projector has already read every row as a
     #517 interlude. One set collects the attestations either family applied; one that
     neither did is stale, and a caller that refuses it passes ``never_seated_stale``.
+
+    The member-elects (``conformed.elect``, #600) join the WSL family last. They are read
+    from the inputs BEFORE the future-biennium guard, because the listing that names a
+    member-elect is the next biennium's; they are dated, so no window or membership moves
+    them, and outside ``SINGLE_HOLDER_KINDS``, so the clip never reads one.
     """
+    elect = build_elect_spans(
+        sponsors=inputs.sponsors,
+        sos_results=inputs.sos_results,
+        first_seen=inputs.first_seen,
+        elections=inputs.elections,
+        events=inputs.events,
+        counts=elect_counts,
+    )
     inputs = without_future_bienniums(inputs, current_biennium=current_biennium)
     inputs = without_non_legislator_committee_rows(inputs)
     resolution = roster_resolution(inputs.roster, inputs.sponsors)
@@ -742,6 +766,7 @@ def build_families(
         )
     if never_seated_stale is not None:
         never_seated_stale.extend(stale)
+    families[SOURCE] = [*families[SOURCE], *elect]
     return families
 
 
