@@ -30,7 +30,7 @@ from urllib.parse import urlencode
 
 from clearinghouse_core.job import JobContext, JobFailure, JobResult, run_job
 from clearinghouse_core.logging import get_logger
-from clearinghouse_core.rawstore import RawStore, get_raw_root, record_fetch
+from clearinghouse_core.rawstore import RawRun, RawStore, get_raw_root, record_fetch
 from usa_wa_adapter_sos.coverage import SOS_FILINGS_SOURCE_SLUG, SOS_RESULTS_SOURCE_SLUG
 from usa_wa_adapter_sos.filings.resources import whofiled_resource_id
 from usa_wa_adapter_sos.filings.transport import (
@@ -39,7 +39,7 @@ from usa_wa_adapter_sos.filings.transport import (
 from usa_wa_adapter_sos.filings.transport import (
     general_election_date as filings_election_date,
 )
-from usa_wa_adapter_sos.results.resources import legresults_resource_id
+from usa_wa_adapter_sos.results.resources import election_resource_id, legresults_resource_id
 from usa_wa_adapter_sos.results.transport import (
     SOSResultsClient,
 )
@@ -169,7 +169,7 @@ async def harvest_raw(
         results_run = results_store.open_run()
         try:
             for year in years:
-                await record_fetch(
+                outcome = await record_fetch(
                     results_run,
                     results_store,
                     legresults_resource_id(year),
@@ -181,6 +181,7 @@ async def harvest_raw(
                     ttl_days,
                     log_event="sos_raw_harvest_cohort_failed",
                 )
+                _record_election(results_run, year, outcome.payload)
         finally:
             results_run.close()
     except Exception as exc:
@@ -195,6 +196,18 @@ async def harvest_raw(
         extra={"biennium": biennium, "lookahead_year": lookahead, "summary": counters},
     )
     return counters
+
+
+def _record_election(run: RawRun, year: int, payload: Any) -> None:
+    """Archive the platform election JSON a results fetch read (#600): its
+    ``isOfficialResults`` flag dates certification. Evidence beside the results, so it
+    joins no counter: the results cohort's own fetch already says whether the year landed."""
+    election = getattr(payload, "election", None)
+    if election is None:
+        return
+    run.record(
+        election_resource_id(year), election, url=payload.url, content_type="application/json"
+    )
 
 
 def _summarize(filings: dict[str, int], results: dict[str, int]) -> dict[str, Any]:

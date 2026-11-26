@@ -19,6 +19,17 @@ def legresults_resource_id(election_year: int) -> str:
     return f"{LEGRESULTS_RESOURCE_PREFIX}{general_election_date(election_year)}"
 
 
+#: #600: the results platform's election JSON for that general, archived beside its results.
+#: Its ``isOfficialResults`` flag is the certification evidence for every race on the ballot.
+ELECTION_RESOURCE_PREFIX = "sos-election:"
+
+
+def election_resource_id(election_year: int) -> str:
+    """The archive resource id for a general's platform election JSON —
+    ``sos-election:<YYYYMMDD>``."""
+    return f"{ELECTION_RESOURCE_PREFIX}{general_election_date(election_year)}"
+
+
 def election_year_from_resource_id(resource_id: str) -> int:
     """Recover the election year from a ``sos-legresults:<YYYYMMDD>`` resource id."""
     if not resource_id.startswith(LEGRESULTS_RESOURCE_PREFIX):

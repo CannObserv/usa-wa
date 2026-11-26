@@ -105,6 +105,7 @@ live, MODULES-LEGISLATURE.md § Vendored WSDLs):
 | `stg_roster_members` | (year, chamber, district, order, name) | order is seat-lineage order (#229): a successor inherits it |
 | `stg_pdc_winners` | (chamber, election_year, filer_id) | #307; `person_id` is the `wa_pdc` link value |
 | `stg_sos_results` | (election_date, race, candidate) | #307. **Provisional rows (#135):** the early capture stages the next biennium's seating election from the day after it is held, so from election night until SOS certifies (~30 days) that election's votes change nightly — each export replaces the last under the same `resource_id`. No column marks it yet |
+| `stg_sos_election` | (election_date, sha256) | #600; every distinct platform election JSON (`sos-election:<date>`, 2026+) at its first fetch — the first with `is_official_results` true dates certification |
 | `stg_sos_filings` | — | #307; store empty until the raw harvest runs (no archived filings payloads existed to export) |
 | `stg_raw_fetches` | (source, resource_id) | #313; the attestation dimension — sources DISCOVERED from the raw root, never configured |
 

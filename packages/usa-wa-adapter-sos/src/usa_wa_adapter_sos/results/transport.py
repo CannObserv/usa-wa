@@ -70,12 +70,15 @@ class WireFetch:
     truth archived + hashed (#54); ``records`` is the decoded row list, derivative (``wire`` wins
     on any disagreement). ``url`` is set only when the wire came from somewhere other than the
     old export index the harvest records by default — the platform's election JSON (#575).
+    ``election`` is that election JSON's own body, kept for its ``isOfficialResults`` flag
+    (#600, certification evidence); the old CSV path has none.
     """
 
     records: list[dict[str, Any]]
     wire: bytes
     content_type: str
     url: str | None = None
+    election: bytes | None = None
 
 
 class LegislativeExportNotFound(LookupError):
@@ -232,4 +235,5 @@ class SOSResultsClient:
             wire=wire,
             content_type=response.headers.get("content-type", "application/octet-stream"),
             url=election_url,
+            election=election_response.content,
         )

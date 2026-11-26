@@ -8,14 +8,18 @@ these rows feed the conformed span builders (#309), not the registry.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_adapter_sos import parsing
 from usa_wa_adapter_sos.filings.resources import WHOFILED_RESOURCE_PREFIX
-from usa_wa_adapter_sos.results.resources import LEGRESULTS_RESOURCE_PREFIX
-from usa_wa_pipeline.staging.common import PROVENANCE_SCHEMA
+from usa_wa_adapter_sos.results.resources import (
+    ELECTION_RESOURCE_PREFIX,
+    LEGRESULTS_RESOURCE_PREFIX,
+)
+from usa_wa_pipeline.staging.common import PROVENANCE_SCHEMA, first_fetches
 from usa_wa_pipeline.staging.common import latest_wires as _latest_wires
 from usa_wa_pipeline.staging.common import provenance as _provenance
 
@@ -46,6 +50,17 @@ FILING_SCHEMA = {
     **PROVENANCE_SCHEMA,
 }
 FILING_COLUMNS = list(FILING_SCHEMA)
+#: #600: one row per distinct platform election JSON, at its first fetch. The first row
+#: whose ``is_official_results`` is true dates certification for that general.
+ELECTION_SCHEMA = {
+    "election_date": "VARCHAR",
+    "fetched_at": "VARCHAR",
+    "sha256": "VARCHAR",
+    "is_official_results": "BOOLEAN",
+    "last_updated": "VARCHAR",
+    **PROVENANCE_SCHEMA,
+}
+ELECTION_COLUMNS = list(ELECTION_SCHEMA)
 
 
 def result_rows(
@@ -88,3 +103,36 @@ def filing_rows(store: RawStore, *, parse: Parser = parsing.parse_whofiled) -> l
                 }
             )
     return rows
+
+
+def election_rows(store: RawStore) -> list[dict[str, Any]]:
+    """Every distinct ``sos-election:<YYYYMMDD>`` wire, at its earliest fetch (#600).
+
+    The flag is read with ``.get`` and kept only when it is a real boolean: a body that
+    isn't the election JSON (an HTML error page served 200) asserts nothing, so its row
+    carries null rather than a guess."""
+    rows = []
+    for (resource_id, sha), fetched_at in sorted(
+        first_fetches(store, ELECTION_RESOURCE_PREFIX).items()
+    ):
+        election = _json_object(store.object_path(sha).read_bytes())
+        official = election.get("isOfficialResults")
+        rows.append(
+            {
+                "election_date": resource_id.removeprefix(ELECTION_RESOURCE_PREFIX),
+                "fetched_at": fetched_at,
+                "sha256": sha,
+                "is_official_results": official if isinstance(official, bool) else None,
+                "last_updated": election.get("lastUpdated"),
+                **_provenance(store, resource_id),
+            }
+        )
+    return rows
+
+
+def _json_object(wire: bytes) -> dict[str, Any]:
+    try:
+        decoded = json.loads(wire)
+    except ValueError:
+        return {}
+    return decoded if isinstance(decoded, dict) else {}

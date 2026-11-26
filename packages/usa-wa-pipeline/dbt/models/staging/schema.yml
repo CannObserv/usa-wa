@@ -73,6 +73,15 @@ models:
         data_tests: [not_null]
       - name: filer_id
         data_tests: [not_null]
+  - name: stg_sos_election
+    description: One row per distinct platform election JSON at its first fetch (#600); the first with is_official_results true dates certification.
+    columns:
+      - name: election_date
+        data_tests: [not_null]
+      - name: fetched_at
+        data_tests: [not_null]
+      - name: sha256
+        data_tests: [not_null]
   - name: stg_sos_results
     description: One row per (election, race, candidate) from the archived results exports (#307).
     columns:

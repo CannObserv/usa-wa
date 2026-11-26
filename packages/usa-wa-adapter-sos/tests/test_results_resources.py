@@ -7,6 +7,7 @@ import pytest
 from usa_wa_adapter_sos.coverage import SOS_RESULTS_SOURCE_SLUG
 from usa_wa_adapter_sos.provisioning import get_or_create_results_source
 from usa_wa_adapter_sos.results.resources import (
+    election_resource_id,
     election_year_from_resource_id,
     legresults_resource_id,
 )
@@ -16,6 +17,11 @@ def test_resource_id_round_trips_the_election_year() -> None:
     rid = legresults_resource_id(2024)
     assert rid == "sos-legresults:20241105"
     assert election_year_from_resource_id(rid) == 2024
+
+
+def test_the_election_json_is_keyed_by_the_same_date() -> None:
+    """#600: the platform's election JSON, archived beside the results it lists."""
+    assert election_resource_id(2026) == "sos-election:20261103"
 
 
 def test_election_year_from_unknown_resource_id_raises() -> None:

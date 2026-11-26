@@ -1,5 +1,7 @@
 """PDC + SOS staging row-builders (#307). Parsers injected, as in the WSL suite."""
 
+from datetime import datetime
+
 from clearinghouse_core.rawstore import RawStore
 from usa_wa_pipeline.staging import pdc, sos
 
@@ -88,3 +90,40 @@ def test_empty_stores_yield_no_rows(tmp_path) -> None:
     assert pdc.winner_rows(RawStore(tmp_path, "usa_wa_pdc")) == []
     assert sos.result_rows(RawStore(tmp_path, "usa_wa_sos_results")) == []
     assert sos.filing_rows(RawStore(tmp_path, "usa_wa_sos")) == []
+
+
+def _election_run(store: RawStore, when: str, body: bytes | None) -> None:
+    run = store.open_run(run_id=when)
+    run.record(
+        "sos-election:20261103",
+        body,
+        url="u",
+        status="ok" if body is not None else "err",
+        fetched_at=datetime.fromisoformat(when),
+    )
+    run.close()
+
+
+def test_sos_election_rows_one_per_distinct_wire_at_its_first_fetch(tmp_path) -> None:
+    """#600: certification is the first wire whose isOfficialResults is true, so every
+    distinct election JSON is a row, dated by when it first appeared."""
+    store = RawStore(tmp_path, "usa_wa_sos_results")
+    provisional = b'{"isOfficialResults": false, "lastUpdated": "2026-11-24T20:40:00Z"}'
+    official = b'{"isOfficialResults": true, "lastUpdated": "2026-12-04T17:00:00Z"}'
+    _election_run(store, "2026-11-25T08:05:00+00:00", provisional)
+    _election_run(store, "2026-11-26T08:05:00+00:00", provisional)  # unchanged
+    _election_run(store, "2026-12-05T08:05:00+00:00", official)
+    _election_run(store, "2026-12-06T08:05:00+00:00", None)  # an error
+    _election_run(store, "2026-12-07T08:05:00+00:00", b"<html>not json</html>")
+
+    rows = sorted(sos.election_rows(store), key=lambda r: r["fetched_at"])
+    assert [(r["fetched_at"][:10], r["is_official_results"]) for r in rows] == [
+        ("2026-11-25", False),
+        ("2026-12-05", True),
+        ("2026-12-07", None),  # a body that isn't the JSON asserts nothing
+    ]
+    assert rows[1]["election_date"] == "20261103"
+    assert rows[1]["last_updated"] == "2026-12-04T17:00:00Z"
+    assert rows[1]["sha256"] == store.put_object(official)[0]
+    assert rows[1]["resource_id"] == "sos-election:20261103"
+    assert set(rows[0]) == set(sos.ELECTION_SCHEMA)
