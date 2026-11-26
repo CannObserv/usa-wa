@@ -141,16 +141,20 @@ def _winners(
                     entry.member_id
                 )
     senate = build_senate_winners(wire)
+    named: dict[int, list[tuple[str, str | None]]] = defaultdict(list)
     for row in rows:
         ld = district_number(row.get("District"))
         last = (row.get("LastName") or "").strip()
         if row.get("Agency") != "Senate" or ld not in senate or not last:
             continue
-        winner = senate[ld]
-        if fold_token(last) in winner.name_keys and (
-            winner.party_slug is None or canonicalize_party(row.get("Party")) == winner.party_slug
-        ):
-            claims[(KIND_SENATE_ELECT, str(ld))].append(str(row["Id"]))
+        if fold_token(last) in senate[ld].name_keys:
+            named[ld].append((str(row["Id"]), canonicalize_party(row.get("Party"))))
+    for ld, members in named.items():
+        # party breaks a tie, as position_for does for the House; it never refuses the one
+        # listed senator the winner's ballot name carries (CR 1)
+        if len({m for m, _ in members}) > 1 and senate[ld].party_slug is not None:
+            members = [(m, p) for m, p in members if p == senate[ld].party_slug] or members
+        claims[(KIND_SENATE_ELECT, str(ld))].extend(m for m, _ in members)
     out = []
     ambiguous = 0
     for (kind, discriminator), members in sorted(claims.items()):

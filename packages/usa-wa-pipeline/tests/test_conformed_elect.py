@@ -199,3 +199,21 @@ def test_a_frame_s_numpy_true_still_reads_as_certified():
     late = [{**r, "first_seen_at": "2026-12-15T08:00:00.000000Z"} for r in FIRST_SEEN]
     pham = _build(first_seen=late, elections=elections)[("35476", "chamber-house-elect")]
     assert pham.valid_from_latest == date(2026, 11, 20)
+
+
+def test_a_senate_party_label_mismatch_does_not_drop_a_unique_surname_match():
+    """CR 1: party breaks a tie, as ``position_for`` does for the House; it never refuses
+    the one listed senator whose surname the winner's ballot name carries."""
+    sponsors = [s for s in SPONSORS if s["member_id"] != "28000"]
+    sponsors.append(_sponsor("28000", "Senate", "Young", "I", "26"))
+    assert ("28000", "chamber-senate-elect") in _build(sponsors=sponsors)
+
+
+def test_two_listed_senators_with_the_winner_s_surname_are_split_by_party():
+    sponsors = [
+        *SPONSORS,
+        _sponsor("28001", "Senate", "Young", "D", "26"),
+    ]
+    spans = _build(sponsors=sponsors)
+    assert ("28000", "chamber-senate-elect") in spans
+    assert ("28001", "chamber-senate-elect") not in spans
