@@ -31,7 +31,7 @@ period with no limit, so a consumer's predicate is one rule, "where
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from clearinghouse_domain_legislative.seat_clipping import Capacity, CapacityPeriod
@@ -146,8 +146,11 @@ def role_period_rows(
         floor = WA_TERMS.start(WA_TERMS.biennium_on(first[role_key]))
         kind, discriminator = seat[role_key]
         if kind in ELECT_KINDS:
-            # #600: from the first election day, which lies before the term it is won for
-            out.append(_row(role_key, first[role_key], None, 1, MAX_HOLDERS_KIND))
+            # #600: from the first election day, which lies before the term it is won for. A
+            # dbt frame hands a Timestamp; the column is DATE.
+            day = first[role_key]
+            day = day.date() if isinstance(day, datetime) else day
+            out.append(_row(role_key, day, None, 1, MAX_HOLDERS_KIND))
             continue
         if kind not in SINGLE_HOLDER_KINDS:
             out.append(_row(role_key, floor, None, None, MAX_HOLDERS_KIND))

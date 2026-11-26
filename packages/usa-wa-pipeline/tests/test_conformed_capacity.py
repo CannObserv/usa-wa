@@ -2,6 +2,8 @@
 
 from datetime import date
 
+import pandas as pd
+
 from clearinghouse_domain_legislative.seat_clipping import CapacityPeriod
 from clearinghouse_domain_legislative.span_kinds import (
     KIND_COMMITTEE,
@@ -185,3 +187,22 @@ def test_a_seat_elect_role_holds_one_from_its_first_election_day() -> None:
             "max_holders_basis": "kind",
         }
     ]
+
+
+def test_a_seat_elect_period_from_a_dbt_frame_is_a_date() -> None:
+    """The model reads assignments through a frame: ``valid_from`` is a pandas Timestamp,
+    and the declared column is DATE (``typed_relation`` refuses a conversion)."""
+    [row] = role_period_rows(
+        [
+            _assignment(
+                "seat-elect:senate:ld-26",
+                "chamber-senate-elect",
+                "26",
+                pd.Timestamp("2026-11-03"),
+                pd.Timestamp("2027-01-10"),
+            )
+        ],
+        [],
+    )
+    assert type(row["valid_from"]) is date
+    assert row["valid_from"] == date(2026, 11, 3)
