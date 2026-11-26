@@ -29,6 +29,7 @@ from usa_wa_pipeline.staging.sos import FILING_SCHEMA, RESULT_SCHEMA
 from usa_wa_pipeline.staging.wsl import (
     COMMITTEE_MEMBER_SCHEMA,
     COMMITTEE_SCHEMA,
+    FIRST_SEEN_SCHEMA,
     MEETING_SCHEMA,
     SPONSOR_SCHEMA,
 )
@@ -41,6 +42,7 @@ MODEL_SCHEMAS = {
     "stg_sos_results": RESULT_SCHEMA,
     "stg_wsl_committee_members": COMMITTEE_MEMBER_SCHEMA,
     "stg_wsl_committees": COMMITTEE_SCHEMA,
+    "stg_wsl_first_seen": FIRST_SEEN_SCHEMA,
     "stg_wsl_meetings": MEETING_SCHEMA,
     "stg_wsl_sponsors": SPONSOR_SCHEMA,
     "match_roster_wsl": LINK_SCHEMA,

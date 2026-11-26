@@ -20,6 +20,15 @@ models:
         data_tests: [not_null]
       - name: member_id
         data_tests: [not_null]
+  - name: stg_wsl_first_seen
+    description: One row per (biennium, member) — the earliest ok sponsors wire listing them, across every run manifest (#600 first evidence).
+    columns:
+      - name: biennium
+        data_tests: [not_null]
+      - name: member_id
+        data_tests: [not_null]
+      - name: first_seen_at
+        data_tests: [not_null]
   - name: stg_wsl_committee_members
     description: One row per (biennium, committee, member, honorific) — chamber movers list twice (see tests/); committee key rides the resource id (#82).
     columns:

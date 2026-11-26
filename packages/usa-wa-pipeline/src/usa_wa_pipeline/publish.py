@@ -436,6 +436,19 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
         min_rows=2650,
     ),
     PublishedDataset(
+        "stg_wsl_first_seen",
+        "staging",
+        (
+            ContractRelease(
+                "1.0.0",
+                ("biennium", "member_id", "first_seen_at", "first_sha256", "source", "resource_id"),
+                "#600: first release — each member's earliest listing per biennium across every "
+                "archived sponsors wire; a member-elect's first evidence",
+            ),
+        ),
+        min_rows=2650,
+    ),
+    PublishedDataset(
         "stg_wsl_committee_members",
         "staging",
         (

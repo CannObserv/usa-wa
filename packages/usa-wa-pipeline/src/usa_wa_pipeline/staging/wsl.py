@@ -11,7 +11,8 @@ a parser on an exact upstream string.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import json
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from clearinghouse_core.rawstore import RawStore
@@ -86,6 +87,16 @@ MEETING_SCHEMA = {
     **PROVENANCE_SCHEMA,
 }
 MEETING_COLUMNS = list(MEETING_SCHEMA)
+#: #600: when WSL first listed each member for a biennium. ``fetched_at`` of the earliest
+#: ok ``sponsors:<biennium>`` wire carrying them, and that wire's digest.
+FIRST_SEEN_SCHEMA = {
+    "biennium": "VARCHAR",
+    "member_id": "VARCHAR",
+    "first_seen_at": "VARCHAR",
+    "first_sha256": "VARCHAR",
+    **PROVENANCE_SCHEMA,
+}
+FIRST_SEEN_COLUMNS = list(FIRST_SEEN_SCHEMA)
 
 
 def committee_rows(
@@ -200,3 +211,57 @@ def meeting_rows(
                     }
                 )
     return rows
+
+
+def first_seen_rows(
+    store: RawStore, *, parse: Parser = parsing.parse_sponsors
+) -> list[dict[str, Any]]:
+    """Every ``sponsors:<biennium>`` wire ever archived → each member's FIRST listing (#600).
+
+    Staging reads only the newest wire per resource; a member-elect's start is evidenced
+    by the earliest, so this walks every run manifest. The nightly refetches an unchanged
+    wire and records it again, so each distinct digest is parsed once, at its earliest
+    fetch. Manifest timestamps share one format, so they order as text."""
+    earliest: dict[tuple[str, str], str] = {}  # (resource, sha) → its first fetch
+    for resource_id, sha, fetched_at in _ok_entries(store, SPONSORS_RESOURCE_PREFIX):
+        key = (resource_id, sha)
+        earliest[key] = min(fetched_at, earliest.get(key, fetched_at))
+    first: dict[tuple[str, str], tuple[str, str]] = {}  # (resource, member) → (at, sha)
+    for (resource_id, sha), fetched_at in sorted(earliest.items()):
+        wire = store.object_path(sha).read_bytes()
+        for record in parse(wire):
+            member = _text(record.get("Id"))
+            if member is None:
+                continue
+            key = (resource_id, member)
+            if key not in first or fetched_at < first[key][0]:
+                first[key] = (fetched_at, sha)
+    return [
+        {
+            "biennium": resource_id.removeprefix(SPONSORS_RESOURCE_PREFIX),
+            "member_id": member,
+            "first_seen_at": fetched_at,
+            "first_sha256": sha,
+            **_provenance(store, resource_id),
+        }
+        for (resource_id, member), (fetched_at, sha) in sorted(first.items())
+    ]
+
+
+def _ok_entries(store: RawStore, prefix: str) -> Iterator[tuple[str, str, str]]:
+    """``(resource_id, sha256, fetched_at)`` of every ok, stored fetch under ``prefix`` in
+    every run manifest. An unreadable manifest (half-written) contributes nothing."""
+    for path in store.manifest_paths():
+        try:
+            manifest = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        for entry in manifest.get("entries", []):
+            resource_id = entry.get("resource_id") or ""
+            if (
+                resource_id.startswith(prefix)
+                and entry.get("status") == "ok"
+                and entry.get("sha256")
+                and entry.get("fetched_at")
+            ):
+                yield resource_id, entry["sha256"], entry["fetched_at"]

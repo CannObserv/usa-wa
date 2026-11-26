@@ -99,6 +99,7 @@ live, MODULES-LEGISLATURE.md § Vendored WSDLs):
 |---|---|---|
 | `stg_wsl_committees` | (biennium, committee_id) | newest `committees-roster:*` wire per biennium |
 | `stg_wsl_sponsors` | (biennium, member_id, agency) | a chamber move lists both agencies |
+| `stg_wsl_first_seen` | (biennium, member_id) | #600; the EARLIEST ok `sponsors:*` wire listing each member, across every run manifest (staging is otherwise newest-wire only): a member-elect's first evidence |
 | `stg_wsl_committee_members` | (biennium, committee_id, member_id, long_name) | chamber movers list twice; committee key rides the resource id (#82) |
 | `stg_wsl_meetings` | none (raw refs) | all agencies kept; Joint/`Other` filter is downstream policy |
 | `stg_roster_members` | (year, chamber, district, order, name) | order is seat-lineage order (#229): a successor inherits it |
