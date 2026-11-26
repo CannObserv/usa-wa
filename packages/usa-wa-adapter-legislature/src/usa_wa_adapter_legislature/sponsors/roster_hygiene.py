@@ -21,6 +21,12 @@ committee-active (verified against 1999-00→2025-26; the Speaker sits on Rules)
   after her 2023 Senate move). The rule also guarantees an exclusion only ever trims the *tail*
   of a tenure — it can never punch a mid-tenure hole, so no span is split into a new-start
   duplicate row (no superseded rows, no migration).
+- **First term, newest biennium** (#610): a member listed for the first time in the newest
+  biennium is never excluded. WSL lists a new biennium's members weeks before their committee
+  assignments land, and a ghost row is a departed member's leftover, which a first listing
+  can't be. Older first listings keep the rule: once a later biennium exists, a first listing
+  with no committee anywhere is a pure ghost (Roulstone, 2013-14). It needs an earlier
+  biennium in hand, since "first" means nothing without one.
 
 The sibling mover exclusion (#105 (a)) needs no external data and lives in
 ``usa_wa_facts_seats.house.roster.build_house_roster``.
@@ -145,6 +151,15 @@ def stale_exclusions_by_biennium(
         for member_id in ids:
             if biennium > last_seen.get(member_id, ""):
                 last_seen[member_id] = biennium
+    # a first listing needs a history to be first in: with one biennium in hand there is none
+    newest = max(members_by_biennium, default="") if len(members_by_biennium) > 1 else None
+    listed_before = {
+        str(m["Id"])
+        for biennium, members in members_by_biennium.items()
+        if newest is not None and biennium < newest
+        for m in members
+        if is_person(m)
+    }
     exclusions: dict[str, set[str]] = {}
     for biennium, members in members_by_biennium.items():
         named = _named_members(members)
@@ -155,6 +170,14 @@ def stale_exclusions_by_biennium(
             min_coverage=min_coverage,
         )
         stale = {m for m in candidates if last_seen.get(m, "") <= biennium}
+        if biennium == newest and (awaiting := stale - listed_before):
+            # #610: a first listing in the newest biennium awaits its committees
+            logger.info(
+                "stale_exclusion_first_term_awaits",
+                extra={"biennium": biennium, "member_ids": sorted(awaiting)},
+            )
+            stale -= awaiting
+            candidates = candidates - awaiting
         rescued = candidates - stale
         if rescued:
             logger.info(
