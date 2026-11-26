@@ -11,6 +11,10 @@ same resource ids the Postgres archive used (``sos-whofiled:<date>`` /
 ``usa_wa_sos_results``). Per-cohort and per-source failures are contained as
 ``err`` manifest entries; both stores close their run manifests regardless.
 
+**The election JSON (#600).** A year the results platform serves (2026+) also archives
+the platform's election JSON as ``sos-election:<date>`` beside its results: its
+``isOfficialResults`` flag dates certification. Evidence only, so it joins no counter.
+
 **Early capture (#135).** From the day after the NEXT biennium's seating
 general (``start + 1``), that year is fetched too: election-night returns, then
 the certified export (~early Dec), each land as a new sha256 of the same
