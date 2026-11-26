@@ -24,6 +24,13 @@ import yaml
 import usa_wa_pipeline
 from clearinghouse_domain_legislative.boundary_basis import BOUNDARY_BASES, START_BASES
 from clearinghouse_domain_legislative.membership_types import MEMBERSHIP_TYPES
+from clearinghouse_domain_legislative.span_kinds import (
+    ELECT_KINDS,
+    KIND_COMMITTEE,
+    KIND_HOUSE,
+    KIND_PARTY,
+    KIND_SENATE,
+)
 from usa_wa_pipeline.conformed.capacity import MAX_HOLDERS_BASES
 from usa_wa_pipeline.publish import PUBLISHED_DATASETS
 
@@ -215,19 +222,35 @@ def test_every_field_of_the_release_is_described(name: str) -> None:
 
 def test_the_release_versions() -> None:
     """The 2.1.0 release (#501 Q2) moved persons and assignments and added role_periods.
-    The 2027 rollover release (#598, owner Q2: a minor) moves assignments and role_periods
-    once more, on semantics alone: observed edges are statutory term days."""
+    The 2027 rollover release (#598, owner Q2: a minor) moved assignments and role_periods
+    on semantics alone: observed edges are statutory term days. The member-elects (#600)
+    are minors too: new kinds, role types and seat-elect periods, no field moved."""
     versions = {d.name: d.schema_version for d in PUBLISHED_DATASETS}
     assert (versions["persons"], versions["assignments"], versions["role_periods"]) == (
         "2.1.0",
-        "1.9.0",
-        "1.1.0",
+        "1.10.0",
+        "1.2.0",
     )
-    assert versions["roles"] == "1.3.0"
+    assert versions["roles"] == "1.4.0"
 
 
-def test_the_term_release_moves_no_field() -> None:
-    """#598 is semantics only: the columns are 1.8.0's / 1.0.0's, so the hash holds."""
-    for name in ("assignments", "role_periods"):
-        dataset = _dataset(name)
-        assert dataset.releases[-1].columns == dataset.releases[-2].columns
+@pytest.mark.parametrize("name", ["assignments", "role_periods", "roles"])
+def test_the_semantic_releases_move_no_field(name: str) -> None:
+    """#598 and #600 are semantics only: the columns are the release before's, so the hash
+    holds."""
+    dataset = _dataset(name)
+    assert dataset.releases[-1].columns == dataset.releases[-2].columns
+
+
+def test_the_member_elect_vocabularies_are_accepted() -> None:
+    """#600: not enums in the datapackage (no hash moves), but dbt's accepted_values."""
+    assert set(_accepted_values("assignments", "span_kind")) == {
+        KIND_PARTY,
+        KIND_SENATE,
+        KIND_COMMITTEE,
+        KIND_HOUSE,
+        *ELECT_KINDS,
+    }
+    assert {"state_senator_elect", "state_representative_elect"} <= set(
+        _accepted_values("roles", "role_type")
+    )

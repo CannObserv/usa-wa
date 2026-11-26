@@ -14,7 +14,10 @@ into [`PIPELINE-CONFORMED-ENTITIES.md`](PIPELINE-CONFORMED-ENTITIES.md).
 
 `models/conformed/assignments.py` is a thin binder over
 `usa_wa_pipeline.conformed.spans` — merged tenure spans for all four kinds
-(`party`, `chamber-senate`, `committee`, `chamber-house`), joined to the person
+(`party`, `chamber-senate`, `committee`, `chamber-house`), plus the member-elects
+(`chamber-senate-elect` / `chamber-house-elect`, `conformed.elect`, #600: built from the
+inputs before the future-biennium guard, since the listing that names one is the next
+biennium's; `registry_coverage` reports their `member_elects` counts), joined to the person
 crosswalk. The span `source_id`'s parts become real columns
 (`span_kind` / `span_discriminator` / `span_start_biennium`), retiring the
 string-splitting workaround `docs/API.md` documents.

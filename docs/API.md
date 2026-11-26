@@ -159,6 +159,11 @@ datasets (`verify_contract` refuses a serving load whose columns and fields diff
   valid_to]` the true end. Exact for a day-dated edge; the attested biennium otherwise.
 - **`membership_type`** — `principal | substitute | ex_officio | acting`; only a principal
   counts toward a seat's capacity. Three rows are `substitute` (the military substitutes).
+- **Member-elects (#600)** — `span_kind` `chamber-senate-elect | chamber-house-elect` on a
+  `seat-elect:` role (`role_type` `state_senator_elect | state_representative_elect`): from the
+  general election (`dated`; `valid_from_latest` is the first evidence) to the day before the
+  term opens (`dated`). Never `is_active`, because a member-elect isn't serving: ask who is
+  elected on a day with `as_of`, and `span_kind=chamber-house-elect` narrows to them.
 
 `valid_to` is a handoff date — a successor may open on the same day — and the filters are
 unchanged: `as_of` still reads the outer bounds, `valid_to` included, so on a handoff day it

@@ -2,6 +2,8 @@
 
 from datetime import date
 
+import pandas as pd
+
 from clearinghouse_domain_legislative.seat_clipping import CapacityPeriod
 from clearinghouse_domain_legislative.span_kinds import (
     KIND_COMMITTEE,
@@ -159,3 +161,48 @@ def test_a_nan_cell_is_no_annotation() -> None:
     an annotation it would erase the 1889 capacity, and the gate would error on 20 pairs."""
     rows = [{**r, "annotation": float("nan")} for r in LD19_1889]
     assert bare_multi_member_years(rows) == {19: {1889: 5}}
+
+
+def test_a_seat_elect_role_holds_one_from_its_first_election_day() -> None:
+    """#600 spec § 2.1: one member-elect per seat-elect role, by its own rule. The period
+    opens on the first election day it covers, not on the term that holds that day."""
+    rows = role_period_rows(
+        [
+            _assignment(
+                "seat-elect:house:ld-4:position-1",
+                "chamber-house-elect",
+                "ld-4-position-1",
+                date(2026, 11, 3),
+                date(2027, 1, 10),
+            )
+        ],
+        [],
+    )
+    assert rows == [
+        {
+            "role_key": "seat-elect:house:ld-4:position-1",
+            "valid_from": date(2026, 11, 3),
+            "valid_to": None,
+            "max_holders": 1,
+            "max_holders_basis": "kind",
+        }
+    ]
+
+
+def test_a_seat_elect_period_from_a_dbt_frame_is_a_date() -> None:
+    """The model reads assignments through a frame: ``valid_from`` is a pandas Timestamp,
+    and the declared column is DATE (``typed_relation`` refuses a conversion)."""
+    [row] = role_period_rows(
+        [
+            _assignment(
+                "seat-elect:senate:ld-26",
+                "chamber-senate-elect",
+                "26",
+                pd.Timestamp("2026-11-03"),
+                pd.Timestamp("2027-01-10"),
+            )
+        ],
+        [],
+    )
+    assert type(row["valid_from"]) is date
+    assert row["valid_from"] == date(2026, 11, 3)

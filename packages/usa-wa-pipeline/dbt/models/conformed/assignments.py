@@ -35,6 +35,8 @@ def model(dbt, session):
             committee_members=dbt.ref("stg_wsl_committee_members").df().to_dict("records"),
             roster=roster,
             sos_results=dbt.ref("stg_sos_results").df().to_dict("records"),
+            first_seen=dbt.ref("stg_wsl_first_seen").df().to_dict("records"),
+            elections=dbt.ref("stg_sos_election").df().to_dict("records"),
             events=operator_events(),
         ),
         # USA_WA_BIENNIUM pins a scoped rebuild; shared with both probes

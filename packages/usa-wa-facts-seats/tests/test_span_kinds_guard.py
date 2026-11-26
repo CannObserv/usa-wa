@@ -50,3 +50,20 @@ def test_adapter_span_kinds_are_the_domain_objects():
     assert leg_senate is KIND_SENATE
     assert leg_committee is KIND_COMMITTEE
     assert projector_house is KIND_HOUSE
+
+
+def test_the_elect_kinds_are_neither_single_holder_nor_seat_kinds():
+    """#600 spec § 2.1: a re-elected incumbent holds chamber-house AND its elect kind at
+    once, so the clip must never read the pair as a chamber move; and no operator
+    seated/vacated names an elect kind as a seat."""
+    from clearinghouse_domain_legislative.span_kinds import (
+        ELECT_KINDS,
+        KIND_HOUSE_ELECT,
+        KIND_SENATE_ELECT,
+        SINGLE_HOLDER_KINDS,
+    )
+
+    assert ELECT_KINDS == (KIND_SENATE_ELECT, KIND_HOUSE_ELECT)
+    assert (KIND_SENATE_ELECT, KIND_HOUSE_ELECT) == ("chamber-senate-elect", "chamber-house-elect")
+    assert not set(ELECT_KINDS) & set(SINGLE_HOLDER_KINDS)
+    assert not set(ELECT_KINDS) & set(SEAT_KINDS)

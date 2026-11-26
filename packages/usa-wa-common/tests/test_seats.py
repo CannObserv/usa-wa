@@ -12,9 +12,11 @@ from usa_wa_common.seats import (
     HOUSE_SEATS,
     SENATE_SEATS,
     canonical_position,
+    house_seat_elect_role_source_id,
     house_seat_role_source_id,
     house_span_discriminator,
     parse_house_span_discriminator,
+    senate_seat_elect_role_source_id,
 )
 
 
@@ -52,3 +54,10 @@ def test_chamber_sizes_are_49_senators_and_two_representatives_per_district():
     """49 LDs, one senator and two representatives (Position 1/2) each (#412 PR B)."""
     assert SENATE_SEATS == 49
     assert HOUSE_SEATS == 2 * SENATE_SEATS
+
+
+def test_seat_elect_keys_are_not_seat_keys() -> None:
+    """#600: a member-elect isn't seated, so its role is ``seat-elect:``, never ``seat:``
+    (``assignments_seat_kinds_covered`` fails a ``seat:%`` role outside the chamber kinds)."""
+    assert senate_seat_elect_role_source_id(26) == "seat-elect:senate:ld-26"
+    assert house_seat_elect_role_source_id(4, "Position 1") == "seat-elect:house:ld-4:position-1"

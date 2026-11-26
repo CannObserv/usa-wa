@@ -989,6 +989,35 @@ def test_a_wire_from_after_the_current_biennium_changes_nothing(caplog) -> None:
     assert record.levelname == "INFO"
 
 
+def test_the_next_biennium_s_winner_is_a_member_elect_and_nothing_else_moves() -> None:
+    """#600: the next biennium's wire is no observation until the rollover (#135), but a
+    winner it lists is a member-elect now. The elect family reads the inputs BEFORE that
+    guard, joins the WSL family, and leaves every other span as it was."""
+    plain = _inputs(BIENNIUM, CURRENT, "2027-28", newcomer_in="2027-28")
+    ballot = {
+        **_ballot(),
+        "election_date": "20261103",
+        "race": "Legislative District 15 - State Senator",
+        "candidate": "Sam Cole",
+    }
+    elect_inputs = replace(
+        plain,
+        sos_results=[*plain.sos_results, ballot],
+        first_seen=[
+            {"biennium": "2027-28", "member_id": "2", "first_seen_at": "2026-11-25T08:03:42Z"}
+        ],
+    )
+    counts: Counter = Counter()
+    before = build_families(plain, current_biennium=CURRENT)
+    after = build_families(elect_inputs, current_biennium=CURRENT, elect_counts=counts)
+    [elect] = [s for s in after[SOURCE] if s.kind == "chamber-senate-elect"]
+    assert (elect.member_id, elect.discriminator, elect.start_biennium) == ("2", "15", "2027-28")
+    assert (elect.valid_from, elect.valid_to) == (date(2026, 11, 3), date(2027, 1, 10))
+    assert [s for s in after[SOURCE] if s.kind != "chamber-senate-elect"] == before[SOURCE]
+    assert after[ROSTER_SOURCE] == before[ROSTER_SOURCE]
+    assert counts["built"] == 1
+
+
 def test_the_rollover_closes_every_span_until_the_new_roster_lands() -> None:
     """#135's Jan 1 prediction, pinned: 2027-28 current with no 2027-28 wire yet. Every
     member's spans close at the old biennium's last day and none stays active — the state

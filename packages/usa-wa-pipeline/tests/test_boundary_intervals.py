@@ -17,7 +17,7 @@ COLUMNS = (
     "span_key varchar, role_key varchar, entity_id varchar, span_start_biennium varchar,"
     " span_end_biennium varchar, valid_from date, valid_to date, is_active boolean,"
     " start_basis varchar, end_basis varchar, valid_from_latest date, valid_to_earliest date,"
-    " membership_type varchar"
+    " membership_type varchar, span_kind varchar"
 )
 
 
@@ -57,6 +57,7 @@ def _row(**over) -> dict:
         "valid_from_latest": "1972-12-31",
         "valid_to_earliest": "1973-01-01",
         "membership_type": "principal",
+        "span_kind": "chamber-senate",
     }
     row.update(over)
     return row
@@ -141,6 +142,34 @@ def test_a_d6a_window_is_a_dated_edge(over: dict) -> None:
     """Invariant 5 as amended (#501 D6a): a dated edge is exact, or a calendar month or
     year opened by its outer bound, or an election opening a start to the biennium."""
     assert _failures([_row(**over)]) == []
+
+
+#: Pham (#600): elected 2026-11-03, first listed 2026-11-25, seated 2027-01-11.
+ELECT = _row(
+    role_key="seat-elect:house:ld-4:position-1",
+    span_kind="chamber-house-elect",
+    span_start_biennium="2027-28",
+    span_end_biennium="2027-28",
+    valid_from="2026-11-03",
+    valid_to="2027-01-10",
+    start_basis="dated",
+    end_basis="dated",
+    valid_from_latest="2026-11-25",
+    valid_to_earliest="2027-01-10",
+)
+
+
+def test_a_member_elect_s_window_closes_on_its_first_evidence() -> None:
+    """#600: election day, dated, to the first evidence; no column carries that date."""
+    assert _failures([ELECT]) == []
+
+
+def test_a_member_elect_s_window_never_outlasts_it() -> None:
+    assert _failures([{**ELECT, "valid_from_latest": "2027-01-20"}])
+
+
+def test_only_a_member_elect_may_carry_an_evidence_window() -> None:
+    assert _failures([{**ELECT, "span_kind": "chamber-house"}])
 
 
 def test_a_derived_edge_is_never_posed_as_exact() -> None:
