@@ -17,7 +17,9 @@ guessed: the seat is dropped and logged.
 and ``valid_from_latest``, the first evidence: WSL's first archived listing
 (``stg_wsl_first_seen``) or certification (``stg_sos_election``), whichever is earlier, clamped
 to the window. ``valid_to`` is the day before the term opens (RCW 44.04.021), ``dated``: the
-statute states it. An operator ``departed`` inside the window ends it there. ``is_active`` is
+statute states it. An operator ``departed`` inside the window ends it there: ``departed``
+means leaving the Legislature entirely, so it ends the seat-to-be too, while a chamber move
+is a ``vacated`` of the old seat, which this builder never reads. ``is_active`` is
 false throughout: a member-elect isn't serving.
 
 **Since.** The 2026 general (2027-28) forward (§ 2.5): earlier ballots have no first-evidence
