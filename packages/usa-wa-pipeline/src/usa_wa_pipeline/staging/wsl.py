@@ -86,8 +86,10 @@ MEETING_SCHEMA = {
     **PROVENANCE_SCHEMA,
 }
 MEETING_COLUMNS = list(MEETING_SCHEMA)
-#: #600: when WSL first listed each member for a biennium. ``fetched_at`` of the earliest
-#: ok ``sponsors:<biennium>`` wire carrying them, and that wire's digest.
+#: #600: when the ARCHIVE first held each member's listing for a biennium: ``fetched_at`` of
+#: the earliest ok ``sponsors:<biennium>`` wire carrying them, and that wire's digest. Not when
+#: WSL published it: for a biennium archived after the fact (all before 2027-28) it is just
+#: the archive's start, so it is evidence only for one captured ahead of its term (#599).
 FIRST_SEEN_SCHEMA = {
     "biennium": "VARCHAR",
     "member_id": "VARCHAR",
@@ -215,7 +217,8 @@ def meeting_rows(
 def first_seen_rows(
     store: RawStore, *, parse: Parser = parsing.parse_sponsors
 ) -> list[dict[str, Any]]:
-    """Every ``sponsors:<biennium>`` wire ever archived → each member's FIRST listing (#600).
+    """Every ``sponsors:<biennium>`` wire ever archived → each member's first ARCHIVED listing
+    (#600) — an upper bound on when WSL listed them, never a lower one.
 
     Staging reads only the newest wire per resource; a member-elect's start is evidenced
     by the earliest, so this walks every run manifest. The nightly refetches an unchanged

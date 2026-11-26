@@ -442,8 +442,9 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
             ContractRelease(
                 "1.0.0",
                 ("biennium", "member_id", "first_seen_at", "first_sha256", "source", "resource_id"),
-                "#600: first release — each member's earliest listing per biennium across every "
-                "archived sponsors wire; a member-elect's first evidence",
+                "#600: first release — each member's earliest ARCHIVED listing per biennium "
+                "across every sponsors wire; a member-elect's first evidence. An upper bound on "
+                "WSL's own date, meaningful only from 2027-28 (captured ahead of its term)",
             ),
         ),
         min_rows=2650,

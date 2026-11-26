@@ -21,7 +21,7 @@ models:
       - name: member_id
         data_tests: [not_null]
   - name: stg_wsl_first_seen
-    description: One row per (biennium, member) — the earliest ok sponsors wire listing them, across every run manifest (#600 first evidence).
+    description: One row per (biennium, member) — the earliest ARCHIVED ok sponsors wire listing them, across every run manifest (#600). An upper bound on WSL's listing date; evidence only for a biennium captured ahead of its term (2027-28 on, #599) — for earlier ones it is the archive's start.
     columns:
       - name: biennium
         data_tests: [not_null]
