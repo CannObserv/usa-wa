@@ -99,7 +99,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["party", "chamber-senate", "committee", "chamber-house"]
+                values: ["party", "chamber-senate", "committee", "chamber-house", "chamber-senate-elect", "chamber-house-elect"]
       - name: span_discriminator
         data_tests: [not_null]
       - name: span_start_biennium
@@ -161,7 +161,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["party_member", "committee_member", "state_senator", "state_representative"]
+                values: ["party_member", "committee_member", "state_senator", "state_representative", "state_senator_elect", "state_representative_elect"]
       - name: org_source_id
         data_tests: [not_null]
   - name: seat_winners

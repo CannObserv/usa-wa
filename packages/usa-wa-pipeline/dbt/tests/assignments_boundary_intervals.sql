@@ -13,6 +13,9 @@
 --                     a calendar month or year its outer bound opens (a start) or
 --                     closes (an end), clamped by the other edge — or an election
 --                     opening a start, whose inner bound is the biennium's last day.
+--                     A member-elect (#600) opens on election day, dated, and its window
+--                     closes on its first evidence, which no column carries: `unordered`
+--                     (3) is what bounds it, by its own end.
 --                     The window's width IS the precision; there is no column for it.
 --   interval       6. otherwise the interval is the D6 table's: a start no later
 --                     than its biennium's last day, an end no earlier than its
@@ -91,6 +94,7 @@ where (
             )
         )
         and valid_from_latest <> least(start_ceiling, coalesce(valid_to, start_ceiling))
+        and span_kind not in ('chamber-senate-elect', 'chamber-house-elect')
     )
    or (
         end_basis = 'dated'

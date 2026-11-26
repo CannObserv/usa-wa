@@ -430,7 +430,11 @@ class AssignmentSummary(ApiModel):
     )
     role_key: str | None = None
     span_kind: str = Field(
-        description="`chamber-senate` | `chamber-house` | `committee` | `party`."
+        description=(
+            "`chamber-senate` | `chamber-house` | `committee` | `party`, or a member-elect's "
+            "`chamber-senate-elect` | `chamber-house-elect` (#600): elected, not yet seated, "
+            "never `is_active` — ask who is elected on a day with `as_of`."
+        )
     )
     span_discriminator: str = Field(
         description="What the span is scoped to — an LD, a position, a committee id."

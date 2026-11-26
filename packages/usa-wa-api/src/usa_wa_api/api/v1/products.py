@@ -324,7 +324,8 @@ async def list_assignments(
     span_kind: str | None = Query(
         default=None,
         description=(
-            "`chamber-senate` | `chamber-house` | `committee` | `party`. A real column "
+            "`chamber-senate` | `chamber-house` | `committee` | `party`, or a member-elect's "
+            "`chamber-senate-elect` | `chamber-house-elect` (#600). A real column "
             "since #313 — the string-splitting under-report (#335) is gone with it."
         ),
     ),

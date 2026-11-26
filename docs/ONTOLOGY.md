@@ -45,6 +45,7 @@ would change the meaning of:
   the structural orgs from `usa_wa_common.orgs.STRUCTURAL_ORGS`, House and Senate committees as
   `committee`, Joint/`Other` bodies as `other`.
 - `roles.role_type` — `state_senator | state_representative | party_member | committee_member`,
+  plus `state_senator_elect | state_representative_elect` (#600, the `seat-elect:` roles),
   gated; so are `assignments.span_kind` and `org_lineage.slug`.
 - `assignments.start_basis` / `end_basis` — `dated | derived | observed | open` (§2);
   `assignments.membership_type` — `principal | substitute | ex_officio | acting`;
@@ -143,6 +144,16 @@ a cross-layer test in `usa-wa-facts-seats/tests/test_span_kinds_guard.py`.
 | `KIND_SENATE` | `chamber-senate` | LD | the WSL sponsor family; the roster family before 1991 |
 | `KIND_HOUSE` | `chamber-house` | `ld-{n}-position-{p}` | the House family (`conformed.house`, WSL × SOS) |
 | `KIND_COMMITTEE` | `committee` | the committee's stable WSL `Id` | the WSL committee-membership family |
+| `KIND_SENATE_ELECT` / `KIND_HOUSE_ELECT` | `chamber-senate-elect` / `chamber-house-elect` | the seat's own | the member-elects (`conformed.elect`, #600), in the WSL family |
+
+**Member-elects (#600)** are elected and not yet seated: from the seating general's election day
+(`dated`, with `valid_from_latest` = the first evidence, WSL's first archived listing or SOS
+certification) to the day before the term opens (`dated`), on `seat-elect:` roles in the
+chamber's org, and never `is_active`. A re-elected incumbent holds the seat and its elect role at
+once, so `ELECT_KINDS` is outside both `SINGLE_HOLDER_KINDS` and `SEAT_KINDS`; the
+`assignments_elect_one_per_seat` and `assignments_elect_not_holdover` gates and a
+`role_periods` capacity of one stand in for the clip. From the 2026 general forward; specials
+wait for #605.
 
 `SEAT_KINDS = (chamber-senate, chamber-house, committee)` — the seat-scoped subset. `party` is an
 affiliation, not a seat. A seat-scoped operator event MUST name a `SEAT_KINDS` value; a typo would

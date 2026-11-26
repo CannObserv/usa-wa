@@ -260,7 +260,9 @@ ASSIGNMENT_FIELDS: dict[str, FieldDoc] = {
     ),
     "role_key": FieldDoc("The slot this tenure fills; joins roles.role_key."),
     "span_kind": FieldDoc(
-        "What the tenure tracks: party, chamber-senate, committee or chamber-house."
+        "What the tenure tracks: party, chamber-senate, committee or chamber-house; or, from "
+        "the 2026 general (#600), chamber-senate-elect / chamber-house-elect: a member-elect, "
+        "elected and not yet seated, from general election day to the day before the term."
     ),
     "span_discriminator": FieldDoc("What the span is scoped to: an LD, a position, a committee."),
     "span_start_biennium": FieldDoc(
@@ -276,7 +278,9 @@ ASSIGNMENT_FIELDS: dict[str, FieldDoc] = {
     ),
     "is_active": FieldDoc(
         "Still serving: valid_to is null — the tenure reaches the current term (#598: the term "
-        "flips on the second Monday in January, so a departing member reads active until then)."
+        "flips on the second Monday in January, so a departing member reads active until then). "
+        "Never true for a member-elect (#600), who isn't serving: ask who is elected on a day "
+        "by valid_from/valid_to, not by is_active."
     ),
     "span_key": FieldDoc(
         "The row's name: entity_id|role_key|span_kind|span_discriminator|span_start_biennium."
@@ -320,7 +324,9 @@ ROLE_FIELDS: dict[str, FieldDoc] = {
         "of the seat."
     ),
     "role_type": FieldDoc(
-        "The kind of slot: party_member, committee_member, state_senator or state_representative."
+        "The kind of slot: party_member, committee_member, state_senator or "
+        "state_representative; or (#600) state_senator_elect / state_representative_elect, a "
+        "seat-elect: role a member-elect holds before the term opens."
     ),
     "name": FieldDoc("A display name for the slot."),
     "span_kind": FieldDoc("The span_kind of the tenures that fill it."),
@@ -338,18 +344,20 @@ ROLE_PERIOD_FIELDS: dict[str, FieldDoc] = {
     "role_key": FieldDoc("The role this period describes; joins roles.role_key."),
     "valid_from": FieldDoc(
         "The period's first day, a term's first day (#598: from 1981 the second Monday in "
-        "January; Jan 1 before)."
+        "January; Jan 1 before); for a seat-elect role (#600), the first general election day "
+        "it covers."
     ),
     "valid_to": FieldDoc(
         "The period's LAST day, inclusive — unlike assignments.valid_to, a handoff date. "
         "Periods tile: the next one opens the day after. Null through the present."
     ),
     "max_holders": FieldDoc(
-        "The most principals the role seats at once; null for no limit (party, committee)."
+        "The most principals the role seats at once; null for no limit (party, committee). "
+        "One for a seat-elect role (#600)."
     ),
     "max_holders_basis": FieldDoc(
-        "Where max_holders came from. kind: the seat kind's rule (one per Senate seat or "
-        "House Position; no limit for a party or committee); roster: counted from the "
+        "Where max_holders came from. kind: the seat kind's rule (one per Senate seat, House "
+        "Position or seat-elect role; no limit for a party or committee); roster: counted from the "
         "roster's bare multi-row listing (the 1889 Senate).",
         enum=("kind", "roster"),
     ),
@@ -856,6 +864,32 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "remove terms never served (#598 § 1.5). No field moved, so contract_hash "
                 "holds; the minor says the edges' meaning changed",
             ),
+            ContractRelease(
+                "1.10.0",
+                (
+                    "entity_id",
+                    "member_id",
+                    "source",
+                    "role_key",
+                    "span_kind",
+                    "span_discriminator",
+                    "span_start_biennium",
+                    "span_end_biennium",
+                    "valid_from",
+                    "valid_to",
+                    "is_active",
+                    "span_key",
+                    "start_basis",
+                    "end_basis",
+                    "valid_from_latest",
+                    "valid_to_earliest",
+                    "membership_type",
+                ),
+                "#600: member-elect assignments — span_kind chamber-house-elect / "
+                "chamber-senate-elect on seat-elect: roles, from general election day "
+                "(dated; valid_from_latest = the first evidence) to the day before the term "
+                "opens (dated); never is_active. No field moved, so contract_hash holds",
+            ),
         ),
         min_rows=7950,
         fields=ASSIGNMENT_FIELDS,
@@ -881,6 +915,12 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "#598: a period floor is a statutory term's first day from 1981 (the second "
                 "Monday in January), not Jan 1. No field moved, so contract_hash holds",
             ),
+            ContractRelease(
+                "1.2.0",
+                ("role_key", "valid_from", "valid_to", "max_holders", "max_holders_basis"),
+                "#600: seat-elect roles hold one member-elect, in a period opening on the "
+                "first election day it covers, not a term start. No field moved",
+            ),
         ),
         min_rows=300,
         fields=ROLE_PERIOD_FIELDS,
@@ -904,6 +944,24 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                     "qualifier",
                 ),
                 "frozen in place at the #385 cutover: the version it was already publishing",
+            ),
+            ContractRelease(
+                "1.4.0",
+                (
+                    "entity_id",
+                    "role_key",
+                    "role_type",
+                    "name",
+                    "span_kind",
+                    "span_discriminator",
+                    "org_source_id",
+                    "org_entity_id",
+                    "district",
+                    "qualifier",
+                ),
+                "#600: the seat-elect roles (seat-elect:senate:ld-N, "
+                "seat-elect:house:ld-N:position-P) and their role types state_senator_elect "
+                "and state_representative_elect. No field moved, so contract_hash holds",
             ),
         ),
         min_rows=295,
