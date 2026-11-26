@@ -69,6 +69,17 @@ def house_seat_role_source_id(ld_number: int, qualifier: str) -> str:
     return f"seat:house:ld-{ld_number}:{slug}"
 
 
+def senate_seat_elect_role_source_id(ld_number: int) -> str:
+    """The Senate member-elect Role's ``source_id`` (#600): ``seat-elect:``, never ``seat:``,
+    because a member-elect is not seated."""
+    return f"seat-elect:senate:ld-{ld_number}"
+
+
+def house_seat_elect_role_source_id(ld_number: int, qualifier: str) -> str:
+    """The House member-elect Role's ``source_id`` (#600), one per ``(LD, position)``."""
+    return "seat-elect" + house_seat_role_source_id(ld_number, qualifier).removeprefix("seat")
+
+
 def house_span_discriminator(ld_number: int, qualifier: str) -> str:
     """The tenure-span ``discriminator`` for a House Position seat (#79): ``ld-5-position-1``.
 

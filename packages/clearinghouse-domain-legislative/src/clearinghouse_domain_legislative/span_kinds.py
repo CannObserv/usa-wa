@@ -41,3 +41,13 @@ SINGLE_HOLDER_KINDS = (KIND_SENATE, KIND_HOUSE)
 #: A seat-scoped operator event MUST name one of these (see ``operator_events``); a
 #: typo would otherwise record an event the overlay silently no-ops in every builder.
 SEAT_KINDS = (KIND_SENATE, KIND_HOUSE, KIND_COMMITTEE)
+
+#: Member-elect spans (#600 spec § 2.1): elected to the seat, not yet seated — from the
+#: general election to the day before the term the seat is won for begins. A separate kind,
+#: never a chamber seat: a re-elected incumbent holds ``chamber-house`` and
+#: ``chamber-house-elect`` at once, so neither ``SINGLE_HOLDER_KINDS`` (the clip would read the
+#: pair as a chamber move) nor ``SEAT_KINDS`` (no operator ``seated``/``vacated`` names one).
+#: The discriminator is the seat's own: the LD, or ``ld-{n}-position-{p}``.
+KIND_SENATE_ELECT = "chamber-senate-elect"
+KIND_HOUSE_ELECT = "chamber-house-elect"
+ELECT_KINDS = (KIND_SENATE_ELECT, KIND_HOUSE_ELECT)

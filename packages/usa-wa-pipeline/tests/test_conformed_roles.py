@@ -52,6 +52,21 @@ def test_a_house_span_names_the_positioned_seat() -> None:
     assert role.qualifier == "Position 1"
 
 
+def test_a_member_elect_names_the_seat_elect_role_in_the_chamber() -> None:
+    """#600 spec § 2.1: its own role type, in the chamber's org, on the seat's own key."""
+    house = role_for_span("chamber-house-elect", "ld-4-position-1")
+    assert house.role_key == "seat-elect:house:ld-4:position-1"
+    assert house.role_type == "state_representative_elect"
+    assert house.org_source_id == "usa_wa_house"
+    assert (house.district, house.qualifier) == (4, "Position 1")
+    assert house.name == "Washington State Representative-elect, LD-4, Position 1"
+    senate = role_for_span("chamber-senate-elect", "26")
+    assert senate.role_key == "seat-elect:senate:ld-26"
+    assert senate.role_type == "state_senator_elect"
+    assert senate.org_source_id == "usa_wa_senate"
+    assert (senate.district, senate.qualifier) == (26, None)
+
+
 def test_an_unknown_kind_is_refused() -> None:
     """A new span kind must be given a role mapping deliberately. Guessing one
     would publish an assignment pointing at a role nothing defines."""

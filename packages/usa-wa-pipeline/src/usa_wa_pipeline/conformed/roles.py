@@ -31,8 +31,10 @@ from typing import Any
 from clearinghouse_domain_legislative.span_kinds import (
     KIND_COMMITTEE,
     KIND_HOUSE,
+    KIND_HOUSE_ELECT,
     KIND_PARTY,
     KIND_SENATE,
+    KIND_SENATE_ELECT,
 )
 from usa_wa_adapter_legislature.coverage import WSL_SOURCE_SLUG
 from usa_wa_adapter_legislature.role_keys import (
@@ -40,8 +42,10 @@ from usa_wa_adapter_legislature.role_keys import (
     party_role_source_id,
 )
 from usa_wa_common.seats import (
+    house_seat_elect_role_source_id,
     house_seat_role_source_id,
     parse_house_span_discriminator,
+    senate_seat_elect_role_source_id,
     senate_seat_role_source_id,
 )
 
@@ -128,6 +132,29 @@ def role_for_span(span_kind: str, span_discriminator: str) -> Role:
                 role_key=house_seat_role_source_id(ld, qualifier),
                 role_type="state_representative",
                 name=f"Washington State Representative, LD-{ld}, {qualifier}",
+                span_kind=span_kind,
+                span_discriminator=span_discriminator,
+                org_source_id=HOUSE_ORG,
+                district=ld,
+                qualifier=qualifier,
+            )
+        if span_kind == KIND_SENATE_ELECT:
+            ld = int(span_discriminator)
+            return Role(
+                role_key=senate_seat_elect_role_source_id(ld),
+                role_type="state_senator_elect",
+                name=f"Washington State Senator-elect, LD-{ld}",
+                span_kind=span_kind,
+                span_discriminator=span_discriminator,
+                org_source_id=SENATE_ORG,
+                district=ld,
+            )
+        if span_kind == KIND_HOUSE_ELECT:
+            ld, qualifier = parse_house_span_discriminator(span_discriminator)
+            return Role(
+                role_key=house_seat_elect_role_source_id(ld, qualifier),
+                role_type="state_representative_elect",
+                name=f"Washington State Representative-elect, LD-{ld}, {qualifier}",
                 span_kind=span_kind,
                 span_discriminator=span_discriminator,
                 org_source_id=HOUSE_ORG,
