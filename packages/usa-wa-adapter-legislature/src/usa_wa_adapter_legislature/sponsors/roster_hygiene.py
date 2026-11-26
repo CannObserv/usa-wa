@@ -23,10 +23,14 @@ committee-active (verified against 1999-00→2025-26; the Speaker sits on Rules)
   duplicate row (no superseded rows, no migration).
 - **First term, newest biennium** (#610): a member listed for the first time in the newest
   biennium is never excluded. WSL lists a new biennium's members weeks before their committee
-  assignments land, and a ghost row is a departed member's leftover, which a first listing
-  can't be. Older first listings keep the rule: once a later biennium exists, a first listing
-  with no committee anywhere is a pure ghost (Roulstone, 2013-14). It needs an earlier
-  biennium in hand, since "first" means nothing without one.
+  assignments land, so a newcomer's committee absence is the wait, not a departure. Older
+  first listings keep the rule: once a later biennium exists, a first listing with no
+  committee anywhere is a pure ghost (Roulstone, 2013-14). It needs an earlier biennium in
+  hand, since "first" means nothing without one. **The residual case:** the exemption lasts
+  the whole biennium, so a first-termer who leaves mid-term (off their committees, still
+  named, the Kilduff pattern) stays open until the next biennium appears. Their operator
+  ``departed`` dates it, as for any departure; the precise signal (on a committee roster
+  once, then off) needs committee-roster history staging doesn't keep.
 
 The sibling mover exclusion (#105 (a)) needs no external data and lives in
 ``usa_wa_facts_seats.house.roster.build_house_roster``.
