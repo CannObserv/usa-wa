@@ -256,7 +256,9 @@ the biennium):
 Citations: the WSL sponsor wire that evidenced the start (key biennium 2027-28, so the
 existing assignment rule cites `sponsors:2027-28` unchanged), and the `sos-election:` wire when
 certification is the earliest evidence. The `without_future_bienniums` docstring claim "no
-assignment cites one" is updated.
+assignment cites one" is updated. **As built (#612):** only the sponsor wire; the
+`sos-election:` citation is #611 (for 2026, WSL's first listing precedes every archived
+official wire, so certification never binds).
 
 ### 2.4 Operator overrides
 
@@ -266,6 +268,10 @@ Reasons have no DB CHECK, so **no migration**. That means adding the elect kinds
 overlay's matchable kinds without adding them to `SEAT_KINDS` for vacancy logic. The overlay's
 `_synthesize` must not mint an open span for an elect kind, since an elect span always has its
 statutory end. A `departed` (death) closes a member-elect span like any other.
+
+**As built (#612):** deferred to #611, except a `departed` inside the window, which ends a
+member-elect early (`conformed.elect`). No 2026 case needs the `called` / `conceded` /
+`declined` reasons yet.
 
 ### 2.5 Scope in time
 
@@ -286,6 +292,12 @@ first one occurs and its shape can be audited (there's one each November; the ne
   wasn't on the ballot.
 - `chamber_vacancy`, `chamber_excess`, `one_seat_per_member`, the occupancy macros and INV1
   filter by explicit kinds or `is_active`, so member-elects are excluded from all of them.
+
+**As built (#612):** `assignments_elect_winners_covered` is a count, `member_elects` in the
+`registry_coverage` report (`won`, `built`, `unlisted`, `ambiguous`, `no_evidence`), not a
+dbt warn: WSL lists winners for weeks after the general, and with no accepted warnings a
+warn would email nightly until January. `assignments_elect_not_holdover` checks the House
+too.
 
 ## D3 — the partial-roster vacancy warning
 
