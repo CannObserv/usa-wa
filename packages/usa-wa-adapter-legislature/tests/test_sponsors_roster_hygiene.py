@@ -167,3 +167,33 @@ def test_tail_rule_respects_per_biennium_coverage_floor():
     exclusions = stale_exclusions_by_biennium(members, committee_ids, min_coverage=0.6)
     assert exclusions["1999-00"] == set()  # 1/3 coverage < 0.6 → skipped
     assert exclusions["2001-02"] == {"300"}  # 2/3 ≥ 0.6, 300 never committee-present
+
+
+def test_a_newcomer_in_the_newest_biennium_awaits_committees_rather_than_reading_stale(caplog):
+    """#610: WSL lists a new biennium's newcomers weeks before their committee assignments
+    land, so at the term flip every newcomer (Pham 35476 et al., 2027-28) read as stale. A
+    ghost row is a cumulative-wire leftover of a departed member, and a member listed for
+    the first time can't be one — in the newest biennium, where committees may not have
+    landed yet. A returning member's absence there still excludes."""
+    members = {
+        "2025-26": [_member(100), _member(900, last="Kilduff")],
+        "2027-28": [_member(100), _member(900, last="Kilduff"), _member(35476, last="Pham")],
+    }
+    committee_ids = {"2025-26": {"100"}, "2027-28": {"100"}}
+    with caplog.at_level(logging.INFO):
+        exclusions = stale_exclusions_by_biennium(members, committee_ids, min_coverage=0.3)
+    assert exclusions == {"2025-26": {"900"}, "2027-28": {"900"}}
+    [record] = [r for r in caplog.records if r.getMessage() == "stale_exclusion_first_term_awaits"]
+    assert record.member_ids == ["35476"]
+
+
+def test_a_first_listing_in_an_older_biennium_is_still_a_ghost():
+    """The Roulstone case keeps its exclusion: once a later biennium exists, a first
+    listing with no committee anywhere is a pure ghost."""
+    members = {
+        "2013-14": [_member(100), _member(500, last="Roulstone")],
+        "2015-16": [_member(100)],
+    }
+    committee_ids = {"2013-14": {"100"}, "2015-16": {"100"}}
+    exclusions = stale_exclusions_by_biennium(members, committee_ids, min_coverage=0.5)
+    assert exclusions["2013-14"] == {"500"}
