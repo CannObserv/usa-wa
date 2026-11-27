@@ -925,6 +925,15 @@ def test_every_published_dataset_declares_a_floor() -> None:
     assert not undeclared, f"PUBLISHED_DATASETS entries with no min_rows: {undeclared}"
 
 
+def test_stg_sos_election_floors_on_the_archived_2026_general() -> None:
+    """#611 item 3: the 2026-11-27 nightly archived ``sos-election:20261103``, and
+    the raw store never forgets a fetch, so an empty table now means the staging
+    walk broke, not that nothing has arrived yet. It certifies the member-elects."""
+    floors = {d.name: d.min_rows for d in PUBLISHED_DATASETS}
+
+    assert floors["stg_sos_election"] == 1
+
+
 def test_a_catalog_without_its_version_dirs_still_gates_on_the_catalog(built_db, tmp_path) -> None:
     """With no version dirs to read — a partial restore, a catalog copied without
     its tree — the history is the catalog entry alone, i.e. the night-over-night

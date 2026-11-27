@@ -593,8 +593,9 @@ PUBLISHED_DATASETS: list[PublishedDataset] = [
                 "fetch; the first with is_official_results true dates certification",
             ),
         ),
-        # Empty until the first nightly on #600 archives an election JSON (2026+ only).
-        min_rows=0,
+        # #611: the 2026-11-27 nightly archived sos-election:20261103, and the raw
+        # store keeps every fetch, so the row count only grows from here.
+        min_rows=1,
     ),
     PublishedDataset(
         "stg_sos_filings",
